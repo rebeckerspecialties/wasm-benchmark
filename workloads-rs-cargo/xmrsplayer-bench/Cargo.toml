@@ -1,0 +1,50 @@
+# Standalone — not a member of the wasm-benchmark workspace. The host
+# wasm-benchmark Cargo.toml builds against macOS / iOS / watchOS targets
+# with paths to vendored wasmtime; this crate compiles to
+# wasm32-unknown-unknown only and pulls in xmrs/xmrsplayer from
+# crates.io. Keeping it out of the workspace avoids resolver conflicts.
+[workspace]
+
+[package]
+name = "xmrsplayer-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "wasm32-unknown-unknown harness that renders 15s of unreal.s3m through xmrsplayer to a null sound driver. Used as a real-world call_indirect-shaped benchmark workload alongside the synthetic call_indirect.wasm and graphql-validation cases."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# xmrs handles S3M parsing in no_std mode. We disable defaults (which
+# would pull in std + every importer) and enable only what we need:
+# `libm` for f32 math without std, and `import_s3m` for the format we
+# actually load.
+#
+# Pinned with `=` to 0.10.1 because 0.10.3 (the latest) regressed the
+# no_std build path: `xmrsplayer-0.10.3/src/channel.rs:220` references
+# `Vec::new()` without `use alloc::vec::Vec`, and we'd hit
+# `error[E0433]: failed to resolve: use of undeclared type Vec` under
+# default-features=false. 0.10.1 is clean.
+xmrs = { version = "=0.11.0", default-features = false, features = ["import_s3m"] }
+
+# xmrsplayer renders the parsed module to interleaved i16 samples.
+# 0.11.0 dropped the libm/micromath toggles and now handles its own
+# float math internally; we just need the import_s3m bridge.
+xmrsplayer = { version = "=0.11.0", default-features = false, features = ["import_s3m"] }
+
+# wasm32-unknown-unknown has no allocator built in. The xmrsplayer crate
+# uses Vec / Box internally so we have to ship one. dlmalloc is a small
+# pure-Rust port of Doug Lea's malloc and the standard choice for
+# wasm-targeted no_std crates.
+dlmalloc = { version = "0.2", features = ["global"] }
+
+# Per the user's request: LTO + opt-level=s. Codegen-units=1 lets LTO
+# see the whole crate graph; strip + abort on panic keeps the wasm
+# small.
+[profile.release]
+lto = "fat"
+opt-level = "s"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

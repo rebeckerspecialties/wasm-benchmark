@@ -1,0 +1,36 @@
+[package]
+name = "benchmark-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# `staticlib` is what we'll link into the watchOS / iOS / macOS app.
+# `rlib` is needed so the local CLI binary can use the lib.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Path-dep into the patched wasmtime checkout. We benchmark the full
+# parse+lower+interpret pipeline on-device, so cranelift is enabled
+# *as a compiler* but configured (via `Config::target("pulley{32,64}")`)
+# to emit Pulley bytecode rather than native machine code. The output is
+# DATA, not executable pages — no MAP_JIT, App Store-safe.
+wasmtime = { path = "../../wasmtime/crates/wasmtime", default-features = false, features = ["pulley", "runtime", "std", "cranelift", "anyhow", "gc", "gc-null"] }
+anyhow = "1"
+
+# No build-deps — workloads are pre-compiled into checked-in `.wasm` files
+# (see scripts/build-workloads.sh and workloads-rs/*.rs); build.rs handles
+# both the workload `cargo:rerun-if-changed` and the WAMR static-lib link.
+
+[[bin]]
+name = "runwasm"
+path = "src/bin/runwasm.rs"
+
+[[bin]]
+name = "profile-audio"
+path = "src/bin/profile-audio.rs"
+
+[[bin]]
+name = "runwasm-compare"
+path = "src/bin/runwasm-compare.rs"

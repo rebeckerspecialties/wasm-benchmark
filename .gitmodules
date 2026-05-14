@@ -1,0 +1,17 @@
+[submodule "target-lexicon"]
+	path = target-lexicon
+	url = https://github.com/rebeckerspecialties/target-lexicon.git
+	branch = arm64_32-apple-watchos
+[submodule "mach2"]
+	path = mach2
+	url = https://github.com/rebeckerspecialties/mach2.git
+	branch = arm64_32-apple-watchos
+[submodule "wasm-micro-runtime"]
+	path = wasm-micro-runtime
+	url = https://github.com/bytecodealliance/wasm-micro-runtime.git
+[submodule "porffor"]
+	path = porffor
+	url = https://github.com/CanadaHonk/porffor.git
+[submodule "sightglass"]
+	path = sightglass
+	url = https://github.com/bytecodealliance/sightglass.git

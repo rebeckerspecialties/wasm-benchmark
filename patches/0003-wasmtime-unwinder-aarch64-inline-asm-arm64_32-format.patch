@@ -1,0 +1,71 @@
+From ecaf801910701a2c05ad7f6afe4e1a7247dfb3f9 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Thu, 30 Apr 2026 22:54:03 -0700
+Subject: [PATCH] unwinder: explicit 64-bit register view in aarch64 inline asm
+ for arm64_32
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The aarch64 stack-pointer capture and PAC-stripped PC unwind both use
+`{}` / `{pc}` register placeholders without a width modifier. On
+aarch64 (`usize` = u64) this defaults to the 64-bit `x<N>` view and
+works fine. On arm64_32 (`usize` = u32) the placeholder is ambiguous
+between `w<N>` (32-bit) and `x<N>` (64-bit), which triggers
+`asm_sub_register` and risks subtle wrong-width behavior in unwinder
+code that handles return addresses.
+
+Use `{0:x}` / `{pc:x}` to lock in the 64-bit view. `lr`/`sp` have no
+32-bit register alias usable in these instructions, so the 64-bit form
+is also the only correct one. The compiler zero-extends u32 → x<N> on
+the way in and truncates x<N> → u32 on the way out automatically.
+
+No behavior change on aarch64 (pre-existing default was already x).
+Silences two `asm_sub_register` warnings on arm64_32-apple-watchos.
+---
+ crates/unwinder/src/arch/aarch64.rs | 19 ++++++++++++++++---
+ 1 file changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/crates/unwinder/src/arch/aarch64.rs b/crates/unwinder/src/arch/aarch64.rs
+index bc639267a8..167744e413 100644
+--- a/crates/unwinder/src/arch/aarch64.rs
++++ b/crates/unwinder/src/arch/aarch64.rs
+@@ -4,8 +4,15 @@
+ pub fn get_stack_pointer() -> usize {
+     let stack_pointer: usize;
+     unsafe {
++        // SP has no 32-bit register alias usable as a `mov` source here, so
++        // use the explicit 64-bit register view (`x` modifier). This is the
++        // pre-existing behavior on aarch64 (where `usize` is u64); the
++        // explicit modifier is required to silence `asm_sub_register` on
++        // arm64_32 (`usize` is u32) where the default would be ambiguous.
++        // The compiler zero-extends/truncates between u32 and the 64-bit GPR
++        // automatically.
+         core::arch::asm!(
+-            "mov {}, sp",
++            "mov {0:x}, sp",
+             out(reg) stack_pointer,
+             options(nostack,nomem),
+         );
+@@ -35,10 +42,16 @@ pub unsafe fn get_next_older_pc_from_fp(fp: usize) -> usize {
+         // the implementation is backward-compatible and there is no duplication.
+         // However, this instruction requires the LR register for both its input and
+         // output.
++        // `lr` is `x30` and has no 32-bit alias addressable here, so use the
++        // 64-bit register view (`x` modifier) for `pc`. Required for the
++        // `asm_sub_register` lint on arm64_32 (`usize` is u32); preserves the
++        // pre-existing aarch64 behavior. `xpaclri` operates on the full 64-bit
++        // LR; on arm64_32 the compiler zero-extends the 32-bit pointer into
++        // the GPR before the move and truncates back on the way out.
+         core::arch::asm!(
+-            "mov lr, {pc}",
++            "mov lr, {pc:x}",
+             "xpaclri",
+-            "mov {pc}, lr",
++            "mov {pc:x}, lr",
+             pc = inout(reg) pc,
+             out("lr") _,
+             options(nomem, nostack, preserves_flags, pure),
+-- 
+2.54.0
+

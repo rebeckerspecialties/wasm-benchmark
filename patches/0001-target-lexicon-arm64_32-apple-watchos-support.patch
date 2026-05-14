@@ -1,0 +1,101 @@
+From 196fed65940700c54c5355167dbe118d564410a2 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Thu, 30 Apr 2026 21:38:23 -0700
+Subject: [PATCH] Add Arm64_32 variant to Aarch64Architecture for
+ arm64_32-apple-watchos
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Apple Watch from Series 4 onward uses the AArch64 ISA with an ILP32
+ABI (32-bit pointers, 64-bit registers), exposed via the
+`arm64_32-apple-watchos` Rust target triple. The `arm64_32` arch token
+isn't a `gnu_ilp32`-style environment qualifier — Apple/LLVM treat it
+as its own architecture name — so model it as a third variant of
+`Aarch64Architecture` with `pointer_width() = U32` and
+`endianness() = Little`.
+
+Also enables the `arm64_32-apple-watchos` entry in the
+roundtrip_known_triples test (previously commented out as TODO).
+---
+ src/targets.rs | 19 ++++++++++++++++---
+ 1 file changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/src/targets.rs b/src/targets.rs
+index c908269..2f4827b 100644
+--- a/src/targets.rs
++++ b/src/targets.rs
+@@ -116,6 +116,11 @@ pub enum ArmArchitecture {
+ pub enum Aarch64Architecture {
+     Aarch64,
+     Aarch64be,
++    /// AArch64 with ILP32 ABI (32-bit pointers, 64-bit registers and ISA).
++    /// Used by Apple Watch from Series 4 onward via the `arm64_32-apple-watchos`
++    /// target. The `_32` suffix is part of Apple/LLVM's architecture name.
++    #[allow(non_camel_case_types)]
++    Arm64_32,
+ }
+ 
+ // #[cfg_attr(feature = "rust_1_40", non_exhaustive)]
+@@ -352,7 +357,9 @@ impl Aarch64Architecture {
+     /// Test if this architecture uses the Thumb instruction set.
+     pub fn is_thumb(self) -> bool {
+         match self {
+-            Aarch64Architecture::Aarch64 | Aarch64Architecture::Aarch64be => false,
++            Aarch64Architecture::Aarch64
++            | Aarch64Architecture::Aarch64be
++            | Aarch64Architecture::Arm64_32 => false,
+         }
+     }
+ 
+@@ -363,10 +370,13 @@ impl Aarch64Architecture {
+     /// Return the pointer bit width of this target's architecture.
+     ///
+     /// This function is only aware of the CPU architecture so it is not aware
+-    /// of ilp32 ABIs.
++    /// of ilp32 ABIs in general — but Apple's `arm64_32` is treated as its own
++    /// architecture variant rather than via an environment, so it does report
++    /// `U32` here.
+     pub fn pointer_width(self) -> PointerWidth {
+         match self {
+             Aarch64Architecture::Aarch64 | Aarch64Architecture::Aarch64be => PointerWidth::U64,
++            Aarch64Architecture::Arm64_32 => PointerWidth::U32,
+         }
+     }
+ 
+@@ -375,6 +385,7 @@ impl Aarch64Architecture {
+         match self {
+             Aarch64Architecture::Aarch64 => Endianness::Little,
+             Aarch64Architecture::Aarch64be => Endianness::Big,
++            Aarch64Architecture::Arm64_32 => Endianness::Little,
+         }
+     }
+ 
+@@ -385,6 +396,7 @@ impl Aarch64Architecture {
+         match self {
+             Aarch64 => Cow::Borrowed("aarch64"),
+             Aarch64be => Cow::Borrowed("aarch64_be"),
++            Arm64_32 => Cow::Borrowed("arm64_32"),
+         }
+     }
+ }
+@@ -1260,6 +1272,7 @@ impl FromStr for Aarch64Architecture {
+             "aarch64" => Aarch64,
+             "arm64" => Aarch64,
+             "aarch64_be" => Aarch64be,
++            "arm64_32" => Arm64_32,
+             _ => return Err(()),
+         })
+     }
+@@ -1786,7 +1799,7 @@ mod tests {
+             "aarch64-unknown-uefi",
+             "aarch64-uwp-windows-msvc",
+             "aarch64-wrs-vxworks",
+-            //"arm64_32-apple-watchos", // TODO
++            "arm64_32-apple-watchos",
+             //"arm64e-apple-darwin", // TODO
+             "amdgcn-amd-amdhsa",
+             "amdgcn-amd-amdhsa-amdgiz",
+-- 
+2.54.0
+

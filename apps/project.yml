@@ -1,0 +1,115 @@
+# xcodegen project definition for the wasm-benchmark Apple apps.
+#
+# Generated project goes to apps/WasmBenchmark.xcodeproj.  Regenerate with:
+#   (cd apps && xcodegen generate)
+
+name: WasmBenchmark
+options:
+  bundleIdPrefix: com.rebeckerspecialties.wasmbench
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Swift 6 language mode — strict concurrency, Sendable enforcement,
+    # actor-isolation checks become hard errors. Helps catch data races
+    # and pointer-ownership bugs at compile time instead of runtime.
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    LLVM_LTO: YES
+    OTHER_LDFLAGS: "$(inherited) -lbenchmark_core -lc++"
+    # Apple Silicon simulators pull in both arm64 and x86_64 by default; we
+    # only run on the local M-series host so restrict to arm64. Keeps the
+    # `-mcpu=apple-a12` flag below from being applied to an x86_64 build,
+    # where clang rejects it.
+    ONLY_ACTIVE_ARCH: YES
+    EXCLUDED_ARCHS: x86_64
+  # Apple Watch SE2 / iPhone XS share the A12-class baseline. Pin the
+  # Apple-side optimizing link to A12 (matches the Rust side's
+  # `-C target-cpu=apple-a12`). Only valid for arm64 / arm64_32, hence
+  # the per-arch conditionals.
+  configs:
+    Debug:
+      "OTHER_CFLAGS[arch=arm64]": "$(inherited) -mcpu=apple-a12"
+      "OTHER_CFLAGS[arch=arm64_32]": "$(inherited) -mcpu=apple-a12"
+      "OTHER_SWIFT_FLAGS[arch=arm64]": "$(inherited) -Xcc -mcpu=apple-a12"
+      "OTHER_SWIFT_FLAGS[arch=arm64_32]": "$(inherited) -Xcc -mcpu=apple-a12"
+    Release:
+      "OTHER_CFLAGS[arch=arm64]": "$(inherited) -mcpu=apple-a12"
+      "OTHER_CFLAGS[arch=arm64_32]": "$(inherited) -mcpu=apple-a12"
+      "OTHER_SWIFT_FLAGS[arch=arm64]": "$(inherited) -Xcc -mcpu=apple-a12"
+      "OTHER_SWIFT_FLAGS[arch=arm64_32]": "$(inherited) -Xcc -mcpu=apple-a12"
+
+targets:
+  # --------------------------------------------------------------
+  # watchOS app — Apple Watch SE2 (S8/A13) and Series 6+.
+  # --------------------------------------------------------------
+  WasmBenchmarkWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "11.0"
+    sources:
+      - path: WasmBenchmarkWatch
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.watch
+        INFOPLIST_FILE: WasmBenchmarkWatch/Info.plist
+        TARGETED_DEVICE_FAMILY: "4"
+        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkWatch/BridgingHeader.h
+        "LIBRARY_SEARCH_PATHS[sdk=watchsimulator*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-watchos-sim/release
+        "LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64_32]":
+          - $(SRCROOT)/../target/arm64_32-apple-watchos/release
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
+        # Hardcoded so device/sim builds work out of the box. Override at the
+        # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
+        DEVELOPMENT_TEAM: 4GWK4YU2PW
+        CODE_SIGN_STYLE: Automatic
+
+  # --------------------------------------------------------------
+  # iOS app — iPhone XS (A12) baseline, iOS 18+.
+  # --------------------------------------------------------------
+  WasmBenchmarkIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: WasmBenchmarkIOS
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.ios
+        INFOPLIST_FILE: WasmBenchmarkIOS/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkIOS/BridgingHeader.h
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-ios-sim/release
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-ios/release
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
+        # Automatic device signing. Team is set via the env-derived
+        # ${DEVELOPMENT_TEAM} so devs with a different team override
+        # at the command line: `xcodebuild ... DEVELOPMENT_TEAM=XYZ`.
+        # Hardcoded so device/sim builds work out of the box. Override at the
+        # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
+        DEVELOPMENT_TEAM: 4GWK4YU2PW
+        CODE_SIGN_STYLE: Automatic
+
+  # --------------------------------------------------------------
+  # macOS app — local M4 dev host, macOS 26+.
+  # --------------------------------------------------------------
+  WasmBenchmarkMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: WasmBenchmarkMac
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.mac
+        INFOPLIST_FILE: WasmBenchmarkMac/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkMac/BridgingHeader.h
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/../target/release
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include

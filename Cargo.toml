@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+exclude = [
+    # External submodules with their own workspaces / build orchestration.
+    "wasmtime",
+    "target-lexicon",
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# Mirror of wasmtime/Cargo.toml's [patch.crates-io] so cargo applies the
+# arm64_32-apple-watchos patches when building from THIS workspace too.
+# Both workspaces' [patch.crates-io] sections must agree.
+#
+# `mach2` is no longer patched: wasmtime's bump to 0.6 (which already has
+# Apple non-iOS-non-macOS target support upstream) covers what we need.
+[patch.crates-io]
+target-lexicon = { path = "target-lexicon" }
+
+# Keep release optimizations + add debuginfo so xctrace / atos can
+# symbolicate the LTO-merged Pulley dispatch in our profiling binaries.
+# Final lib for the apps is built per-target via scripts/build-lib.sh
+# and inherits whichever overrides are set there.
+[profile.release]
+# Keep debuginfo minimal so the optimizer's tail-call elimination of
+# Pulley's `become`-based dispatch loop is preserved. With
+# debug = "full", Rust nightly's TCO can fail to fire on the
+# release-profile build and the Pulley dispatch grows the host stack
+# (fib(30) blows the Rust stack at ~1.6 M calls).
+debug = "line-tables-only"
+
+# Profiling-friendly release: full opt + debuginfo, NO LTO, NO inlining of
+# Pulley opcode handlers across crate boundaries. Dispatch loop will be
+# slightly slower than the production library build but each Pulley opcode
+# handler stays as its own symbol so atos / Instruments can resolve the
+# hottest ones. Used by the `profile-audio` and similar binaries.
+[profile.profiling]
+inherits = "release"
+lto = "off"
+codegen-units = 16

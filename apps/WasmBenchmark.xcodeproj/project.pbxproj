@@ -1,0 +1,535 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A3CAE8DE8274BBED8806A0A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		91D868C194B46C7FE2C6B118 /* WasmBenchmarkWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */; };
+		96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		AA519B5FAF6C2FC0E2DC0B84 /* WasmBenchmarkMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */; };
+		AE1C536EC3FDD970F695253C /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		BD74BC4B6BBEF76460553E11 /* WasmBenchmarkIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WasmBenchmarkIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkWatchApp.swift; sourceTree = "<group>"; };
+		26571FD0795CE91DF528E4B4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		48FCC66879123AE7C5847E70 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WasmBenchmarkWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WasmBenchmarkMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		80A2256EBE9E5C827158390A /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkContentView.swift; sourceTree = "<group>"; };
+		A61CE5226A028A476906857E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkIOSApp.swift; sourceTree = "<group>"; };
+		D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkMacApp.swift; sourceTree = "<group>"; };
+		F1EBAC630F2DC423319A70CD /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		FB29EEA25936F3A106630767 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		29DE85AD501C878B38D7EB91 /* WasmBenchmarkIOS */ = {
+			isa = PBXGroup;
+			children = (
+				F1EBAC630F2DC423319A70CD /* BridgingHeader.h */,
+				FB29EEA25936F3A106630767 /* Info.plist */,
+				A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */,
+			);
+			path = WasmBenchmarkIOS;
+			sourceTree = "<group>";
+		};
+		4C5FA73F4CA5328464BA9434 = {
+			isa = PBXGroup;
+			children = (
+				DA557852C358E2E3B73D4641 /* Shared */,
+				29DE85AD501C878B38D7EB91 /* WasmBenchmarkIOS */,
+				9945B4BC77502B5E74D0B0EB /* WasmBenchmarkMac */,
+				B80AE15C6D6B38D9421B14AE /* WasmBenchmarkWatch */,
+				B2EEA60BB9078F8C73B573D1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9945B4BC77502B5E74D0B0EB /* WasmBenchmarkMac */ = {
+			isa = PBXGroup;
+			children = (
+				48FCC66879123AE7C5847E70 /* BridgingHeader.h */,
+				26571FD0795CE91DF528E4B4 /* Info.plist */,
+				D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */,
+			);
+			path = WasmBenchmarkMac;
+			sourceTree = "<group>";
+		};
+		B2EEA60BB9078F8C73B573D1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */,
+				7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */,
+				561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B80AE15C6D6B38D9421B14AE /* WasmBenchmarkWatch */ = {
+			isa = PBXGroup;
+			children = (
+				80A2256EBE9E5C827158390A /* BridgingHeader.h */,
+				A61CE5226A028A476906857E /* Info.plist */,
+				21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */,
+			);
+			path = WasmBenchmarkWatch;
+			sourceTree = "<group>";
+		};
+		DA557852C358E2E3B73D4641 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0643BC0476E72284EF455526 /* Build configuration list for PBXNativeTarget "WasmBenchmarkMac" */;
+			buildPhases = (
+				B8FC77E4D0F00FA3071AF9DF /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WasmBenchmarkMac;
+			packageProductDependencies = (
+			);
+			productName = WasmBenchmarkMac;
+			productReference = 7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28A167FAC51A1FB1D20D6F80 /* Build configuration list for PBXNativeTarget "WasmBenchmarkWatch" */;
+			buildPhases = (
+				4F4CF1CC1DA08BA13CB3F0B8 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WasmBenchmarkWatch;
+			packageProductDependencies = (
+			);
+			productName = WasmBenchmarkWatch;
+			productReference = 561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C165E7DBC883D8F08378864C /* WasmBenchmarkIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2349EC0751230E9688FFFD8C /* Build configuration list for PBXNativeTarget "WasmBenchmarkIOS" */;
+			buildPhases = (
+				31071620C4ECF0A435354163 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WasmBenchmarkIOS;
+			packageProductDependencies = (
+			);
+			productName = WasmBenchmarkIOS;
+			productReference = 03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C3EA1E4C4D0003F1E79507E8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					8CD67C3186118CB6A3934CC0 = {
+						DevelopmentTeam = 4GWK4YU2PW;
+						ProvisioningStyle = Automatic;
+					};
+					C165E7DBC883D8F08378864C = {
+						DevelopmentTeam = 4GWK4YU2PW;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 54675334606BA02EC3731440 /* Build configuration list for PBXProject "WasmBenchmark" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4C5FA73F4CA5328464BA9434;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B2EEA60BB9078F8C73B573D1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C165E7DBC883D8F08378864C /* WasmBenchmarkIOS */,
+				4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */,
+				8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		31071620C4ECF0A435354163 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A3CAE8DE8274BBED8806A0A /* BenchmarkContentView.swift in Sources */,
+				BD74BC4B6BBEF76460553E11 /* WasmBenchmarkIOSApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4F4CF1CC1DA08BA13CB3F0B8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE1C536EC3FDD970F695253C /* BenchmarkContentView.swift in Sources */,
+				91D868C194B46C7FE2C6B118 /* WasmBenchmarkWatchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B8FC77E4D0F00FA3071AF9DF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */,
+				AA519B5FAF6C2FC0E2DC0B84 /* WasmBenchmarkMacApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0EA759930420FB6E2CE84A20 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/../target/release",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.mac;
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkMac/BridgingHeader.h;
+			};
+			name = Release;
+		};
+		3459481590062391F79B99A2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkIOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-ios/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-ios-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.ios;
+				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkIOS/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		529D2C48484CA9065D919153 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkIOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-ios/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-ios-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.ios;
+				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkIOS/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6C626B1C4C37A18331872F97 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/../target/release",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.mac;
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkMac/BridgingHeader.h;
+			};
+			name = Debug;
+		};
+		867AE984FDC4CEDA3EB3D6B9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				EXCLUDED_ARCHS = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LLVM_LTO = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				"OTHER_CFLAGS[arch=arm64]" = "$(inherited) -mcpu=apple-a12";
+				"OTHER_CFLAGS[arch=arm64_32]" = "$(inherited) -mcpu=apple-a12";
+				OTHER_LDFLAGS = "$(inherited) -lbenchmark_core -lc++";
+				"OTHER_SWIFT_FLAGS[arch=arm64]" = "$(inherited) -Xcc -mcpu=apple-a12";
+				"OTHER_SWIFT_FLAGS[arch=arm64_32]" = "$(inherited) -Xcc -mcpu=apple-a12";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		95103F27016D363AFDEEA668 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkWatch/Info.plist;
+				"LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64_32]" = (
+					"$(SRCROOT)/../target/arm64_32-apple-watchos/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=watchsimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-watchos-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkWatch/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
+		B9DD6741DAF121062451277A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				EXCLUDED_ARCHS = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LLVM_LTO = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				"OTHER_CFLAGS[arch=arm64]" = "$(inherited) -mcpu=apple-a12";
+				"OTHER_CFLAGS[arch=arm64_32]" = "$(inherited) -mcpu=apple-a12";
+				OTHER_LDFLAGS = "$(inherited) -lbenchmark_core -lc++";
+				"OTHER_SWIFT_FLAGS[arch=arm64]" = "$(inherited) -Xcc -mcpu=apple-a12";
+				"OTHER_SWIFT_FLAGS[arch=arm64_32]" = "$(inherited) -Xcc -mcpu=apple-a12";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		F7A354026C8D853793663957 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkWatch/Info.plist;
+				"LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64_32]" = (
+					"$(SRCROOT)/../target/arm64_32-apple-watchos/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=watchsimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-watchos-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkWatch/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0643BC0476E72284EF455526 /* Build configuration list for PBXNativeTarget "WasmBenchmarkMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6C626B1C4C37A18331872F97 /* Debug */,
+				0EA759930420FB6E2CE84A20 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2349EC0751230E9688FFFD8C /* Build configuration list for PBXNativeTarget "WasmBenchmarkIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				529D2C48484CA9065D919153 /* Debug */,
+				3459481590062391F79B99A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		28A167FAC51A1FB1D20D6F80 /* Build configuration list for PBXNativeTarget "WasmBenchmarkWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				95103F27016D363AFDEEA668 /* Debug */,
+				F7A354026C8D853793663957 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		54675334606BA02EC3731440 /* Build configuration list for PBXProject "WasmBenchmark" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9DD6741DAF121062451277A /* Debug */,
+				867AE984FDC4CEDA3EB3D6B9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = C3EA1E4C4D0003F1E79507E8 /* Project object */;
+}
