@@ -399,23 +399,6 @@ pub fn run_workload_iters(
     // Note: `wasm_reference_types` is gated behind wasmtime's `gc` feature
     // (which we don't enable). The plain wasm 1.0 `call_indirect` op our
     // workload uses works fine without it.
-    //
-    // One-entry inline cache for `call_indirect` sites that target a
-    // provably-immutable, defined-only-funcref table (gated by
-    // `Module::is_call_indirect_cacheable_table` — same predicate
-    // shape as PR #2's `is_eagerly_initialized_funcref_table`,
-    // strengthened to require defined-not-imported funcs so the IC
-    // can skip the callee-vmctx check).
-    //
-    // Toggled by the `WASMTIME_IC` env var so a single iOS-app build
-    // can switch between the two modes for the IC-on/IC-off
-    // measurement comparison without redeploying. Defaults off to
-    // match prior PR #2 numbers exactly.
-    let cache_ic = std::env::var("WASMTIME_IC")
-        .ok()
-        .map(|v| matches!(v.as_str(), "1" | "true" | "on" | "yes"))
-        .unwrap_or(false);
-    config.cache_call_indirects(cache_ic);
     let engine = into_anyhow(Engine::new(&config))
         .context("Engine::new failed")?;
     let module = into_anyhow(Module::from_binary(&engine, wasm_bytes))
