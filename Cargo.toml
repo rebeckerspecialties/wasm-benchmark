@@ -9,7 +9,7 @@ exclude = [
 
 [workspace.package]
 edition = "2021"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 publish = false
 
 # Mirror of wasmtime/Cargo.toml's [patch.crates-io] so cargo applies the

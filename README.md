@@ -96,4 +96,11 @@ wasmtime/                gitignored — working clone with active PR
 
 ## License
 
-Apache 2.0 (matching wasmtime's license; see `Cargo.toml`).
+Dual-licensed under MIT or Apache-2.0 at your option — same conventions
+as the `bytecodealliance/*` and `gfx-rs/wgpu` projects. See
+[LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the
+Apache-2.0 license, shall be dual licensed as above, without any
+additional terms or conditions.
