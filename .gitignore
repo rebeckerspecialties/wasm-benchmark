@@ -50,3 +50,4 @@ Launch_*
 # StarlingMonkey was cloned to inspect builtins/web/crypto/crypto-algorithm.h
 # as a reference for vtable_dispatch.rs design. Not part of any build path.
 /StarlingMonkey/
+/scripts/__pycache__/

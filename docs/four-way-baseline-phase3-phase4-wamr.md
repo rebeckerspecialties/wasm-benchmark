@@ -137,36 +137,102 @@ relative gap because both runtimes' interpreters slow down comparably
 on the older core, but Pulley's slowdown is slightly less than WAMR's.
 xmrsplayer is the closest at **1.22×** on XS.
 
+## Phase-4 PMU bucket shares — A14 Icestorm vs M4 Sawtooth E-core
+
+A12 Mistral doesn't expose `CounterMetricByThread` so PMU bucket
+analysis covers two of the three microarchs. M4 captures via
+`xctrace record --launch -- /usr/sbin/taskpolicy -b ./target/release/run_dispatch_workloads`;
+iPhone via attach-mode xctrace per `docs/three-way-baseline-phase3-wamr.md`'s
+methodology. `BENCH_TARGET_MS=12000`, single ~20 s capture per
+(workload, microarch). Single-shot, so absolute cycle counts noisy
+(especially on M4 where macOS scheduler contention adds variance),
+but **bucket shares are stable**.
+
+| workload                     | platform            |   Useful  | Processing |  Delivery | Discarded |
+|------------------------------|---------------------|----------:|-----------:|----------:|----------:|
+| call_indirect                | iPhone 12 (A14)     |   38.8 %  |    28.2 %  |   15.5 %  |   17.5 %  |
+| call_indirect                | M4 (Sawtooth)       |   42.6 %  |  **45.4 %**|    3.7 %  |    8.3 %  |
+| xmrsplayer                   | iPhone 12 (A14)     |   53.5 %  |    20.1 %  |    9.9 %  |   16.5 %  |
+| xmrsplayer                   | M4 (Sawtooth)       |   55.8 %  |  **36.8 %**|    3.8 %  |    3.6 %  |
+| vtable_mono                  | iPhone 12 (A14)     |   55.7 %  |  **38.5 %**|    1.7 %  |    4.1 %  |
+| vtable_mono                  | M4 (Sawtooth)       |   48.4 %  |  **46.6 %**|    3.1 %  |    1.8 %  |
+| vtable_bi                    | iPhone 12 (A14)     |   48.8 %  |    31.5 %  |    3.3 %  |   16.3 %  |
+| vtable_bi                    | M4 (Sawtooth)       |   45.6 %  |  **45.3 %**|    4.4 %  |    4.8 %  |
+| vtable_poly4                 | iPhone 12 (A14)     |   53.7 %  |    32.2 %  |    2.9 %  |   11.1 %  |
+| vtable_poly4                 | M4 (Sawtooth)       |   45.7 %  |  **43.4 %**|    4.8 %  |    6.0 %  |
+| vtable_poly6                 | iPhone 12 (A14)     |   49.6 %  |    24.9 %  |    7.5 %  |   18.0 %  |
+| vtable_poly6                 | M4 (Sawtooth)       |   45.0 %  |  **43.1 %**|    5.1 %  |    6.8 %  |
+| graphql (AS)                 | iPhone 12 (A14)     |   39.3 %  |     9.5 %  |   13.3 %  |**37.9 %** |
+| graphql (AS)                 | M4 (Sawtooth)       |   46.6 %  |    35.7 %  |    6.3 %  |   11.4 %  |
+| graphql (Porffor)            | iPhone 12 (A14)     |   31.7 %  |    13.3 %  |   13.7 %  |**41.3 %** |
+| graphql (Porffor)            | M4 (Sawtooth)       |   44.5 %  |    33.0 %  |    7.9 %  |   14.6 %  |
+
+**Two cross-microarch patterns:**
+
+1. **M4 Sawtooth is Processing-dominant on every workload (33–47 %).**
+   The dependent-load chain in the phase-4 dispatch tail —
+   `xband_funcref_dispatch_*` writes `dst_code, dst_vmctx`, then
+   `call_indirect1` reads both — hits Sawtooth's back-end harder than
+   Icestorm's. Sawtooth's wider issue absorbs the front-end work but
+   load-use latency on the inter-op register handoff shows up sharply.
+2. **Icestorm has two patterns by workload class.** vtable + xmrsplayer
+   look like M4 in miniature: Processing-bound, modest Discarded.
+   `call_indirect` + graphql workloads are Discarded-bound (17–41 %) —
+   Icestorm's predictor table thrashes on Pulley's high-entropy
+   interpreter dispatch loop in a way Sawtooth's doesn't (M4 Discarded
+   stays at 4–15 % for the same workloads).
+
+The Processing bucket is the **common bottleneck across both
+microarchs**. Phase-5 design (below) targets it first.
+
 ## What's still open
 
 Phase-4 saves one Pulley dispatch per call_indirect's ABI vmctx fixup.
 The dispatch tail is now 2 ops (fused band+brif+2loads, then
 call_indirect1). To shave further:
 
-1. **Phase 5 candidate** — fuse the call into the band+brif+loads op
-   itself. The new mega-op `xband_funcref_call_*64 src, offset_code,
-   offset_vmctx, vmctx_arg_reg, null_target` would do the band, the
-   null check, the two field loads, the vmctx-into-x0, the lr save,
-   and the indirect call all in one Pulley dispatch — **1 dispatch
-   per call_indirect** down from baseline's 5. The Cranelift side
-   needs cross-block fusion (the call is in a different CLIF block
-   from the brif), similar to phase-2's continuation-block load
-   absorption.
-2. **Microarch-aware emission** — let `cranelift_pulley_target_cpu`
-   (or a similar hint) gate the phase-3+4 fusion on A14+ targets
-   while falling back to baseline on A12. Avoids the XS regression.
-3. **Reduce VMCallNeck inlining cost** at the interpreter side —
-   the `call_indirect{1,2,3,4}` handlers do up to 4 register reads
-   before the jump; if A12 is sensitive to register-port pressure
-   on these, a different lane ordering may help.
+1. **Primary phase-5 candidate** — fuse the call into the
+   band+brif+loads op itself. The new mega-op `xband_funcref_call_*64
+   src, offset_code, offset_vmctx, null_target_pc_rel` would do the
+   band, the null check, the two field loads, the vmctx-into-x0, the
+   lr save, and the indirect call all in one Pulley dispatch — **1
+   dispatch per call_indirect** down from baseline's 5. The Cranelift
+   side needs cross-block fusion (the call is in a different CLIF
+   block from the brif), similar to phase-2's continuation-block load
+   absorption but extended to a side-effecting terminator. **Targets
+   the Processing bucket on both A14 and M4** — the inter-op
+   `dst_code/dst_vmctx` register handoff that's responsible for the
+   33–47 % Processing share on M4 and 20–38 % on A14 vtable workloads.
+   Expected wallclock magnitude: same 3–9 % range as phase 4 on A14;
+   potentially larger relative gain on M4 where Processing dominates
+   more thoroughly.
+2. **Secondary phase-5 candidate — microarch-aware emission**: let
+   `cranelift_pulley_target_cpu` (or a similar hint) gate the
+   phase-3+4 fusion on A14+ targets while falling back to baseline
+   on A12 Mistral. Avoids the XS phase-3 regressions while keeping
+   the iPhone 12 + M4 wins. Less invasive than the mega-op; smaller
+   absolute upside but addresses the XS regression directly.
+3. **Tertiary phase-5 candidate — interpreter dispatch-loop
+   instrumentation**: A14 Icestorm's Discarded share (17–41 % on
+   graphql/call_indirect, vs 4–15 % on M4) is enough that it's worth
+   A/B-measuring whether handler-table prefetch or different bytecode
+   word ordering in Pulley's tail-call loop shifts the predictor
+   pressure. Orthogonal to the main fusion track; only worth doing
+   after the mega-op lands.
 
-(1) is the largest potential win; (2) is the safest portability fix.
+(1) is the largest potential win and the only one targeting both A14
+and M4; (2) is the safest portability fix; (3) is a small A14-only
+optimisation worth measuring opportunistically.
 
 ## Raw data
 
 - iPhone 12 per-rep logs: `out/exp-3way/n10/iphone12-{baseline,phase3,phase4}-r{1..10}.log`
 - iPhone XS per-rep logs: `out/exp-3way-xs/n10/iphone12-{baseline,phase3,phase4}-r{1..10}.log`
+- iPhone 12 per-workload PMU: `out/exp-3way/pmu-{baseline,phase3,phase4,wamr}/*.xml`
+- M4 per-workload PMU: `out/exp-3way-m4/pmu-{baseline,phase3,phase4}/*.xml`
+  (M4 PMU is host-side, no WAMR; captured via `scripts/run_m4_per_workload_pmu.sh`)
 - Aggregator: `scripts/aggregate_4way.py out/exp-3way/n10` (or `out/exp-3way-xs/n10`)
+- M4 vs A14 phase-4 bucket-shares: `scripts/m4_phase4_bucket_shares.py`
 - Phase-4 wasmtime commit: see the patch on `claude/pulley-fusion-xband-brif` branch
 
 ## Phase-4 patch surface
