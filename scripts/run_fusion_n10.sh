@@ -22,7 +22,11 @@ N="${N:-10}"
 WORKLOADS="${WORKLOADS:-call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6}"
 RUNTIMES="${RUNTIMES:-}"
 BENCH_TARGET_MS="${BENCH_TARGET_MS:-2000}"
-EXPECTED_LINES="${EXPECTED_LINES:-8}"
+# Default matches the default WORKLOADS set above run by BOTH Pulley AND WAMR
+# (6 workloads × 2 runtimes = 12 `[[...]]` result lines per launch). Override
+# when you add/remove workloads or restrict RUNTIMES: e.g. for the 8-workload
+# set including graphql-validation (AS+Porffor variants) → EXPECTED_LINES=16.
+EXPECTED_LINES="${EXPECTED_LINES:-12}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-180}"
 
 mkdir -p "${OUTDIR}"
