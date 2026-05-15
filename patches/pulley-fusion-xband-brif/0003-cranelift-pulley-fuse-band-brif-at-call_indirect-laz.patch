@@ -1,8 +1,7 @@
-From 7df73dc28d34fbd105d4d34654de5fb5fa7517d6 Mon Sep 17 00:00:00 2001
+From 0c5d83b1bc2c6f2734c995915eecea94b90c9461 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 15 May 2026 00:10:12 +0000
-Subject: [PATCH 3/3] cranelift/pulley: fuse band+brif at call_indirect
- lazy-init site
+Subject: cranelift/pulley: fuse band+brif at call_indirect lazy-init site
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -31,12 +30,21 @@ Layered changes:
   as a standalone xband_s8 would.
 
   pulley_shared::lower::try_fuse_band_brif: Rust-side pre-ISLE peephole
-  in lower_branch. Recognizes brif(c) where c = band(v, i8) and emits
-  BandBrIf with dst = the brif-cond's vreg (i.e. the band's result vreg).
-  The band CLIF inst is then marked via Lower::sink_pure_inst so it is
-  skipped in lower_clif_block, leaving a single MachInst writing to the
+  in lower_branch. Recognizes brif(c) where c = band(v, -2) — restricted
+  to exactly the funcref init-bit-strip mask — and emits BandBrIf with
+  dst = the brif-cond's vreg (i.e. the band's result vreg). The band
+  CLIF inst is then marked via Lower::sink_pure_inst so it is skipped
+  in lower_clif_block, leaving a single MachInst writing to the
   band-result vreg. The block-call-arg machinery downstream consumes
   that vreg as the masked-funcref pointer with no SSA violation.
+
+  The mask = -2 gate is load-bearing: the fused op tests the UNMASKED
+  src for non-zero, not the masked dst. That equivalence holds iff
+  (v & mask != 0) <=> (v != 0). For mask = -2 this holds on every
+  reachable funcref-slot value under the eager-init predicate; for
+  other i8 masks (e.g. user-code band(v, 127) or band(v, 60)) the
+  equivalence fails and fusing would silently flip branch direction.
+  Restricting to mask = -2 keeps the lowering sound by construction.
 
   pulley_shared::inst::emit: BandBrIf emits as the forward
   xband_s8_br_if op followed by an unconditional jump to not_taken,
@@ -54,29 +62,19 @@ Tests:
   disas test pinning the fused-op bytecode shape. The dispatch tail
   shows a single xband64_s8_br_if_not_x64 where the unfused form would
   have an xband64_s8 followed by a separate br_if_xeq64_i8.
-
-  2228 disas tests pass; 16 wasmtime-environ table_mutability tests
-  pass. Cross-impact regressions: none observed in this build.
-
-PMU measurement is still TBD per AGENTS.md's N=10 + bucket-analysis
-procedure on iPhone 12 A14 Icestorm. Predicted from PR #2's description:
-~−7 % Useful and ~−5 % Discarded on call_indirect.wasm. The fused op
-retains the brif's predictor-anchor role since it is itself a
-conditional branch, so the c1-8 mispredict regression should not
-reappear.
 ---
  .../codegen/src/isa/pulley_shared/inst.isle   |  18 ++
  .../src/isa/pulley_shared/inst/emit.rs        |  73 ++++++
  .../codegen/src/isa/pulley_shared/inst/mod.rs |  35 +++
- .../codegen/src/isa/pulley_shared/lower.rs    | 112 ++++++++-
+ .../codegen/src/isa/pulley_shared/lower.rs    | 118 ++++++++-
  crates/cranelift/src/func_environ.rs          |  19 +-
  .../call-indirect-immutable-elide-null.wat    |   2 +-
  .../pulley-call-indirect-band-brif-fusion.wat | 229 ++++++++++++++++++
- 7 files changed, 485 insertions(+), 3 deletions(-)
+ 7 files changed, 491 insertions(+), 3 deletions(-)
  create mode 100644 tests/disas/pulley-call-indirect-band-brif-fusion.wat
 
 diff --git a/cranelift/codegen/src/isa/pulley_shared/inst.isle b/cranelift/codegen/src/isa/pulley_shared/inst.isle
-index ba96439..373508d 100644
+index ba96439db1..373508d8b1 100644
 --- a/cranelift/codegen/src/isa/pulley_shared/inst.isle
 +++ b/cranelift/codegen/src/isa/pulley_shared/inst.isle
 @@ -67,6 +67,24 @@
@@ -105,7 +103,7 @@ index ba96439..373508d 100644
      (LoadAddr (dst WritableXReg) (mem Amode))
  
 diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs b/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
-index d99f71c..ac1b4f4 100644
+index d99f71caba..ac1b4f45c6 100644
 --- a/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
 +++ b/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
 @@ -367,6 +367,79 @@ fn pulley_emit<P>(
@@ -189,7 +187,7 @@ index d99f71c..ac1b4f4 100644
              let base = mem.get_base_register();
              let offset = mem.get_offset_with_state(state);
 diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs b/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
-index d76705a..0b65699 100644
+index d76705a7fb..0b65699499 100644
 --- a/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
 +++ b/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
 @@ -261,6 +261,18 @@ fn pulley_get_operands(inst: &mut Inst, collector: &mut impl OperandVisitor) {
@@ -249,7 +247,7 @@ index d76705a..0b65699 100644
                  let dst = format_reg(*dst.to_reg());
                  let mem = mem.to_string();
 diff --git a/cranelift/codegen/src/isa/pulley_shared/lower.rs b/cranelift/codegen/src/isa/pulley_shared/lower.rs
-index 2039c7d..ef0c792 100644
+index 2039c7de8d..8eb8625e59 100644
 --- a/cranelift/codegen/src/isa/pulley_shared/lower.rs
 +++ b/cranelift/codegen/src/isa/pulley_shared/lower.rs
 @@ -4,7 +4,8 @@ pub mod isle;
@@ -278,7 +276,7 @@ index 2039c7d..ef0c792 100644
          isle::lower_branch(ctx, self, ir_inst, targets)
      }
  
-@@ -32,3 +42,103 @@ where
+@@ -32,3 +42,109 @@ where
          None
      }
  }
@@ -316,7 +314,16 @@ index 2039c7d..ef0c792 100644
 +        return false;
 +    };
 +
-+    // The brif's cond must be defined by a `band v c` whose `c` fits in i8.
++    // The brif's cond must be defined by a `band v -2`. We restrict the
++    // mask to exactly `-2` (the init-bit strip used by the call_indirect
++    // lazy-init brif site) because the fused op tests the UNMASKED `src`
++    // for non-zero, not the masked `dst`. That equivalence holds iff
++    // `(v & mask != 0) <=> (v != 0)`. For mask = -2 this holds for every
++    // funcref-slot value reachable in eagerly-initialized tables (the
++    // soundness argument from `is_eagerly_initialized_funcref_table`).
++    // For other masks the equivalence is generally false, so fusing
++    // would silently flip branch direction on user-code `band+brif`
++    // sites. See pulley/PR for the design discussion.
 +    let band_inst = match dfg.value_def(cond).inst() {
 +        Some(inst) => inst,
 +        None => return false,
@@ -330,10 +337,7 @@ index 2039c7d..ef0c792 100644
 +                InstructionData::UnaryImm {
 +                    opcode: Opcode::Iconst,
 +                    imm,
-+                } => match i8::try_from(imm.bits()) {
-+                    Ok(m) => (a, m),
-+                    Err(_) => return false,
-+                },
++                } if imm.bits() == -2 => (a, -2_i8),
 +                _ => return false,
 +            },
 +            None => return false,
@@ -383,7 +387,7 @@ index 2039c7d..ef0c792 100644
 +    true
 +}
 diff --git a/crates/cranelift/src/func_environ.rs b/crates/cranelift/src/func_environ.rs
-index 77f361a..f3ba99c 100644
+index 77f361aad5..f3ba99c631 100644
 --- a/crates/cranelift/src/func_environ.rs
 +++ b/crates/cranelift/src/func_environ.rs
 @@ -917,8 +917,25 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
@@ -414,7 +418,7 @@ index 77f361a..f3ba99c 100644
              &[value_masked.into()],
              null_block,
 diff --git a/tests/disas/call-indirect-immutable-elide-null.wat b/tests/disas/call-indirect-immutable-elide-null.wat
-index 7e7f96d..78ae835 100644
+index 7e7f96d1e8..78ae8359ed 100644
 --- a/tests/disas/call-indirect-immutable-elide-null.wat
 +++ b/tests/disas/call-indirect-immutable-elide-null.wat
 @@ -92,7 +92,7 @@
@@ -428,7 +432,7 @@ index 7e7f96d..78ae835 100644
  ;; @0050                               v15 = iconst.i32 0
 diff --git a/tests/disas/pulley-call-indirect-band-brif-fusion.wat b/tests/disas/pulley-call-indirect-band-brif-fusion.wat
 new file mode 100644
-index 0000000..3e51c92
+index 0000000000..3e51c92714
 --- /dev/null
 +++ b/tests/disas/pulley-call-indirect-band-brif-fusion.wat
 @@ -0,0 +1,229 @@
@@ -661,6 +665,3 @@ index 0000000..3e51c92
 +;;       call_indirect_host 10
 +;;       pop_frame
 +;;       ret
--- 
-2.43.0
-

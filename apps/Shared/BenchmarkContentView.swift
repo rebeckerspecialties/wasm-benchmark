@@ -69,10 +69,10 @@ let WORKLOADS: [Workload] = [
     // dimension — mono is the best case for a 1-way IC, bi/poly4/
     // poly6 test progressively worse polymorphism. Pulley-only
     // since the IC question is Pulley-specific.
-    Workload(id: 27, label: "[Pulley] vtable_dispatch mono (200K)",  run: { bench_run_vtable_mono() }),
-    Workload(id: 28, label: "[Pulley] vtable_dispatch bi (200K)",    run: { bench_run_vtable_bi() }),
-    Workload(id: 29, label: "[Pulley] vtable_dispatch poly4 (200K)", run: { bench_run_vtable_poly4() }),
-    Workload(id: 30, label: "[Pulley] vtable_dispatch poly6 (200K)", run: { bench_run_vtable_poly6() }),
+    Workload(id: 27, label: "[Pulley] vtable_mono (200K)",  run: { bench_run_vtable_mono() }),
+    Workload(id: 28, label: "[Pulley] vtable_bi (200K)",    run: { bench_run_vtable_bi() }),
+    Workload(id: 29, label: "[Pulley] vtable_poly4 (200K)", run: { bench_run_vtable_poly4() }),
+    Workload(id: 30, label: "[Pulley] vtable_poly6 (200K)", run: { bench_run_vtable_poly6() }),
 ]
 
 struct WorkloadResult: Identifiable {

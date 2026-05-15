@@ -78,8 +78,10 @@ wasmtime/                gitignored — working clone with active PR
   PR #2's description).
 - **[docs/opcode-fusion-band-brif.md](docs/opcode-fusion-band-brif.md)** —
   Phase 1 of the opcode-fusion track: `xband_s8 + br_if` fused into
-  one Pulley dispatch at call_indirect lazy-init sites. Wasmtime
-  draft branch ready; PMU / wallclock measurement on iPhone 12 TBD.
+  one Pulley dispatch at call_indirect lazy-init sites. **Measurement
+  closed out 2026-05-14 — hypothesis falsified, wallclock flat,
+  Discarded +7.87 % regression on iPhone 12 PMU. Next step: skip to
+  proposal (2) `funcref_load_dispatch`.**
 - **[docs/archived-ic-branches.md](docs/archived-ic-branches.md)** —
   SHAs for the deleted `pulley-call-indirect-ic*` branches, in case
   a future 2-way-IC or poisoning variant wants that baseline.

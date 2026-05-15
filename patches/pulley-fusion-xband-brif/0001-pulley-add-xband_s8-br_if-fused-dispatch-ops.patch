@@ -1,7 +1,7 @@
-From 450400a341b9c24680351a7f7f7ec7f9d63f626d Mon Sep 17 00:00:00 2001
+From 0a0127b420337a74c33a3219757a45b6660b0b76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 15 May 2026 00:09:33 +0000
-Subject: [PATCH 1/3] pulley: add xband_s8 + br_if fused dispatch ops
+Subject: pulley: add xband_s8 + br_if fused dispatch ops
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -29,7 +29,7 @@ the "next branch -- opcode fusion" track from PR #2's description.
  2 files changed, 85 insertions(+)
 
 diff --git a/pulley/src/interp.rs b/pulley/src/interp.rs
-index 940d352..7cd1996 100644
+index 940d35237b..7cd1996f20 100644
 --- a/pulley/src/interp.rs
 +++ b/pulley/src/interp.rs
 @@ -2296,6 +2296,70 @@ impl OpVisitor for Interpreter<'_> {
@@ -104,7 +104,7 @@ index 940d352..7cd1996 100644
          let a = self.state[operands.src1].get_u32();
          let b = self.state[operands.src2].get_u32();
 diff --git a/pulley/src/lib.rs b/pulley/src/lib.rs
-index dba2010..b957f85 100644
+index dba201017d..b957f85174 100644
 --- a/pulley/src/lib.rs
 +++ b/pulley/src/lib.rs
 @@ -562,6 +562,27 @@ macro_rules! for_each_op {
@@ -135,6 +135,3 @@ index dba2010..b957f85 100644
              /// `low32(dst) = low32(src1) | low32(src2)`
              xbor32 = XBor32 { operands: BinaryOperands<XReg> };
              /// Same as `xbor64` but `src2` is a sign-extended 8-bit immediate.
--- 
-2.43.0
-

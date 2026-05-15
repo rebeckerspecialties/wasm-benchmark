@@ -1,8 +1,8 @@
-From 5f057da0597e28136d8450d7cc55379fe79f95f7 Mon Sep 17 00:00:00 2001
+From 9e523c8c7cc98c42fa57ae9c3c7f7847f46ccb83 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 15 May 2026 00:09:45 +0000
-Subject: [PATCH 2/3] =?UTF-8?q?cranelift:=20Lower::sink=5Fpure=5Finst=20?=
- =?UTF-8?q?=E2=80=94=20absorb=20pure=20ALU=20ops=20into=20terminators?=
+Subject: =?UTF-8?q?cranelift:=20Lower::sink=5Fpure=5Finst=20=E2=80=94=20ab?=
+ =?UTF-8?q?sorb=20pure=20ALU=20ops=20into=20terminators?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -35,7 +35,7 @@ write the vreg.
  1 file changed, 42 insertions(+)
 
 diff --git a/cranelift/codegen/src/machinst/lower.rs b/cranelift/codegen/src/machinst/lower.rs
-index d62e4f8..ce9dd34 100644
+index d62e4f8825..ce9dd3406b 100644
 --- a/cranelift/codegen/src/machinst/lower.rs
 +++ b/cranelift/codegen/src/machinst/lower.rs
 @@ -204,6 +204,14 @@ pub struct Lower<'func, I: VCodeInst> {
@@ -115,6 +115,3 @@ index d62e4f8..ce9dd34 100644
      /// Indicate that the side-effect of an instruction has been sunk to the
      /// current scan location. This should only be done with the instruction's
      /// original results are not used (i.e., `put_input_in_regs` is not invoked
--- 
-2.43.0
-

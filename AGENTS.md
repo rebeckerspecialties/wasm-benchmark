@@ -28,10 +28,16 @@ on these targets.
   `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md` for recovery info.
 - Next branch: opcode fusion in Pulley
   (`xband_brif_eq_zero`, `funcref_load_dispatch`, AOT peephole) per
-  the fusion section of PR #2's description. Phase 1
-  (`xband_brif_eq_zero`) drafted on `claude/pulley-fusion-xband-brif`
-  on the wasmtime fork; see `docs/opcode-fusion-band-brif.md`. PMU /
-  wallclock measurement on iPhone 12 still TBD.
+  the fusion section of PR #2's description. **Phase 1
+  (`xband_brif_eq_zero`) measured 2026-05-14 on iPhone 12 — hypothesis
+  falsified, wallclock flat, Discarded +7.87 % regression
+  (resembles the c1-8 brif-elision regression already documented in
+  commit `8fbd7271fb` on PR #2). The predictor-anchor argument was
+  wrong: BandBrIf is a new opcode whose handler-PC has its own
+  predictor-history entry, which never warms up to the brif handler's
+  baseline. See `docs/opcode-fusion-band-brif.md` → "Measurement
+  results — 2026-05-14".** Recommend skipping to proposal (2)
+  `funcref_load_dispatch` rather than shipping Phase 1 in isolation.
 
 ## Toolchain pinning
 
