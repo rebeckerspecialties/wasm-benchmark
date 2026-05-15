@@ -30,14 +30,20 @@ on these targets.
   (`xband_brif_eq_zero`, `funcref_load_dispatch`, AOT peephole) per
   the fusion section of PR #2's description. **Phase 1
   (`xband_brif_eq_zero`) measured 2026-05-14 on iPhone 12 — hypothesis
-  falsified, wallclock flat, Discarded +7.87 % regression
-  (resembles the c1-8 brif-elision regression already documented in
-  commit `8fbd7271fb` on PR #2). The predictor-anchor argument was
-  wrong: BandBrIf is a new opcode whose handler-PC has its own
-  predictor-history entry, which never warms up to the brif handler's
-  baseline. See `docs/opcode-fusion-band-brif.md` → "Measurement
-  results — 2026-05-14".** Recommend skipping to proposal (2)
-  `funcref_load_dispatch` rather than shipping Phase 1 in isolation.
+  falsified in isolation (wallclock flat, Discarded +7.87 %). Phase 2
+  (`funcref_load_dispatch`) measured same day on top of phase 1's
+  branch: call_indirect wallclock **−5.0 %** vs baseline (the first
+  measurable wallclock win past PR #2's c1-7 ceiling), PMU Discarded
+  **−1.74 %** vs baseline / **−8.91 %** vs phase 1 — phase 1's
+  predictor-anchor regression is reclaimed. The
+  per-new-opcode-family predictor cost is NOT linear; the larger
+  funcref-dispatch op consolidates the predictor's view of the
+  dispatch tail better than the narrower BandBrIf. Phase 2
+  supersedes phase 1 at the same call site; phase 1's `BandBrIf` op
+  stays in the ISA as a fallback when the continuation-block load
+  pattern doesn't match. See `docs/opcode-fusion-band-brif.md` and
+  `docs/opcode-fusion-funcref-dispatch.md` for the two measurement
+  closeouts.**
 
 ## Toolchain pinning
 

@@ -261,36 +261,79 @@ documented.
 
 ### Implication for next step
 
-Three concrete options, in declining order of conservatism:
+**Phase 1 and Phase 2 are alternatives at the runtime, not layered.**
+Both target the same call_indirect lazy-init tail in the eager-init
+path. Phase 2 has now been measured — see
+[`opcode-fusion-funcref-dispatch.md`](./opcode-fusion-funcref-dispatch.md)
+— and the shapes work out as:
 
-1. **Don't ship Phase 1 in isolation.** The wallclock is flat and the
-   Discarded regression worsens the dispatch-mispredict baseline that
-   subsequent optimizations have to overcome. Shipping this alone
-   would be a no-op at best and a hidden tax at worst.
+```
+band -2 ; brif ; xload code ; xload vmctx ; call_indirect    (baseline: 5 ops)
+BandBrIf ; xload code ; xload vmctx ; call_indirect           (phase 1: 4 ops)
+xband64_s8 ; FuncrefDispatch ; call_indirect                  (phase 2: 3 ops)
+```
 
-2. **Skip to Proposal (2) `funcref_load_dispatch`**, which fuses
-   `band + brif + xload code + xload vmctx` into one op. The
-   predicted ~−15-25 % cycles is large enough that *even if* a similar
-   Discarded penalty appears, the Useful savings should dominate.
-   The predictor-anchor cost is amortized over more saved dispatches.
+(Phase 2 keeps the `xband64_s8` as a separate op since `src` is
+consumed as the band's result — see the phase-2 doc's "Soundness"
+section for why this trades 1 fewer saved dispatch for a cleaner
+predictor anchor.)
 
-3. **Investigate the predictor mechanism on Icestorm.** Pulley's
-   tail-call dispatch puts indirect branches at handler PCs; the
-   number of distinct handlers and their call-site mixing determines
-   how well the predictor's BTB / pattern history learns. A
-   handler-PC histogram for the dispatch loop on this workload would
-   show whether adding 4 new opcodes (the BandBrIf variants) is
-   measurably crowding the BTB. If so, the same redesign approach
-   would inform Proposals (2) and (3).
+At the call_indirect site phase 2 dominates phase 1: more dispatches
+saved (2 vs 1), same number of new op families added (1 — phase 1's
+4 op variants vs phase 2's 4 op variants both count as one "family"
+for predictor purposes), measurable wallclock win (call_indirect
+−5 % vs ~flat), better PMU buckets (Discarded reclaimed). In a final
+upstream PR, phase 2 *replaces* phase 1's runtime contribution at this
+site; phase 1's `BandBrIf` op stays as a fallback only when phase 2's
+continuation-block load pattern doesn't match.
 
-**Recommendation**: Option (2). The phase-1 measurement has done its
-job — it falsified the cheap-win hypothesis. Proposal (2) is the next
-falsifiable test in the same direction, and a positive result there
-would also retroactively justify Phase 1 (since funcref_load_dispatch
-strictly contains the band+brif fusion). A negative result would
-inform a different architectural direction (e.g. relocating dispatch
-inside Cranelift-emit-time decisions per the Hermes catalog reference
-in the task brief).
+**Phase 1's codegen infrastructure does layer, though.** Of the three
+patches:
+
+| patch | what it adds | reused by phase 2 |
+|---|---|---|
+| 0001 | `xband_s8_br_if[_not]_{x32,x64}` ops in Pulley ISA | obsoleted at call_indirect site |
+| 0002 | `Lower::sink_pure_inst` — absorb pure CLIF inst into a fused MachInst | **yes** — phase 2 fuses 4 pure CLIF insts, needs the same primitive |
+| 0003 | `func_environ` IR rewrite + `is_eagerly_initialized_funcref_table` gate + Cranelift recognizer | IR rewrite + predicate gate **yes**; recognizer obsoleted |
+
+So patch 0002 is genuinely foundational and stays. Patches 0001 and
+0003's recognizer become unused when phase 2 ships at the same site,
+but their shape was the cheap-test-first design for the harder
+phase-2 recognizer.
+
+**Phase 1's PMU measurement is calibration for phase 2.** The bucket
+diff above gives two per-unit numbers that did not exist before:
+
+- per-dispatch saving: **Processing −5.1 %** from removing one
+  match_loop dispatch per call_indirect site (band's handler).
+- per-new-opcode cost: **Discarded +7.9 %** from adding one new
+  handler whose tail-call indirect-branch predictor entry is cold.
+
+Phase 2 removes ~3 dispatches (band, brif, two xloads → one fused op)
+and adds 1 new opcode. The back-of-envelope prediction is:
+
+| bucket | scaled prediction | predicted by PR #2 |
+|---|---:|---:|
+| Processing | ~−15 % (3× phase 1's per-dispatch saving) | — |
+| Discarded  | ~+8 % (same single-new-opcode cost) | — |
+| Total cycles | net negative (savings dominate) | −15 % to −25 % |
+| Useful     | improvement once the Discarded tax is overcome | predicted by PR #2 |
+
+If phase 2's Discarded uptick stays near +8 % while Processing drops
+~3× phase 1's amount, the per-opcode predictor cost is amortizing
+linearly across the fused dispatches and we have a real win. If
+Discarded grows faster than +8 % per new opcode, the cost is
+super-linear and we need to rethink the dispatch model (proposal 3
+AOT peephole, or a redesign that doesn't add new handler-PC entries)
+rather than keep adding bigger fused ops.
+
+**Recommendation**: **Build phase 2 on top of phase 1's branch**,
+keeping patches 0001-0003 as draft (don't push to fork-as-PR), and
+measure against this baseline. Use the calibration numbers above as
+the falsification threshold. A positive phase-2 result retroactively
+makes phase 1's infrastructure (patch 0002 in particular) part of the
+final upstream PR; a negative phase-2 result kills both and pivots to
+proposal 3 or a different architectural direction.
 
 ### Outliers / caveats
 

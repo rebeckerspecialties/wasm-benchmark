@@ -1,0 +1,114 @@
+From 6ec49ef8842db3ada406806a62f9114e87cc86a0 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Thu, 14 May 2026 21:29:46 -0700
+Subject: cranelift: LowerBackend::pre_lower hook + sink_pure_inst loads
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two related additions to the machinst lowering infrastructure, both
+to support cross-block fusion patterns (specifically Pulley's
+funcref-dispatch fusion in the following commit).
+
+LowerBackend::pre_lower analysis hook: a backend-specific pass run
+once after `Lower::new` but before the main reverse-block lowering
+loop. Default impl is a no-op. The block-by-block lowering loop
+processes blocks in reverse layout order, so by the time a brif in
+the predecessor block is lowered, its taken-target (continuation)
+block has already had its instructions emitted to VCode. To absorb
+continuation-block insts into a fused MachInst emitted at the brif's
+lowering time, we have to mark them via `sink_pure_inst` BEFORE the
+continuation block is lowered.
+
+`Lower::sink_pure_inst` now also accepts trusted readonly loads
+(`MemFlags::readonly() + notrap()`). CLIF considers Loads
+side-effecting via `can_load()`, but the readonly + notrap flag
+combination asserts that the load is safe to skip from the codegen's
+perspective. The absorbing MachInst takes responsibility for
+performing the load itself; the standalone CLIF load is skipped in
+`lower_clif_block` the same way pure ALU ops are. Color tracking
+remains unnecessary because we're not moving a side-effecting op —
+we're telling the lowerer it has been handled elsewhere.
+
+The combination unlocks the pattern: pre-pass identifies the fusion
+shape across blocks and sinks the in-continuation loads; the
+brif-side lowering then emits one fused MachInst whose def vregs
+replace the absorbed loads' def vregs.
+---
+ cranelift/codegen/src/machinst/compile.rs |  9 ++++++-
+ cranelift/codegen/src/machinst/lower.rs   | 32 ++++++++++++++++++++++-
+ 2 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/cranelift/codegen/src/machinst/compile.rs b/cranelift/codegen/src/machinst/compile.rs
+index 7747d804ca..91d1da84c9 100644
+--- a/cranelift/codegen/src/machinst/compile.rs
++++ b/cranelift/codegen/src/machinst/compile.rs
+@@ -25,9 +25,16 @@ pub fn compile<B: LowerBackend + TargetIsa>(
+     let block_order = BlockLoweringOrder::new(f, domtree, ctrl_plane);
+ 
+     // Build the lowering context.
+-    let lower =
++    let mut lower =
+         crate::machinst::Lower::new(f, abi, emit_info, block_order, sigs, b.flags().clone())?;
+ 
++    // Backend-specific pre-lowering analysis. Default impl on LowerBackend
++    // is a no-op; Pulley overrides it to mark continuation-block loads as
++    // absorbed_pure when the call_indirect lazy-init brif pattern is
++    // present, so they can be fused into a single Pulley dispatch op
++    // emitted at the brif's lowering time.
++    b.pre_lower(&mut lower);
++
+     // Lower the IR.
+     let vcode = {
+         log::debug!(
+diff --git a/cranelift/codegen/src/machinst/lower.rs b/cranelift/codegen/src/machinst/lower.rs
+index ce9dd3406b..f1c1f8fa30 100644
+--- a/cranelift/codegen/src/machinst/lower.rs
++++ b/cranelift/codegen/src/machinst/lower.rs
+@@ -148,6 +148,18 @@ pub trait LowerBackend {
+     fn maybe_pinned_reg(&self) -> Option<Reg> {
+         None
+     }
++
++    /// Backend-specific analysis hook, run once after `Lower::new` but
++    /// before the main reverse-block lowering loop. Default: no-op.
++    ///
++    /// Use this to mark instructions as `sink_pure_inst` when they will be
++    /// absorbed by a fused MachInst emitted in a different (earlier-in-CFG,
++    /// later-in-reverse-order) block. The block-by-block lowering loop
++    /// processes blocks in reverse, so cross-block absorption can't be
++    /// arranged at the absorbing instruction's lowering time — it has to be
++    /// arranged here, before any block is lowered. Within a single block,
++    /// `sink_pure_inst` called during normal lowering is still sufficient.
++    fn pre_lower(&self, _ctx: &mut Lower<Self::MInst>) {}
+ }
+ 
+ /// Machine-independent lowering driver / machine-instruction container. Maintains a correspondence
+@@ -1701,8 +1713,26 @@ impl<'func, I: VCodeInst> Lower<'func, I> {
+     /// lowering side effect: it is specifically for pure ALU ops whose value
+     /// flows into the fused MachInst's output operand. Color tracking is
+     /// likewise unnecessary because pure insts have no color anchor.
++    ///
++    /// We additionally allow absorbing trusted readonly loads — CLIF
++    /// considers them side-effecting (via `can_load()`), but the
++    /// `notrap + readonly` flags assert they're safe to skip from the
++    /// codegen's perspective. The absorbing MachInst takes responsibility
++    /// for performing the load itself. Color tracking is still
++    /// unnecessary because we're not moving a side-effecting op — we're
++    /// telling the lowerer it has been handled elsewhere.
+     pub fn sink_pure_inst(&mut self, ir_inst: Inst) {
+-        assert!(!has_lowering_side_effect(self.f, ir_inst));
++        let dfg_inst = &self.f.dfg.insts[ir_inst];
++        let is_pure = !has_lowering_side_effect(self.f, ir_inst);
++        let is_safe_load = matches!(
++            dfg_inst,
++            InstructionData::Load {
++                opcode: crate::ir::Opcode::Load,
++                flags,
++                ..
++            } if flags.readonly() && flags.notrap()
++        );
++        assert!(is_pure || is_safe_load);
+         self.inst_absorbed_pure.insert(ir_inst);
+     }
+ 
