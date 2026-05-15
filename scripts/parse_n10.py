@@ -19,10 +19,28 @@ from statistics import median
 
 
 LINE_RE = re.compile(
-    r'^\[\[\s*(?P<runtime>\w+)\s*\]\s+(?P<workload>\S+).*?\]\s+'
+    r'^\[\[\s*(?P<runtime>\w+)\s*\]\s+(?P<workload>.+?)\]\s+'
     r'result=\S+\s+iter=\d+\s+load=\S+\s+'
     r'min=(?P<min>\S+)\s+median=(?P<median>\S+)\s+p99=(?P<p99>\S+)'
 )
+
+
+def normalize_workload(s):
+    """Canonicalise the label-derived workload string for tabular display.
+    Drop dispatch-count parentheticals like `(200K dispatches)` /
+    `(1024-frame buffer)` / `(200K)` — they're informational, not
+    distinguishing. But KEEP `(AS)` and `(Porffor)` since they
+    distinguish graphql-validation variants.
+    """
+    s = s.strip()
+    if "graphql-validation" in s:
+        if "(AS)" in s:
+            return "graphql-validation (AS)"
+        if "(Porffor)" in s:
+            return "graphql-validation (Porffor)"
+    # strip trailing parenthetical "(...)" if present
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", s)
+    return s
 
 
 def parse_log(path):
@@ -32,7 +50,7 @@ def parse_log(path):
         if m:
             rows.append({
                 "runtime": m.group("runtime"),
-                "workload": m.group("workload"),
+                "workload": normalize_workload(m.group("workload")),
                 "median_ms": float(m.group("median")),
                 "min_ms": float(m.group("min")),
                 "p99_ms": float(m.group("p99")),

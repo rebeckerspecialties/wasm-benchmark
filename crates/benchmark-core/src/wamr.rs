@@ -111,13 +111,20 @@ pub fn run_workload_wamr_iters(
             .to_string_lossy();
         return Err(anyhow!("wasm_runtime_load failed: {msg}"));
     }
-    // 8 KiB stack, 64 KiB initial heap — enough for the static-buffer
-    // workloads, more than enough for fib_tail / fib.
+    // 32 KiB stack, 8 MiB initial heap. The 64 KiB heap that earlier
+    // workloads used was fine for the static-buffer benchmarks
+    // (call_indirect / xmrsplayer / vtable / fib / sieve / crc32 /
+    // matmul / convolution / audio_dsp / bulk_memory) but too small
+    // for AS-compiled workloads — AS's TLSF allocator `~start` first
+    // tries to `memory.grow` to its initial slab and traps `unreachable`
+    // if the grow fails. 8 MiB is comfortably above what
+    // `graphql-validation (AS)` needs and still small relative to
+    // arm64_32-apple-watchos's overall memory pressure.
     let module_inst = unsafe {
         wasm_runtime_instantiate(
             module,
-            8 * 1024,
-            64 * 1024,
+            32 * 1024,
+            8 * 1024 * 1024,
             err_buf.as_mut_ptr(),
             err_buf.len() as u32,
         )
@@ -138,7 +145,7 @@ pub fn run_workload_wamr_iters(
         }
         return Err(anyhow!("export `{fn_name}` not found"));
     }
-    let exec_env = unsafe { wasm_runtime_create_exec_env(module_inst, 8 * 1024) };
+    let exec_env = unsafe { wasm_runtime_create_exec_env(module_inst, 32 * 1024) };
     if exec_env.is_null() {
         unsafe {
             wasm_runtime_deinstantiate(module_inst);
@@ -242,4 +249,230 @@ pub fn run_workload_wamr_iters(
 
 pub fn run_workload_wamr(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
     run_workload_wamr_iters(wasm_bytes, fn_name, arg, 0)
+}
+
+// --- graphql-validation-porf runner --------------------------------
+//
+// Porffor's `m()` export returns `(f64, i32)` (multi-return) and the
+// module imports a host print function `("", "b")` taking an f64.
+// The generic runner above can't handle either, so we have a dedicated
+// runner here. We use WAMR's `call_wasm_v` (variadic) form so we can
+// declare the result-count up front; the return values themselves are
+// discarded (we only care about wallclock).
+//
+// Per-iteration: we destroy and re-instantiate to match Porffor's
+// no-GC memory model (the wasmtime side does the same via fresh
+// `Store` per iter). Module is loaded once.
+
+#[repr(C)]
+struct NativeSymbol {
+    symbol: *const c_char,
+    func_ptr: *mut c_void,
+    signature: *const c_char,
+    attachment: *mut c_void,
+}
+
+extern "C" {
+    fn wasm_runtime_register_natives(
+        module_name: *const c_char,
+        native_symbols: *mut NativeSymbol,
+        n_native_symbols: u32,
+    ) -> bool;
+    fn wasm_runtime_call_wasm_v(
+        exec_env: wasm_exec_env_t,
+        function: wasm_function_inst_t,
+        num_results: u32,
+        results: *mut WasmVal,
+        num_args: u32,
+        ...
+    ) -> bool;
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+union WasmValPayload {
+    i32_: i32,
+    i64_: i64,
+    f32_: f32,
+    f64_: f64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct WasmVal {
+    kind: u32, // WASM_I32=0, WASM_I64=1, WASM_F32=2, WASM_F64=3
+    _pad: u32,
+    payload: WasmValPayload,
+}
+
+extern "C" fn porf_b_native(_exec_env: wasm_exec_env_t, _ch: f64) {
+    // Stubbed host print — Porffor calls this per character to write
+    // its `validate: errors=N` line. We swallow the output; only the
+    // wallclock per validation matters.
+}
+
+static REGISTER_ONCE: Once = Once::new();
+
+fn ensure_porf_natives_registered() {
+    REGISTER_ONCE.call_once(|| {
+        // These must outlive every module load, so leak them.
+        let module = std::ffi::CString::new("").unwrap().into_raw() as *const c_char;
+        let symbol = std::ffi::CString::new("b").unwrap().into_raw() as *const c_char;
+        let signature = std::ffi::CString::new("(F)").unwrap().into_raw() as *const c_char;
+        let mut sym = NativeSymbol {
+            symbol,
+            func_ptr: porf_b_native as *mut c_void,
+            signature,
+            attachment: std::ptr::null_mut(),
+        };
+        let _ = unsafe { wasm_runtime_register_natives(module, &mut sym, 1) };
+    });
+}
+
+pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> {
+    ensure_init()?;
+    ensure_porf_natives_registered();
+
+    let mut err_buf = [0i8; 256];
+    let load_start = Instant::now();
+    let mut bytes_owned = wasm_bytes.to_vec();
+    let module = unsafe {
+        wasm_runtime_load(
+            bytes_owned.as_mut_ptr(),
+            bytes_owned.len() as u32,
+            err_buf.as_mut_ptr(),
+            err_buf.len() as u32,
+        )
+    };
+    if module.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        return Err(anyhow!("wasm_runtime_load failed: {msg}"));
+    }
+
+    // Helper: spin up an instance, run `m()` once, tear down. Heap is
+    // sized generously (4 MiB) because Porffor allocates without GC.
+    let cname_m = std::ffi::CString::new("m")?;
+    let run_once = |timed: bool, err_buf: &mut [i8; 256]| -> Result<Duration> {
+        let module_inst = unsafe {
+            wasm_runtime_instantiate(
+                module,
+                8 * 1024,
+                4 * 1024 * 1024,
+                err_buf.as_mut_ptr(),
+                err_buf.len() as u32,
+            )
+        };
+        if module_inst.is_null() {
+            let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }
+                .to_string_lossy()
+                .into_owned();
+            return Err(anyhow!("wasm_runtime_instantiate failed: {msg}"));
+        }
+        let func = unsafe { wasm_runtime_lookup_function(module_inst, cname_m.as_ptr()) };
+        if func.is_null() {
+            unsafe { wasm_runtime_deinstantiate(module_inst) };
+            return Err(anyhow!("export `m` not found"));
+        }
+        let exec_env = unsafe { wasm_runtime_create_exec_env(module_inst, 8 * 1024) };
+        if exec_env.is_null() {
+            unsafe { wasm_runtime_deinstantiate(module_inst) };
+            return Err(anyhow!("wasm_runtime_create_exec_env failed"));
+        }
+        // `m()` returns (f64, i32) — 2 results, 0 args. Use the
+        // variadic call form.
+        let mut results: [WasmVal; 2] = [WasmVal {
+            kind: 0,
+            _pad: 0,
+            payload: WasmValPayload { i64_: 0 },
+        }; 2];
+        let it_start = if timed { Some(Instant::now()) } else { None };
+        let ok = unsafe {
+            wasm_runtime_call_wasm_v(exec_env, func, 2, results.as_mut_ptr(), 0)
+        };
+        let elapsed = it_start.map(|t| t.elapsed()).unwrap_or_default();
+        if !ok {
+            let msg_ptr = unsafe { wasm_runtime_get_exception(module_inst) };
+            let msg = if msg_ptr.is_null() {
+                "(no exception text)".to_string()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(msg_ptr) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            unsafe {
+                wasm_runtime_destroy_exec_env(exec_env);
+                wasm_runtime_deinstantiate(module_inst);
+            }
+            return Err(anyhow!("WAMR m() trap: {msg}"));
+        }
+        unsafe {
+            wasm_runtime_destroy_exec_env(exec_env);
+            wasm_runtime_deinstantiate(module_inst);
+        }
+        Ok(elapsed)
+    };
+
+    let load_time = load_start.elapsed();
+
+    // Warmup → budget.
+    let warm = run_once(true, &mut err_buf).context("WAMR porf warmup failed")?;
+    let n = crate::pick_iters(warm, Duration::from_millis(200));
+
+    let cpu_before = taskinfo::thread_times();
+    let events_before = taskinfo::events_info();
+
+    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let t = run_once(true, &mut err_buf).context("WAMR porf iter failed")?;
+        samples.push(t.as_nanos() as u64);
+    }
+
+    let cpu_after = taskinfo::thread_times();
+    let events_after = taskinfo::events_info();
+    let basic = taskinfo::basic_info();
+
+    samples.sort_unstable();
+    let run_min = Duration::from_nanos(samples[0]);
+    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
+    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
+    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
+
+    #[cfg(target_vendor = "apple")]
+    let (cpu_user_ns, cpu_system_ns, page_faults) = {
+        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
+        match (cpu_before, cpu_after, events_before, events_after) {
+            (Some(b), Some(a), Some(eb), Some(ea)) => (
+                to(a.user_time).saturating_sub(to(b.user_time)),
+                to(a.system_time).saturating_sub(to(b.system_time)),
+                (ea.faults as u64).saturating_sub(eb.faults as u64),
+            ),
+            _ => (0, 0, 0),
+        }
+    };
+    #[cfg(not(target_vendor = "apple"))]
+    let (cpu_user_ns, cpu_system_ns, page_faults) = {
+        let _ = (cpu_before, cpu_after, events_before, events_after);
+        (0u64, 0u64, 0u64)
+    };
+
+    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
+
+    unsafe {
+        wasm_runtime_unload(module);
+    }
+
+    Ok(RunReport {
+        result: 0,
+        iterations: n,
+        load_time,
+        run_min,
+        run_median,
+        run_p99,
+        cpu_user_ns,
+        cpu_system_ns,
+        rss_peak_bytes,
+        page_faults,
+    })
 }

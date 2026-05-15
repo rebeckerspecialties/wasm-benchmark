@@ -95,6 +95,16 @@ wasmtime/                gitignored — working clone with active PR
   PMU total cycles −4.31 % vs phase 2 / −0.96 % vs baseline; Discarded
   −7.33 % vs phase 2 / −8.95 % vs baseline. Wallclock matches phase 2
   within noise. Ship the full 9-commit stack.**
+- **[docs/cross-runtime-pulley-vs-wamr.md](docs/cross-runtime-pulley-vs-wamr.md)** —
+  Pulley (phase 3) vs WAMR fast-interp side-by-side, iPhone 12, N=10
+  medians, steady-state iteration time (module load excluded).
+  **WAMR is 1.37–1.86× faster across call_indirect, xmrsplayer,
+  vtable_*, graphql-validation (AS); Pulley wins only on
+  graphql-validation (Porffor) because WAMR can't load Porffor's
+  wasm-exceptions section in our build.** The fusion track narrowed
+  the gap from baseline but can't close it — WAMR's load-time
+  register-IR rewrite is structurally fewer dispatches per source
+  wasm op.
 - **[docs/archived-ic-branches.md](docs/archived-ic-branches.md)** —
   SHAs for the deleted `pulley-call-indirect-ic*` branches, in case
   a future 2-way-IC or poisoning variant wants that baseline.
