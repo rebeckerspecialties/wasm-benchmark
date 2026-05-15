@@ -26,9 +26,12 @@ on these targets.
   IC's back-end savings cancel against new front-end / mispredict
   pressure on Apple silicon E-cores. See
   `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md` for recovery info.
-- Next branch (not yet started): opcode fusion in Pulley
+- Next branch: opcode fusion in Pulley
   (`xband_brif_eq_zero`, `funcref_load_dispatch`, AOT peephole) per
-  the fusion section of PR #2's description.
+  the fusion section of PR #2's description. Phase 1
+  (`xband_brif_eq_zero`) drafted on `claude/pulley-fusion-xband-brif`
+  on the wasmtime fork; see `docs/opcode-fusion-band-brif.md`. PMU /
+  wallclock measurement on iPhone 12 still TBD.
 
 ## Toolchain pinning
 
@@ -262,6 +265,10 @@ submodule). Active branches:
 - **(deleted)** `pulley-call-indirect-ic`,
   `pulley-call-indirect-ic-noseqlock` — IC investigation, closed
   out. SHAs in `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md`.
+- **`claude/pulley-fusion-xband-brif`** — Phase 1 opcode fusion
+  (`xband_s8 + br_if`). Three commits on top of
+  `table-mutability-tracking`. See
+  `docs/opcode-fusion-band-brif.md`.
 
 ## Cross-runtime comparison
 

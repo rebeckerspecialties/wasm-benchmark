@@ -76,6 +76,10 @@ wasmtime/                gitignored — working clone with active PR
   N=10 cross-platform IC measurement closeout. The IC investigation
   is closed; pulley super-op fusion is the next direction (see
   PR #2's description).
+- **[docs/opcode-fusion-band-brif.md](docs/opcode-fusion-band-brif.md)** —
+  Phase 1 of the opcode-fusion track: `xband_s8 + br_if` fused into
+  one Pulley dispatch at call_indirect lazy-init sites. Wasmtime
+  draft branch ready; PMU / wallclock measurement on iPhone 12 TBD.
 - **[docs/archived-ic-branches.md](docs/archived-ic-branches.md)** —
   SHAs for the deleted `pulley-call-indirect-ic*` branches, in case
   a future 2-way-IC or poisoning variant wants that baseline.
