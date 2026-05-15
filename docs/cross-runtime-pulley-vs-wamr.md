@@ -166,3 +166,9 @@ Two workloads where WAMR fails to load or run, even with the bumped
 
 - N=10 per-rep logs: `out/exp-cross-runtime/n10/iphone12-phase3-r{1..10}.log`
 - Parse script: `scripts/parse_n10.py out/exp-cross-runtime/n10`
+
+## Follow-up: 3-way comparison incl. PMU
+
+The 2-way wallclock comparison above was expanded to a 3-way
+(baseline / phase3 / WAMR) wallclock + per-workload PMU measurement on
+the same iPhone 12. See `docs/three-way-baseline-phase3-wamr.md`.

@@ -1,0 +1,298 @@
+From 0a53fe2e352bab686106d4b303a63b4a150dda9b Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Fri, 15 May 2026 02:22:52 -0700
+Subject: cranelift/pulley: pass first 4 indirect-call args via call_indirectN
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Mirror of the direct-call arg-bundling in `Inst::Call`: extend
+`Inst::IndirectCall`'s `info.dest` from `XReg` to a new
+`PulleyCallIndirect { target, args: SmallVec<[XReg; 4]> }` payload,
+parallel to `PulleyCall`. `gen_call_ind_info` pulls the first 0–4
+integer args out of `uses` (where they were going through regalloc's
+`reg_fixed_use`, costing one `xmov` each) into `args`, where they
+flow as free reg uses and the emitted `call_indirect{1,2,3,4}`
+opcode does the move-into-x0..x3 at call time.
+
+The emit side picks the narrowest op for the call after the same
+"drop args already in their ABI register" loop that direct calls
+use. With phase-3's `xband_funcref_dispatch_*` writing `dst_vmctx`
+into a free register, the previously-emitted `xmov x0, dst_vmctx;
+call_indirect dst_code` pair at the dispatch tail collapses to a
+single `call_indirect1 dst_code, dst_vmctx` op — one fewer Pulley
+dispatch per call_indirect on the lazy-init fast path. Indirect
+calls with 0/2/3/4 ABI args benefit identically via the matching
+`call_indirect{,2,3,4}` opcodes.
+
+iPhone 12 A14 Icestorm wallclock (N=10, BENCH_TARGET_MS=2000,
+`.utility` QoS) vs phase 3:
+- vtable_poly4 −8.94%
+- vtable_bi    −6.71%
+- vtable_poly6 −3.72%
+- xmrsplayer   −2.17%
+- vtable_mono  −0.68%
+
+Filetest snapshots updated for the new `dest` shape; no behaviour
+change in the pretty-printed form. All 13 wasmtime
+craneliftpulley_call_* integration tests pass.
+---
+ .../src/isa/pulley_shared/inst/args.rs        | 20 ++++++++++++
+ .../src/isa/pulley_shared/inst/emit.rs        | 18 ++++++++++-
+ .../codegen/src/isa/pulley_shared/inst/mod.rs | 15 +++++++--
+ .../src/isa/pulley_shared/lower/isle.rs       | 32 ++++++++++++++++---
+ .../filetests/isa/pulley32/call.clif          |  2 +-
+ .../filetests/isa/pulley32/exceptions.clif    |  2 +-
+ .../filetests/isa/pulley32/preserve-all.clif  |  4 +--
+ .../filetests/isa/pulley64/call.clif          |  2 +-
+ .../filetests/isa/pulley64/exceptions.clif    |  2 +-
+ .../filetests/isa/pulley64/preserve-all.clif  |  4 +--
+ 10 files changed, 85 insertions(+), 16 deletions(-)
+
+diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/args.rs b/cranelift/codegen/src/isa/pulley_shared/inst/args.rs
+index e97e3303ef..79bafbe2fa 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/inst/args.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/inst/args.rs
+@@ -577,6 +577,26 @@ pub struct PulleyCall {
+     pub args: SmallVec<[XReg; 4]>,
+ }
+ 
++/// Payload of `CallInfo` for indirect-call instructions.
++///
++/// Mirror of `PulleyCall` for `Inst::IndirectCall`: the call target is a
++/// runtime register (the loaded `wasm_call` pointer at the call_indirect
++/// dispatch tail), and the first 0–4 integer ABI args are passed as free
++/// registers so the `call_indirect1/2/3/4` opcodes can move them into
++/// `x0..x3` as part of the call (saving one `xmov` per arg on the hot
++/// dispatch path). Remaining args live in `CallInfo::uses` with fixed
++/// pregs, just as for `PulleyCall`.
++#[derive(Clone, Debug)]
++pub struct PulleyCallIndirect {
++    /// The register holding the call target (e.g. the `wasm_call` pointer
++    /// loaded out of a `VMFuncRef`).
++    pub target: XReg,
++    /// Up to 4 integer args destined for `x0..x3`. Tracked separately so
++    /// regalloc doesn't insert moves and the `call_indirectN` opcode moves
++    /// them itself.
++    pub args: SmallVec<[XReg; 4]>,
++}
++
+ pub use super::super::lower::isle::generated_code::AddrO32;
+ 
+ impl Copy for AddrO32 {}
+diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs b/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
+index 4c5fbd3668..10f4e2ca00 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
+@@ -233,7 +233,23 @@ fn pulley_emit<P>(
+         }
+ 
+         Inst::IndirectCall { info } => {
+-            enc::call_indirect(sink, info.dest);
++            // If x0..xN args are already in their correct ABI register
++            // (because regalloc allocated the producer's vreg there), drop
++            // them off the end so we can use a narrower `call_indirectN`
++            // op — mirror of the direct-call shrink loop above.
++            let target = info.dest.target;
++            let mut args = &info.dest.args[..];
++            while !args.is_empty() && args.last().copied() == XReg::new(x_reg(args.len() - 1)) {
++                args = &args[..args.len() - 1];
++            }
++            match args {
++                [] => enc::call_indirect(sink, target),
++                [x0] => enc::call_indirect1(sink, target, *x0),
++                [x0, x1] => enc::call_indirect2(sink, target, *x0, *x1),
++                [x0, x1, x2] => enc::call_indirect3(sink, target, *x0, *x1, *x2),
++                [x0, x1, x2, x3] => enc::call_indirect4(sink, target, *x0, *x1, *x2, *x3),
++                _ => unreachable!(),
++            }
+ 
+             if let Some(s) = state.take_stack_map() {
+                 let offset = sink.cur_offset();
+diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs b/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
+index 9403da267d..12aefc5d27 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
+@@ -206,14 +206,25 @@ fn pulley_get_operands(inst: &mut Inst, collector: &mut impl OperandVisitor) {
+             }
+         }
+         Inst::IndirectCall { info } => {
+-            collector.reg_use(&mut info.dest);
+             let CallInfo {
+                 uses,
+                 defs,
++                dest,
+                 try_call_info,
+                 clobbers,
+                 ..
+             } = &mut **info;
++
++            // Phase-4: the target and the first up-to-4 integer args live
++            // in `dest` and are passed as free reg uses; the emitted
++            // `call_indirect{1,2,3,4}` op moves the args into x0..x3 at
++            // call time. Remaining args still flow through `uses` with
++            // fixed pregs as before.
++            let PulleyCallIndirect { target, args } = dest;
++            collector.reg_use(target);
++            for arg in args {
++                collector.reg_use(arg);
++            }
+             for CallArgPair { vreg, preg } in uses {
+                 collector.reg_fixed_use(vreg, *preg);
+             }
+@@ -762,7 +773,7 @@ impl Inst {
+             }
+ 
+             Inst::IndirectCall { info } => {
+-                let callee = format_reg(*info.dest);
++                let callee = format_reg(*info.dest.target);
+                 let try_call = info
+                     .try_call_info
+                     .as_ref()
+diff --git a/cranelift/codegen/src/isa/pulley_shared/lower/isle.rs b/cranelift/codegen/src/isa/pulley_shared/lower/isle.rs
+index d72b6a0237..cc302da862 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/lower/isle.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/lower/isle.rs
+@@ -10,8 +10,8 @@ use crate::ir::{condcodes::*, immediates::*, types::*, *};
+ use crate::isa::CallConv;
+ use crate::isa::pulley_shared::{
+     inst::{
+-        FReg, OperandSize, PulleyCall, ReturnCallInfo, VReg, WritableFReg, WritableVReg,
+-        WritableXReg, XReg,
++        FReg, OperandSize, PulleyCall, PulleyCallIndirect, ReturnCallInfo, VReg, WritableFReg,
++        WritableVReg, WritableXReg, XReg,
+     },
+     lower::{Cond, regs},
+     *,
+@@ -30,7 +30,7 @@ type Unit = ();
+ type VecArgPair = Vec<ArgPair>;
+ type VecRetPair = Vec<RetPair>;
+ type BoxCallInfo = Box<CallInfo<PulleyCall>>;
+-type BoxCallIndInfo = Box<CallInfo<XReg>>;
++type BoxCallIndInfo = Box<CallInfo<PulleyCallIndirect>>;
+ type BoxCallIndirectHostInfo = Box<CallInfo<ExternalName>>;
+ type BoxReturnCallInfo = Box<ReturnCallInfo<ExternalName>>;
+ type BoxReturnCallIndInfo = Box<ReturnCallInfo<XReg>>;
+@@ -124,7 +124,7 @@ where
+         &mut self,
+         sig: Sig,
+         dest: Reg,
+-        uses: CallArgList,
++        mut uses: CallArgList,
+         defs: CallRetList,
+         try_call_info: Option<TryCallInfo>,
+     ) -> BoxCallIndInfo {
+@@ -133,8 +133,30 @@ where
+         self.lower_ctx
+             .abi_mut()
+             .accumulate_outgoing_args_size(stack_ret_space + stack_arg_space);
++        let call_conv = self.lower_ctx.sigs()[sig].call_conv();
+ 
+-        let dest = XReg::new(dest).unwrap();
++        // Mirror of `gen_call_info`: take out the first four integer
++        // arguments (x0..x3) and pass them through the `args` list so the
++        // emitted `call_indirect{1,2,3,4}` op can move them at call time.
++        // Saves one Pulley dispatch per moved arg vs the previous "regalloc
++        // emits xmov; then `call_indirect`" sequence.
++        let mut args = SmallVec::new();
++        uses.sort_by_key(|arg| arg.preg);
++        if call_conv != CallConv::PreserveAll {
++            uses.retain(|arg| {
++                if arg.preg != regs::x0()
++                    && arg.preg != regs::x1()
++                    && arg.preg != regs::x2()
++                    && arg.preg != regs::x3()
++                {
++                    return true;
++                }
++                args.push(XReg::new(arg.vreg).unwrap());
++                false
++            });
++        }
++        let target = XReg::new(dest).unwrap();
++        let dest = PulleyCallIndirect { target, args };
+         Box::new(
+             self.lower_ctx
+                 .gen_call_info(sig, dest, uses, defs, try_call_info, false),
+diff --git a/cranelift/filetests/filetests/isa/pulley32/call.clif b/cranelift/filetests/filetests/isa/pulley32/call.clif
+index c2dc9a09f6..aece47fc9a 100644
+--- a/cranelift/filetests/filetests/isa/pulley32/call.clif
++++ b/cranelift/filetests/filetests/isa/pulley32/call.clif
+@@ -291,7 +291,7 @@ block0(v0: i32):
+ ; VCode:
+ ;   push_frame
+ ; block0:
+-;   indirect_call x0, CallInfo { dest: XReg(p0i), uses: [], defs: [CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }], clobbers: PRegSet { bits: [65534, 4294967295, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: None, patchable: false }
++;   indirect_call x0, CallInfo { dest: PulleyCallIndirect { target: XReg(p0i), args: [] }, uses: [], defs: [CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }], clobbers: PRegSet { bits: [65534, 4294967295, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: None, patchable: false }
+ ;   pop_frame
+ ;   ret
+ ;
+diff --git a/cranelift/filetests/filetests/isa/pulley32/exceptions.clif b/cranelift/filetests/filetests/isa/pulley32/exceptions.clif
+index 1967b5bd9f..17ab3b67aa 100644
+--- a/cranelift/filetests/filetests/isa/pulley32/exceptions.clif
++++ b/cranelift/filetests/filetests/isa/pulley32/exceptions.clif
+@@ -75,7 +75,7 @@ function %f2(i32, i32) -> i32, f32, f64 {
+ ; block0:
+ ;   fconst64 f1, 4607182418800017408
+ ;   fstore64 Slot(0), f1 // flags =  notrap aligned
+-;   indirect_call x1, CallInfo { dest: XReg(p1i), uses: [CallArgPair { vreg: p0i, preg: p0i }], defs: [CallRetPair { vreg: Writable { reg: p0f }, location: Reg(p0f, types::F32) }, CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I32) }, CallRetPair { vreg: Writable { reg: p1i }, location: Reg(p1i, types::I32) }], clobbers: PRegSet { bits: [4294967292, 4294967294, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: Some(TryCallInfo { continuation: MachLabel(1), exception_handlers: [Default(MachLabel(2))] }), patchable: false }; jump MachLabel(1); catch [default: MachLabel(2)]
++;   indirect_call x1, CallInfo { dest: PulleyCallIndirect { target: XReg(p1i), args: [XReg(p0i)] }, uses: [], defs: [CallRetPair { vreg: Writable { reg: p0f }, location: Reg(p0f, types::F32) }, CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I32) }, CallRetPair { vreg: Writable { reg: p1i }, location: Reg(p1i, types::I32) }], clobbers: PRegSet { bits: [4294967292, 4294967294, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: Some(TryCallInfo { continuation: MachLabel(1), exception_handlers: [Default(MachLabel(2))] }), patchable: false }; jump MachLabel(1); catch [default: MachLabel(2)]
+ ; block1:
+ ;   xone x0
+ ;   f1 = fload64 Slot(0) // flags = notrap aligned
+diff --git a/cranelift/filetests/filetests/isa/pulley32/preserve-all.clif b/cranelift/filetests/filetests/isa/pulley32/preserve-all.clif
+index c7d523d4f6..c698bb1f71 100644
+--- a/cranelift/filetests/filetests/isa/pulley32/preserve-all.clif
++++ b/cranelift/filetests/filetests/isa/pulley32/preserve-all.clif
+@@ -15,8 +15,8 @@ block0(v0: i64):
+ ;   xmov x3, x0
+ ;   xmov x1, x3
+ ;   xmov x2, x3
+-;   indirect_call x3, CallInfo { dest: XReg(p3i), uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
+-;   indirect_call x3, CallInfo { dest: XReg(p3i), uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
++;   indirect_call x3, CallInfo { dest: PulleyCallIndirect { target: XReg(p3i), args: [] }, uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
++;   indirect_call x3, CallInfo { dest: PulleyCallIndirect { target: XReg(p3i), args: [] }, uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
+ ;   pop_frame
+ ;   ret
+ ;
+diff --git a/cranelift/filetests/filetests/isa/pulley64/call.clif b/cranelift/filetests/filetests/isa/pulley64/call.clif
+index 16b2718356..bd6f9bba82 100644
+--- a/cranelift/filetests/filetests/isa/pulley64/call.clif
++++ b/cranelift/filetests/filetests/isa/pulley64/call.clif
+@@ -291,7 +291,7 @@ block0(v0: i64):
+ ; VCode:
+ ;   push_frame
+ ; block0:
+-;   indirect_call x0, CallInfo { dest: XReg(p0i), uses: [], defs: [CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }], clobbers: PRegSet { bits: [65534, 4294967295, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: None, patchable: false }
++;   indirect_call x0, CallInfo { dest: PulleyCallIndirect { target: XReg(p0i), args: [] }, uses: [], defs: [CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }], clobbers: PRegSet { bits: [65534, 4294967295, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: None, patchable: false }
+ ;   pop_frame
+ ;   ret
+ ;
+diff --git a/cranelift/filetests/filetests/isa/pulley64/exceptions.clif b/cranelift/filetests/filetests/isa/pulley64/exceptions.clif
+index 82d072f1c2..ff02594182 100644
+--- a/cranelift/filetests/filetests/isa/pulley64/exceptions.clif
++++ b/cranelift/filetests/filetests/isa/pulley64/exceptions.clif
+@@ -77,7 +77,7 @@ function %f2(i32, i64) -> i32, f32, f64 {
+ ; block0:
+ ;   fconst64 f1, 4607182418800017408
+ ;   fstore64 Slot(0), f1 // flags =  notrap aligned
+-;   indirect_call x1, CallInfo { dest: XReg(p1i), uses: [CallArgPair { vreg: p0i, preg: p0i }], defs: [CallRetPair { vreg: Writable { reg: p0f }, location: Reg(p0f, types::F32) }, CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }, CallRetPair { vreg: Writable { reg: p1i }, location: Reg(p1i, types::I64) }], clobbers: PRegSet { bits: [4294967292, 4294967294, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: Some(TryCallInfo { continuation: MachLabel(1), exception_handlers: [Default(MachLabel(2))] }), patchable: false }; jump MachLabel(1); catch [default: MachLabel(2)]
++;   indirect_call x1, CallInfo { dest: PulleyCallIndirect { target: XReg(p1i), args: [XReg(p0i)] }, uses: [], defs: [CallRetPair { vreg: Writable { reg: p0f }, location: Reg(p0f, types::F32) }, CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }, CallRetPair { vreg: Writable { reg: p1i }, location: Reg(p1i, types::I64) }], clobbers: PRegSet { bits: [4294967292, 4294967294, 4294967295, 0] }, callee_conv: Tail, caller_conv: Fast, callee_pop_size: 0, try_call_info: Some(TryCallInfo { continuation: MachLabel(1), exception_handlers: [Default(MachLabel(2))] }), patchable: false }; jump MachLabel(1); catch [default: MachLabel(2)]
+ ; block1:
+ ;   xone x0
+ ;   f1 = fload64 Slot(0) // flags = notrap aligned
+diff --git a/cranelift/filetests/filetests/isa/pulley64/preserve-all.clif b/cranelift/filetests/filetests/isa/pulley64/preserve-all.clif
+index 2b6a28ce9e..44bc72fcaf 100644
+--- a/cranelift/filetests/filetests/isa/pulley64/preserve-all.clif
++++ b/cranelift/filetests/filetests/isa/pulley64/preserve-all.clif
+@@ -15,8 +15,8 @@ block0(v0: i64):
+ ;   xmov x3, x0
+ ;   xmov x1, x3
+ ;   xmov x2, x3
+-;   indirect_call x3, CallInfo { dest: XReg(p3i), uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
+-;   indirect_call x3, CallInfo { dest: XReg(p3i), uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
++;   indirect_call x3, CallInfo { dest: PulleyCallIndirect { target: XReg(p3i), args: [] }, uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
++;   indirect_call x3, CallInfo { dest: PulleyCallIndirect { target: XReg(p3i), args: [] }, uses: [CallArgPair { vreg: p0i, preg: p0i }, CallArgPair { vreg: p1i, preg: p1i }, CallArgPair { vreg: p2i, preg: p2i }, CallArgPair { vreg: p3i, preg: p3i }], defs: [], clobbers: PRegSet { bits: [0, 0, 0, 0] }, callee_conv: PreserveAll, caller_conv: SystemV, callee_pop_size: 0, try_call_info: None, patchable: false }
+ ;   pop_frame
+ ;   ret
+ ;

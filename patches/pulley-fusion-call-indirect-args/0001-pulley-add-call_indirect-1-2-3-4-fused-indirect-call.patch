@@ -1,0 +1,142 @@
+From 7d4b4f92b9640b2f3baefc746359cb7a7240ab36 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Fri, 15 May 2026 02:22:36 -0700
+Subject: pulley: add call_indirect{1,2,3,4} fused indirect-call ops
+
+Phase-4 of the call_indirect dispatch fusion stack. Mirrors the
+existing `call{1,2,3,4}` family for direct calls: each new op
+combines `xmov xN, argN` ABI fixups with the indirect call into a
+single Pulley dispatch.
+
+`call_indirect1 dst, arg1` does:
+  x0 = state[arg1]
+  lr = pc
+  pc = state[dst]
+
+The handler reads each `argN` value BEFORE writing to `xN` so the
+sequence is safe when an `argN` aliases the corresponding ABI
+register (the common case where regalloc already placed the value
+correctly).
+
+Saves up to 4 Pulley dispatches per call_indirect site, depending
+on how many integer ABI args the callsite has that aren't already
+in their final register. In practice this hits at least once per
+call_indirect (the callee `vmctx` ABI fixup).
+
+The Cranelift backend wiring is in the next commit.
+---
+ pulley/src/interp.rs | 78 ++++++++++++++++++++++++++++++++++++++++++++
+ pulley/src/lib.rs    | 11 +++++++
+ 2 files changed, 89 insertions(+)
+
+diff --git a/pulley/src/interp.rs b/pulley/src/interp.rs
+index 1323df6218..f078dc0703 100644
+--- a/pulley/src/interp.rs
++++ b/pulley/src/interp.rs
+@@ -1425,6 +1425,84 @@ impl OpVisitor for Interpreter<'_> {
+         ControlFlow::Continue(())
+     }
+ 
++    fn call_indirect1(&mut self, dst: XReg, arg1: XReg) -> ControlFlow<Done> {
++        // Phase-4 fusion: combines `xmov x0, arg1` with `call_indirect dst`.
++        // Read arg1 BEFORE writing x0 so this is safe even when `arg1 == x0`.
++        let arg1_val = self.state[arg1];
++        let target = self.state[dst].get_ptr();
++        let return_addr = self.pc.as_ptr();
++        self.state.lr = return_addr.as_ptr();
++        self.state[XReg::x0] = arg1_val;
++        // SAFETY: same as `call_indirect`.
++        unsafe {
++            self.pc = UnsafeBytecodeStream::new(NonNull::new_unchecked(target));
++        }
++        ControlFlow::Continue(())
++    }
++
++    fn call_indirect2(&mut self, dst: XReg, arg1: XReg, arg2: XReg) -> ControlFlow<Done> {
++        let (a1, a2) = (self.state[arg1], self.state[arg2]);
++        let target = self.state[dst].get_ptr();
++        let return_addr = self.pc.as_ptr();
++        self.state.lr = return_addr.as_ptr();
++        self.state[XReg::x0] = a1;
++        self.state[XReg::x1] = a2;
++        // SAFETY: same as `call_indirect`.
++        unsafe {
++            self.pc = UnsafeBytecodeStream::new(NonNull::new_unchecked(target));
++        }
++        ControlFlow::Continue(())
++    }
++
++    fn call_indirect3(
++        &mut self,
++        dst: XReg,
++        arg1: XReg,
++        arg2: XReg,
++        arg3: XReg,
++    ) -> ControlFlow<Done> {
++        let (a1, a2, a3) = (self.state[arg1], self.state[arg2], self.state[arg3]);
++        let target = self.state[dst].get_ptr();
++        let return_addr = self.pc.as_ptr();
++        self.state.lr = return_addr.as_ptr();
++        self.state[XReg::x0] = a1;
++        self.state[XReg::x1] = a2;
++        self.state[XReg::x2] = a3;
++        // SAFETY: same as `call_indirect`.
++        unsafe {
++            self.pc = UnsafeBytecodeStream::new(NonNull::new_unchecked(target));
++        }
++        ControlFlow::Continue(())
++    }
++
++    fn call_indirect4(
++        &mut self,
++        dst: XReg,
++        arg1: XReg,
++        arg2: XReg,
++        arg3: XReg,
++        arg4: XReg,
++    ) -> ControlFlow<Done> {
++        let (a1, a2, a3, a4) = (
++            self.state[arg1],
++            self.state[arg2],
++            self.state[arg3],
++            self.state[arg4],
++        );
++        let target = self.state[dst].get_ptr();
++        let return_addr = self.pc.as_ptr();
++        self.state.lr = return_addr.as_ptr();
++        self.state[XReg::x0] = a1;
++        self.state[XReg::x1] = a2;
++        self.state[XReg::x2] = a3;
++        self.state[XReg::x3] = a4;
++        // SAFETY: same as `call_indirect`.
++        unsafe {
++            self.pc = UnsafeBytecodeStream::new(NonNull::new_unchecked(target));
++        }
++        ControlFlow::Continue(())
++    }
++
+     fn jump(&mut self, offset: PcRelOffset) -> ControlFlow<Done> {
+         self.pc_rel_jump::<crate::Jump>(offset)
+     }
+diff --git a/pulley/src/lib.rs b/pulley/src/lib.rs
+index d0dea82cb7..c038ead8eb 100644
+--- a/pulley/src/lib.rs
++++ b/pulley/src/lib.rs
+@@ -115,6 +115,17 @@ macro_rules! for_each_op {
+             /// Transfer control to the PC in `reg` and set `lr` to the PC just
+             /// after this instruction.
+             call_indirect = CallIndirect { reg: XReg };
++            /// Like `call_indirect`, but also `x0 = arg1`. Saves one Pulley
++            /// dispatch vs `xmov x0, arg1; call_indirect reg` for the common
++            /// call_indirect pattern where one ABI register (usually `vmctx`)
++            /// is set up immediately before the indirect call.
++            call_indirect1 = CallIndirect1 { reg: XReg, arg1: XReg };
++            /// Like `call_indirect`, but also `x0, x1 = arg1, arg2`.
++            call_indirect2 = CallIndirect2 { reg: XReg, arg1: XReg, arg2: XReg };
++            /// Like `call_indirect`, but also `x0, x1, x2 = arg1, arg2, arg3`.
++            call_indirect3 = CallIndirect3 { reg: XReg, arg1: XReg, arg2: XReg, arg3: XReg };
++            /// Like `call_indirect`, but also `x0, x1, x2, x3 = arg1, arg2, arg3, arg4`.
++            call_indirect4 = CallIndirect4 { reg: XReg, arg1: XReg, arg2: XReg, arg3: XReg, arg4: XReg };
+ 
+             /// Unconditionally transfer control to the PC at the given offset.
+             jump = Jump { offset: PcRelOffset };

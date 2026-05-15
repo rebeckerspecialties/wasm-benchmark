@@ -41,6 +41,16 @@ COMMON_DEFS=(
   -DWAMR_BUILD_BULK_MEMORY=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
+  # Wasm-exceptions support would be required for Porffor-compiled wasm
+  # (lowers JS try/catch to the wasm-exceptions section). HOWEVER, WAMR
+  # forbids `WAMR_BUILD_EXCE_HANDLING=1` together with `FAST_INTERP=1`
+  # (`build-scripts/unsupported_combination.cmake`:67). And the classic
+  # interpreter that DOES support exceptions ALSO forbids
+  # `WAMR_BUILD_SIMD=1` (line 99 of the same file). Porffor's wasm needs
+  # BOTH SIMD (for fast string compare via `v128.xor`/`v128.any_true`)
+  # AND exceptions, so WAMR's interpreter architecture cannot run this
+  # workload at all. The Pulley track DOES handle both. Documented in
+  # `docs/cross-runtime-pulley-vs-wamr.md` → "WAMR-side load failures".
   -DWAMR_BUILD_MULTI_MODULE=0
   -DWAMR_BUILD_LIB_PTHREAD=0
   -DWAMR_BUILD_MINI_LOADER=0

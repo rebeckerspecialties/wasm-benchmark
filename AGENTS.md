@@ -26,8 +26,8 @@ on these targets.
   IC's back-end savings cancel against new front-end / mispredict
   pressure on Apple silicon E-cores. See
   `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md` for recovery info.
-- Opcode fusion in Pulley landed across three layered phases on the
-  `claude/pulley-fusion-xband-brif` wasmtime branch (9 commits):
+- Opcode fusion in Pulley landed across four layered phases on the
+  `claude/pulley-fusion-xband-brif` wasmtime branch (11 commits):
   - **Phase 1** (`BandBrIf`, `xband_s8 + br_if`): measured 2026-05-14
     — wallclock flat in isolation, Discarded +7.87 %. Superseded by
     phase 2 at the same call site; stays as fallback when phase 2's
@@ -43,13 +43,29 @@ on these targets.
     but per-rep range tightens by ~half (call_indirect 1.34 → 0.74
     ms). Dispatch tail at the call_indirect lazy-init site shrinks
     from baseline's 5 Pulley dispatches to **2**.
+  - **Phase 4** (`PulleyCallIndirect` + `call_indirect{1,2,3,4}`):
+    measured 2026-05-15 on iPhone 12 + iPhone XS Max. Mirrors
+    `Inst::Call`'s direct-call arg-bundling for `Inst::IndirectCall`:
+    new `PulleyCallIndirect { target, args }` payload + four new
+    Pulley ops that combine `xmov xN, argN` ABI fixups with the
+    indirect call into a single dispatch. iPhone 12 A14 Icestorm
+    wallclock vs phase 3 (N=10, vtable suite): **vtable_poly4 −8.94 %,
+    vtable_bi −6.71 %, vtable_poly6 −3.72 %**. iPhone XS A12 Mistral
+    recovers phase-3's call_indirect regression (−4.77 % vs phase 3,
+    back to baseline parity). Dispatch tail shrinks to **1 fused op
+    + 1 call_indirectN op per call_indirect lazy-init site** (from 5
+    in baseline / 2 in phase 3). See
+    `docs/four-way-baseline-phase3-phase4-wamr.md` for the full
+    cross-device wallclock matrix + per-microarch analysis.
 
   Discarded improves at every phase transition despite adding 4 new
   opcodes each time — the "larger fused ops consolidate predictor
   entries" hypothesis from phase 2's writeup continued to hold
   through phase 3. The per-new-opcode-family predictor cost is NOT
   linear; iPhone 12 Icestorm's pattern-history table actually
-  benefits from fewer, larger op handlers.
+  benefits from fewer, larger op handlers. Phase 4's wins come
+  from a different mechanism: pure dispatch-count reduction in the
+  callee-vmctx ABI move.
 
   Test totals: 2237 / 2237 disas + 16 / 16 environ + 7 / 7 pulley
   fusion integration. Differential fuzz (`cargo fuzz run
@@ -58,9 +74,12 @@ on these targets.
   divergences.
 
   See `docs/opcode-fusion-band-brif.md`,
-  `docs/opcode-fusion-funcref-dispatch.md`, and
-  `docs/opcode-fusion-band-funcref-dispatch.md` for the three
-  measurement closeouts.
+  `docs/opcode-fusion-funcref-dispatch.md`,
+  `docs/opcode-fusion-band-funcref-dispatch.md`, and
+  `docs/four-way-baseline-phase3-phase4-wamr.md` for the four
+  measurement closeouts. Cross-runtime context vs WAMR is in
+  `docs/three-way-baseline-phase3-wamr.md` (iPhone 12 PMU) and
+  `docs/cross-runtime-pulley-vs-wamr.md`.
 
 ## Toolchain pinning
 

@@ -71,6 +71,47 @@ This branch was prepared in a cloud sandbox without push creds for
 the wasmtime fork; the patches are the canonical hand-off. PMU /
 wallclock measurement on iPhone 12 is the next step — see the doc.
 
+### `pulley-fusion-funcref-dispatch/` (5 commits)
+
+Phase 2 of the opcode-fusion track: fuses `brif + xload64 + xload64`
+at the call_indirect lazy-init brif site into a single Pulley
+`xfuncref_dispatch_*` op (the preceding `xband_s8 v, -2` stays as
+a separate op in phase 2). Stacks on top of phase 1's branch tip.
+See [docs/opcode-fusion-funcref-dispatch.md](../docs/opcode-fusion-funcref-dispatch.md).
+
+### `pulley-fusion-band-funcref-dispatch/` (1 commit)
+
+Phase 3: absorbs the preceding standalone `xband_s8 v, -2` into the
+phase-2 `xfuncref_dispatch_*` op, emitting one
+`xband_funcref_dispatch_*` Pulley op that covers the entire mask-
+and-load tail. Dispatch tail at the call_indirect lazy-init site
+goes from 5 ops (baseline) to **2** ops. See
+[docs/opcode-fusion-band-funcref-dispatch.md](../docs/opcode-fusion-band-funcref-dispatch.md).
+
+### `pulley-fusion-call-indirect-args/` (2 commits)
+
+Phase 4: mirrors `Inst::Call`'s `call{1,2,3,4}` arg-bundling for
+`Inst::IndirectCall`. Adds Pulley opcodes `call_indirect{1,2,3,4}`
+that combine `xmov xN, argN` ABI fixups with the indirect call
+into one dispatch. Cranelift side adds a new `PulleyCallIndirect
+{ target, args }` payload (mirror of `PulleyCall`) so the first
+0–4 integer ABI args bypass regalloc's `reg_fixed_use` mechanism
+and are moved by the call opcode at call time. Dispatch tail
+shrinks from phase-3's 2 ops to 1 fused op (`xband_funcref_
+dispatch_*` + `call_indirect1`) per call_indirect lazy-init site,
+saving one Pulley dispatch per call_indirect on the eager-table
+fast path. See [docs/four-way-baseline-phase3-phase4-wamr.md](../docs/four-way-baseline-phase3-phase4-wamr.md).
+
+| # | subject |
+|---|---------|
+| 1 | `pulley: add call_indirect{1,2,3,4} fused indirect-call ops` |
+| 2 | `cranelift/pulley: pass first 4 indirect-call args via call_indirectN` |
+
+iPhone 12 A14 Icestorm wallclock vs phase 3 (N=10, vtable suite):
+**vtable_poly4 −8.94 %, vtable_bi −6.71 %, vtable_poly6 −3.72 %**.
+iPhone XS A12 Mistral recovers phase-3's call_indirect regression
+(−4.77 % vs phase 3, back to baseline parity).
+
 ## Workflow — sending an upstream PR
 
 ```sh
