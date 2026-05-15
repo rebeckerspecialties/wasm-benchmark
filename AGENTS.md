@@ -26,24 +26,41 @@ on these targets.
   IC's back-end savings cancel against new front-end / mispredict
   pressure on Apple silicon E-cores. See
   `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md` for recovery info.
-- Next branch: opcode fusion in Pulley
-  (`xband_brif_eq_zero`, `funcref_load_dispatch`, AOT peephole) per
-  the fusion section of PR #2's description. **Phase 1
-  (`xband_brif_eq_zero`) measured 2026-05-14 on iPhone 12 — hypothesis
-  falsified in isolation (wallclock flat, Discarded +7.87 %). Phase 2
-  (`funcref_load_dispatch`) measured same day on top of phase 1's
-  branch: call_indirect wallclock **−5.0 %** vs baseline (the first
-  measurable wallclock win past PR #2's c1-7 ceiling), PMU Discarded
-  **−1.74 %** vs baseline / **−8.91 %** vs phase 1 — phase 1's
-  predictor-anchor regression is reclaimed. The
-  per-new-opcode-family predictor cost is NOT linear; the larger
-  funcref-dispatch op consolidates the predictor's view of the
-  dispatch tail better than the narrower BandBrIf. Phase 2
-  supersedes phase 1 at the same call site; phase 1's `BandBrIf` op
-  stays in the ISA as a fallback when the continuation-block load
-  pattern doesn't match. See `docs/opcode-fusion-band-brif.md` and
-  `docs/opcode-fusion-funcref-dispatch.md` for the two measurement
-  closeouts.**
+- Opcode fusion in Pulley landed across three layered phases on the
+  `claude/pulley-fusion-xband-brif` wasmtime branch (9 commits):
+  - **Phase 1** (`BandBrIf`, `xband_s8 + br_if`): measured 2026-05-14
+    — wallclock flat in isolation, Discarded +7.87 %. Superseded by
+    phase 2 at the same call site; stays as fallback when phase 2's
+    continuation-load pattern doesn't match.
+  - **Phase 2** (`FuncrefDispatch`, `brif + 2 xloads`): measured
+    2026-05-14 — call_indirect wallclock **−5.0 %** vs baseline (the
+    first measurable wallclock win past PR #2's c1-7 ceiling), PMU
+    Discarded −1.74 % vs baseline / −8.91 % vs phase 1.
+  - **Phase 3** (`BandFuncrefDispatch`, `band + brif + 2 xloads`):
+    measured 2026-05-15 — PMU total cycles **−4.31 %** vs phase 2 /
+    −0.96 % vs baseline; Discarded **−7.33 %** vs phase 2 /
+    −8.95 % vs baseline; wallclock within noise of phase 2 at N=10
+    but per-rep range tightens by ~half (call_indirect 1.34 → 0.74
+    ms). Dispatch tail at the call_indirect lazy-init site shrinks
+    from baseline's 5 Pulley dispatches to **2**.
+
+  Discarded improves at every phase transition despite adding 4 new
+  opcodes each time — the "larger fused ops consolidate predictor
+  entries" hypothesis from phase 2's writeup continued to hold
+  through phase 3. The per-new-opcode-family predictor cost is NOT
+  linear; iPhone 12 Icestorm's pattern-history table actually
+  benefits from fewer, larger op handlers.
+
+  Test totals: 2237 / 2237 disas + 16 / 16 environ + 7 / 7 pulley
+  fusion integration. Differential fuzz (`cargo fuzz run
+  differential --no-default-features`, `ALLOWED_ENGINES=
+  pulley,wasmtime`) ran ~21 min with 0 crashes / 0 Pulley-vs-native
+  divergences.
+
+  See `docs/opcode-fusion-band-brif.md`,
+  `docs/opcode-fusion-funcref-dispatch.md`, and
+  `docs/opcode-fusion-band-funcref-dispatch.md` for the three
+  measurement closeouts.
 
 ## Toolchain pinning
 

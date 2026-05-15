@@ -87,8 +87,14 @@ wasmtime/                gitignored — working clone with active PR
   closed out 2026-05-14 — call_indirect wallclock −5.0 % on iPhone 12
   (the first measurable win past PR #2's c1-7 ceiling); PMU Discarded
   −1.74 % vs baseline / −8.91 % vs phase 1 (reclaims phase 1's
-  predictor-anchor regression). Ship phase 2; phase 1 stays as
-  fallback.**
+  predictor-anchor regression).**
+- **[docs/opcode-fusion-band-funcref-dispatch.md](docs/opcode-fusion-band-funcref-dispatch.md)** —
+  Phase 3 of the opcode-fusion track: `xband + funcref_dispatch` fused
+  into one `xband_funcref_dispatch_*` Pulley dispatch (dispatch tail
+  now 2 ops vs baseline's 5). **Measurement closed out 2026-05-15 —
+  PMU total cycles −4.31 % vs phase 2 / −0.96 % vs baseline; Discarded
+  −7.33 % vs phase 2 / −8.95 % vs baseline. Wallclock matches phase 2
+  within noise. Ship the full 9-commit stack.**
 - **[docs/archived-ic-branches.md](docs/archived-ic-branches.md)** —
   SHAs for the deleted `pulley-call-indirect-ic*` branches, in case
   a future 2-way-IC or poisoning variant wants that baseline.
