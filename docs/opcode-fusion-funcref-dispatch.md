@@ -115,12 +115,64 @@ below confirms this experimentally.
 
 ## Test coverage
 
-- **Disas filetest** (`tests/disas/pulley-call-indirect-band-brif-fusion.wat`):
-  re-blessed for phase 2. The dispatch tail is now
-  `xband64_s8 ; xfuncref_dispatch_not_x64 ; call_indirect` — three
-  Pulley ops instead of the unfused five.
-- **Cranelift disas suite**: 2228 / 2228 pass.
-- **wasmtime-environ table_mutability suite**: 16 / 16 pass.
+The original phase-2 commit added one disas filetest pinning the
+canonical dispatch-tail shape. A follow-up round (commit
+`7d426cdd51` on the wasmtime branch, plus the soundness fix in
+`1fd38e5183`) expanded coverage to cover the corner cases — both
+the cases where fusion SHOULD fire and the cases where it must
+not. Test design drew on known bug classes in V8, JSC, WAMR,
+wasm3, WasmEdge, Hermes, ChakraCore, and Luau where the analogous
+fusion shape had soundness or invariant-edge bugs (each test
+docstring cites the upstream precedent).
+
+**Disas filetests** (`tests/disas/pulley-fusion-*.wat`):
+
+| file | what it pins |
+|---|---|
+| `…-no-fire-user-mask.wat` | user wasm `(i32.const -2) (i32.and) (br_if)` — fusion must NOT fire |
+| `…-no-fire-mutable-table.wat` | `table.set` anywhere → predicate off, no fusion |
+| `…-no-fire-table-fill.wat` | `table.fill` → predicate off |
+| `…-no-fire-table-copy.wat` | `table.copy` mutates dst only; src table can still fuse |
+| `…-no-fire-table-grow.wat` | `table.grow` → predicate off |
+| `…-no-fire-sig-runtime-check.wat` | runtime sig check present → phase 2 fails to match, phase 1 fires as fallback |
+| `…-fires-32bit.wat` | pulley32 target → phase 2 fires with i8 offsets 4/12 (regressed without the width-aware fix) |
+| `…-fires-multi-call.wat` | two call_indirect sites in one function fuse independently |
+| `…-fires-return-call-indirect.wat` | tail call still has the brif lazy-init check; phase 2 fires upstream of the call/return choice |
+| `pulley-call-indirect-band-brif-fusion.wat` | the original phase-2 dispatch tail (`xband64_s8 ; xfuncref_dispatch_not_x64 ; call_indirect`) |
+
+**Integration tests** (`tests/all/pulley.rs`, `fusion_*` family):
+
+| name | what it asserts |
+|---|---|
+| `fusion_call_indirect_every_index` | every in-bounds index returns the right callee; OOB traps `TableOutOfBounds` |
+| `fusion_call_indirect_multi_site` | two call_indirect sites' results compose correctly |
+| `fusion_return_call_indirect` | tail call returns the right value through the fused dispatch |
+| `fusion_call_indirect_with_host_null_set` | host `Table::set` null mid-execution → fused op's runtime null check fires |
+| `fusion_call_indirect_with_host_swap` | host swap to different funcref → fused op re-loads code+vmctx, no stale cache |
+| `fusion_call_indirect_imported_table` | module B imports A's table; correct VMFuncRef layout across module boundary |
+| `fusion_call_indirect_null_slot` | uninitialised slot → trap, not SIGSEGV |
+
+The integration tests run a `pulley_and_native_agree` helper that
+executes the same module on Pulley AND wasmtime's native Cranelift
+backend, asserting both produce the same result. Trap-expecting
+tests run on Pulley only — native trap-via-signal interacts with
+cargo test's debug-mode signal handlers (the same code outside the
+test harness traps cleanly).
+
+**Differential fuzzing** (Pulley vs wasmtime native via
+`cargo fuzz run differential`) was attempted but blocked locally on
+(a) OCaml not installed for the wasm-spec-interpreter dep, and (b)
+a path-resolution bug in `crates/fuzzing/build.rs` (uses
+`env::current_dir()` instead of `CARGO_MANIFEST_DIR`, so the wast-
+test scan fails under cargo-fuzz's build cwd). Both are
+wasm-benchmark-environment issues, not fusion bugs; deferred as a
+follow-up rather than blocking on installing OCaml or upstreaming
+a build.rs fix.
+
+**Aggregate**: `2237 / 2237` Cranelift disas tests pass (2228
+pre-existing + 9 fusion). `16 / 16` wasmtime-environ
+table_mutability tests pass. `7 / 7` new pulley fusion integration
+tests pass under `cargo test --test all fusion_`.
 
 ## Measurement results — 2026-05-14, iPhone 12 A14 Icestorm
 
@@ -283,9 +335,16 @@ pattern doesn't match), and 4-6 as a stacked second PR.
 - **arm64_32 / Apple Watch confirmation**: phase 2's
   `xfuncref_dispatch_x32` ops are added but only the 64-bit fusion
   path is exercised on iPhone 12. The 32-bit Pulley codegen path
-  selects the `_x32` variant based on `P::pointer_width()`. Worth
-  confirming on Apple Watch SE2 (S8) with a disas filetest
-  parameterised on `target = "pulley32"`.
+  selects the `_x32` variant based on `P::pointer_width()`.
+  `tests/disas/pulley-fusion-fires-32bit.wat` (added as part of the
+  test-coverage round) pins the static `_x32` shape, and a
+  width-aware fix to the mask check (commit `1fd38e5183` —
+  `is_minus_two_for`) was required to make phase 2 actually fire
+  on pulley32 in the first place (the egraph canonicalises
+  `iconst.i32 -2` to `Imm64(0xFFFFFFFE)`, not `Imm64(-2)`, and the
+  bit-exact `imm.bits() == -2` gate was silently missing it).
+  Dynamic confirmation (a Pulley-on-Apple-Watch run) is still
+  gated by Apple Watch SE2 hardware access.
 
 - **xmrsplayer is flat** even though it has many call_indirect sites
   (tracker player module). Either (a) call_indirect is a smaller
