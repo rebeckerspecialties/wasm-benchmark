@@ -9,18 +9,28 @@ opcode fusion" section.
 
 ## Wasmtime branch + commits
 
-Branch `claude/pulley-fusion-xband-brif` on
-`rebeckerspecialties/wasmtime`, branched from `table-mutability-tracking`
-(PR #2):
+Branched from `table-mutability-tracking` (PR #2). The three commits
+are checked in as patches under
+[`../patches/pulley-fusion-xband-brif/`](../patches/pulley-fusion-xband-brif/)
+because this branch was first prepared in a cloud sandbox without
+push creds for `rebeckerspecialties/wasmtime`. Apply locally:
 
-| SHA       | Subject |
-|-----------|---------|
-| `450400a` | pulley: add xband_s8 + br_if fused dispatch ops |
-| `5f057da` | cranelift: `Lower::sink_pure_inst` — absorb pure ALU ops into terminators |
-| `7df73dc` | cranelift/pulley: fuse band+brif at call_indirect lazy-init site |
+```sh
+cd wasmtime
+git checkout -b claude/pulley-fusion-xband-brif table-mutability-tracking
+git am ../patches/pulley-fusion-xband-brif/*.patch
+git push -u origin claude/pulley-fusion-xband-brif
+```
 
-(Local commits in `./wasmtime/`; push to the fork from a machine with
-GitHub creds with `git push -u origin claude/pulley-fusion-xband-brif`.)
+| # | subject |
+|---|---------|
+| 1 | `pulley: add xband_s8 + br_if fused dispatch ops` |
+| 2 | `cranelift: Lower::sink_pure_inst — absorb pure ALU ops into terminators` |
+| 3 | `cranelift/pulley: fuse band+brif at call_indirect lazy-init site` |
+
+Sandbox SHAs were `450400a`, `5f057da`, `7df73dc` — after `git am`
+locally the SHAs will differ because the user's signing key
+re-signs the commits. The patch content is identical.
 
 ## What it does
 

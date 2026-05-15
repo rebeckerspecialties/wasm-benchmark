@@ -43,6 +43,34 @@ upstream PR #13259** (`unwinder-arm64_32-asm-format` branch on the
 wasmtime fork). PR #2's `table-mutability-tracking` branch is
 stacked on top of it.
 
+### `pulley-fusion-xband-brif/` (3 commits)
+
+Phase 1 of the opcode-fusion track from PR #2's description: fuses
+`band -2 + brif` into a single Pulley dispatch at the call_indirect
+lazy-init site when the table is eagerly initialized. See
+[docs/opcode-fusion-band-brif.md](../docs/opcode-fusion-band-brif.md)
+for the full design + soundness + test coverage writeup.
+
+These three patches stack on top of `table-mutability-tracking` on
+the wasmtime fork. To apply:
+
+```sh
+cd wasmtime
+git checkout -b claude/pulley-fusion-xband-brif table-mutability-tracking
+git am ../patches/pulley-fusion-xband-brif/*.patch
+git push -u origin claude/pulley-fusion-xband-brif    # needs gh auth
+```
+
+| # | subject |
+|---|---------|
+| 1 | `pulley: add xband_s8 + br_if fused dispatch ops` |
+| 2 | `cranelift: Lower::sink_pure_inst — absorb pure ALU ops into terminators` |
+| 3 | `cranelift/pulley: fuse band+brif at call_indirect lazy-init site` |
+
+This branch was prepared in a cloud sandbox without push creds for
+the wasmtime fork; the patches are the canonical hand-off. PMU /
+wallclock measurement on iPhone 12 is the next step — see the doc.
+
 ## Workflow — sending an upstream PR
 
 ```sh
