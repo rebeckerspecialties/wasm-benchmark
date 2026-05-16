@@ -160,7 +160,7 @@ struct BenchmarkContentView: View {
             // macOS continue to read the env vars, so the iPhone /
             // M-series runner is unaffected.
             #if os(watchOS)
-            let WATCHOS_WORKLOADS_FILTER = "xmrsplayer"
+            let WATCHOS_WORKLOADS_FILTER = "call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation"
             let WATCHOS_RUNTIMES_FILTER = ""
             let env = WATCHOS_WORKLOADS_FILTER
             let runtimesEnv = WATCHOS_RUNTIMES_FILTER

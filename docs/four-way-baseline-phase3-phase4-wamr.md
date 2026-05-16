@@ -119,23 +119,56 @@ both microarchitectures on the dispatch-synthetic workload that gave
 the stack its name, and dominates on iPhone 12 across the entire vtable
 suite.
 
+## Wallclock comparison — Apple Watch SE2 S8 (N=10, arm64_32-apple-watchos)
+
+The actual deployment target for the WatchOS WASI-audio app. Apple S8
+chip (homogeneous-cluster CPU; no separate E/P cores). Build with the
+`arm64_32-apple-watchos` Rust target (Tier-3, `build-std` on
+`nightly-2026-01-25`) and Cranelift compiling for Pulley32. PMU bucket
+analysis unavailable (no `CounterMetricByThread` schema on this
+microarch). `BENCH_TARGET_MS=2000` propagates via `std::env::var` (verified
+empirically) even though watchOS doesn't propagate to Swift `ProcessInfo`.
+
+| workload          | baseline (ms) | phase3 (ms) | phase4 (ms) | WAMR (ms) | base→phase3 | phase3→phase4 | base→phase4 | phase4 vs WAMR |
+|-------------------|--------------:|------------:|------------:|----------:|------------:|--------------:|------------:|---------------:|
+| call_indirect     |         46.59 |       46.68 |       46.36 |     31.77 |     +0.18 % |       −0.68 % |     −0.50 % |          1.46× |
+| xmrsplayer        |         25.76 |       25.76 |       25.82 |     22.27 |     +0.01 % |       +0.24 % |     +0.25 % |          1.16× |
+| vtable_mono       |         85.37 |       85.68 |       87.02 |     56.68 |     +0.37 % |       +1.56 % |     +1.93 % |          1.54× |
+| **vtable_bi**     |         95.50 |       99.05 |       91.44 |     61.77 |     +3.71 % |   **−7.68 %** |     −4.26 % |          1.48× |
+| **vtable_poly4**  |         96.87 |       96.72 |       92.25 |     67.93 |     −0.15 % |   **−4.62 %** |     −4.76 % |          1.36× |
+| **vtable_poly6**  |        106.73 |      106.98 |      101.78 |     71.88 |     +0.23 % |   **−4.86 %** |     −4.64 % |          1.42× |
+| graphql (AS)      |         17.41 |       17.37 |       17.28 |     13.91 |     −0.21 % |       −0.53 % |     −0.74 % |          1.24× |
+| graphql (Porffor) |         23.09 |       22.95 |       23.23 |      N/A* |     −0.64 % |       +1.22 % |     +0.58 % |              — |
+
+S8 looks like A14 Icestorm on the polymorphic vtable suite (4–8 %
+phase-4-vs-phase-3 wins on `vtable_bi/poly4/poly6`) but unlike A12
+Mistral. `vtable_mono` is the watch's only mild regression (+1.56 % vs
+phase 3, same direction as Mistral but smaller magnitude). `call_indirect`
+and `xmrsplayer` are noise-floor neutral on the watch — the synthetic
+dispatch loop doesn't dominate per-iter time enough at S8 clock speeds
+for the per-call savings to clear N=10 noise.
+
 ## Cross-device summary (Pulley phase-4 vs WAMR ratios)
 
-| workload | iPhone 12 (Icestorm) | iPhone XS (Mistral) |
-|---|---:|---:|
-| call_indirect | 1.67× | 1.49× |
-| xmrsplayer | 1.33× | 1.22× |
-| vtable_mono | 1.74× | 1.45× |
-| vtable_bi | 1.65× | 1.48× |
-| vtable_poly4 | 1.58× | 1.42× |
-| vtable_poly6 | 1.61× | 1.48× |
-| graphql-validation (AS) | 1.56× | 1.58× |
+| workload | iPhone 12 (A14) | iPhone XS (A12) | Watch SE2 (S8) |
+|---|---:|---:|---:|
+| call_indirect | 1.67× | 1.49× | 1.46× |
+| xmrsplayer | 1.33× | 1.22× | **1.16×** |
+| vtable_mono | 1.74× | 1.45× | 1.54× |
+| vtable_bi | 1.65× | 1.48× | 1.48× |
+| vtable_poly4 | 1.58× | 1.42× | 1.36× |
+| vtable_poly6 | 1.61× | 1.48× | 1.42× |
+| graphql-validation (AS) | 1.56× | 1.58× | 1.24× |
 
-The Pulley/WAMR ratio is **lower (= closer) on iPhone XS than on
-iPhone 12** for every workload except graphql-AS. Mistral narrows the
-relative gap because both runtimes' interpreters slow down comparably
-on the older core, but Pulley's slowdown is slightly less than WAMR's.
-xmrsplayer is the closest at **1.22×** on XS.
+The Pulley/WAMR ratio is **tightest on the Watch SE2** of any tested
+device for every workload except `vtable_mono` and `call_indirect`.
+`xmrsplayer` at **1.16×** is the closest cross-device-cross-workload
+result in the matrix — meaningful because xmrsplayer is the
+shape of the WatchOS WASI-audio production workload that motivates the
+whole track. `graphql-validation (AS)` shows the largest device spread
+(1.56× → 1.58× → 1.24×) because the watch is slow enough on Pulley's
+back-end that WAMR's IR-density advantage gets diluted by absolute
+wallclock variance.
 
 ## Phase-4 PMU bucket shares — A14 Icestorm vs M4 Sawtooth E-core
 
@@ -228,12 +261,22 @@ optimisation worth measuring opportunistically.
 
 - iPhone 12 per-rep logs: `out/exp-3way/n10/iphone12-{baseline,phase3,phase4}-r{1..10}.log`
 - iPhone XS per-rep logs: `out/exp-3way-xs/n10/iphone12-{baseline,phase3,phase4}-r{1..10}.log`
+- Watch SE2 per-rep logs: `out/exp-3way-se2/n10/iphone12-{baseline,phase3,phase4}-r{1..10}.log`
+  (filename keeps the `iphone12-` prefix from the shared
+  `run_fusion_n10.sh` template; actual device is the SE2)
 - iPhone 12 per-workload PMU: `out/exp-3way/pmu-{baseline,phase3,phase4,wamr}/*.xml`
 - M4 per-workload PMU: `out/exp-3way-m4/pmu-{baseline,phase3,phase4}/*.xml`
   (M4 PMU is host-side, no WAMR; captured via `scripts/run_m4_per_workload_pmu.sh`)
-- Aggregator: `scripts/aggregate_4way.py out/exp-3way/n10` (or `out/exp-3way-xs/n10`)
+- Aggregator: `scripts/aggregate_4way.py out/exp-3way/n10` (or `out/exp-3way-xs/n10`
+  / `out/exp-3way-se2/n10`)
 - M4 vs A14 phase-4 bucket-shares: `scripts/m4_phase4_bucket_shares.py`
 - Phase-4 wasmtime commit: see the patch on `claude/pulley-fusion-xband-brif` branch
+- Watch SE2 specifics: `apps/Shared/BenchmarkContentView.swift` →
+  `WATCHOS_WORKLOADS_FILTER` baked-in (watchOS doesn't propagate
+  `devicectl --environment-variables` to Swift `ProcessInfo`, though
+  Rust `std::env::var` reads them fine); xcodebuild needs
+  `ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO` since Xcode 26 defaults to
+  `arm64` and we don't build the lib for that yet.
 
 ## Phase-4 patch surface
 
