@@ -1099,6 +1099,55 @@ pub extern "C" fn bench_run_vtable_poly6() -> BenchReport {
     report_from(run_vtable_poly6(0xC1AA))
 }
 
+// vtable_* WAMR variants — same wasm + same per-shape entry points,
+// just routed through the WAMR fast-interp instead of Pulley. Side-by-
+// side data point for "how does WAMR's load-time IR rewrite handle
+// the same vtable-dispatch shape Pulley's call_indirect lazy-init
+// fusion targets". WAMR has no IC / type-feedback — its win on these
+// shapes (if any) comes from fewer per-dispatch instructions in its
+// preprocessed-bytecode interpreter, not from specialization.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_mono_wamr() -> BenchReport {
+    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_bi_wamr() -> BenchReport {
+    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly4_wamr() -> BenchReport {
+    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly6_wamr() -> BenchReport {
+    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+}
+
+/// graphql-validation AS port on WAMR. The AS wasm has 0 imports, so
+/// it loads cleanly under the generic `run_workload_wamr` runner
+/// (which doesn't register any host imports). `validate_once(0)`
+/// returns an `i32` error count; the harness reports the median
+/// per-iter time.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_as_wamr() -> BenchReport {
+    report_from(wamr::run_workload_wamr(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0))
+}
+
+/// graphql-validation Porffor port on WAMR. Porffor compiles JS
+/// try/catch to the wasm exceptions proposal, which is not enabled
+/// in our WAMR build (`WAMR_BUILD_EXCE_HANDLING=0`). The
+/// `run_graphql_validation_porf_wamr` runner attempts the load
+/// anyway; the harness reports the wasm-level error string from
+/// `wasm_runtime_get_exception` if WAMR refuses the module. Treat as
+/// a "WAMR can't run this shape" data point — Pulley side runs both.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_porf_wamr() -> BenchReport {
+    report_from(wamr::run_graphql_validation_porf_wamr(GRAPHQL_VALIDATION_PORF_WASM))
+}
+
 /// Sightglass `sqlite3` benchmark (speedtest1 against an in-memory DB).
 /// Single-shot, ~minutes on weak cores, ~5-30 s on M4.
 #[unsafe(no_mangle)]

@@ -69,10 +69,23 @@ let WORKLOADS: [Workload] = [
     // dimension — mono is the best case for a 1-way IC, bi/poly4/
     // poly6 test progressively worse polymorphism. Pulley-only
     // since the IC question is Pulley-specific.
-    Workload(id: 27, label: "[Pulley] vtable_dispatch mono (200K)",  run: { bench_run_vtable_mono() }),
-    Workload(id: 28, label: "[Pulley] vtable_dispatch bi (200K)",    run: { bench_run_vtable_bi() }),
-    Workload(id: 29, label: "[Pulley] vtable_dispatch poly4 (200K)", run: { bench_run_vtable_poly4() }),
-    Workload(id: 30, label: "[Pulley] vtable_dispatch poly6 (200K)", run: { bench_run_vtable_poly6() }),
+    Workload(id: 27, label: "[Pulley] vtable_mono (200K)",  run: { bench_run_vtable_mono() }),
+    Workload(id: 28, label: "[Pulley] vtable_bi (200K)",    run: { bench_run_vtable_bi() }),
+    Workload(id: 29, label: "[Pulley] vtable_poly4 (200K)", run: { bench_run_vtable_poly4() }),
+    Workload(id: 30, label: "[Pulley] vtable_poly6 (200K)", run: { bench_run_vtable_poly6() }),
+    // WAMR variants for everything the wasm side can support. graphql-
+    // validation Porffor on WAMR may fail at load (Porffor uses wasm
+    // exceptions; our WAMR build has WAMR_BUILD_EXCE_HANDLING=0); the
+    // harness reports the error string from wasm_runtime_get_exception
+    // and the row is shown as ERROR. Treat that as data: "WAMR
+    // can't run this shape with this build" is the cross-runtime
+    // signal we want.
+    Workload(id: 31, label: "[ WAMR ] graphql-validation (AS)",      run: { bench_run_graphql_validation_as_wamr() }),
+    Workload(id: 32, label: "[ WAMR ] graphql-validation (Porffor)", run: { bench_run_graphql_validation_porf_wamr() }),
+    Workload(id: 33, label: "[ WAMR ] vtable_mono (200K)",  run: { bench_run_vtable_mono_wamr() }),
+    Workload(id: 34, label: "[ WAMR ] vtable_bi (200K)",    run: { bench_run_vtable_bi_wamr() }),
+    Workload(id: 35, label: "[ WAMR ] vtable_poly4 (200K)", run: { bench_run_vtable_poly4_wamr() }),
+    Workload(id: 36, label: "[ WAMR ] vtable_poly6 (200K)", run: { bench_run_vtable_poly6_wamr() }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -147,7 +160,7 @@ struct BenchmarkContentView: View {
             // macOS continue to read the env vars, so the iPhone /
             // M-series runner is unaffected.
             #if os(watchOS)
-            let WATCHOS_WORKLOADS_FILTER = "xmrsplayer"
+            let WATCHOS_WORKLOADS_FILTER = "call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation"
             let WATCHOS_RUNTIMES_FILTER = ""
             let env = WATCHOS_WORKLOADS_FILTER
             let runtimesEnv = WATCHOS_RUNTIMES_FILTER

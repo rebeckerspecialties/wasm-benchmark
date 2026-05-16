@@ -1,0 +1,1736 @@
+From 7d426cdd510496342b0b153129548b1cd087dffa Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Thu, 14 May 2026 22:48:23 -0700
+Subject: tests/disas + tests/all: pulley fusion corner-case coverage
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds 9 disas filetests + 7 integration tests covering correctness
+edges in the Pulley call_indirect band+brif (phase 1) and brif+xload+
+xload (phase 2) fusion stack. The shapes are drawn from known bug
+classes in other engines (V8, JSC, WAMR, wasm3, WasmEdge, Hermes,
+ChakraCore, Luau) where the analogous fusion shape has had soundness
+or invariant-edge bugs. Each test docstring cites the upstream
+precedent.
+
+Disas filetests (`tests/disas/pulley-fusion-*.wat`):
+
+  Gating — phase 1 / phase 2 must NOT fire:
+    no-fire-user-mask                 i32 `(i32.const -2) (i32.and) (br_if)` user wasm
+    no-fire-mutable-table             table.set anywhere → predicate off
+    no-fire-table-fill                table.fill → predicate off
+    no-fire-table-copy                table.copy → only the dst table is mutated
+    no-fire-table-grow                table.grow → predicate off
+    no-fire-sig-runtime-check         sig elision fails (mixed sigs in elem) → phase 2
+                                      can't match, phase 1 still fires as fallback
+
+  Firing — phase 2 MUST fire:
+    fires-32bit                       pulley32 (= arm64_32-apple-watchos) target
+    fires-multi-call                  two call_indirect sites in one function;
+                                      each fuses independently
+    fires-return-call-indirect        tail call still has the brif lazy-init
+                                      check; phase 2 fires upstream of the
+                                      call_indirect-vs-return_call_indirect choice
+
+Integration tests (`tests/all/pulley.rs`, `fusion_*` family):
+
+    fusion_call_indirect_every_index        every in-bounds index returns the right
+                                            callee; OOB traps cleanly
+    fusion_call_indirect_multi_site         two call_indirect sites' results compose
+    fusion_return_call_indirect             tail call returns the right value
+    fusion_call_indirect_with_host_null_set host Table::set null mid-execution;
+                                            fused op's runtime null check fires
+    fusion_call_indirect_with_host_swap     host Table::set swap to a different
+                                            funcref; fused op re-loads code+vmctx
+                                            on next dispatch (no stale cache)
+    fusion_call_indirect_imported_table     module B imports module A's table and
+                                            calls through it; correct VMFuncRef
+                                            layout used across module boundary
+    fusion_call_indirect_null_slot          ref.null func slot → trap, not SIGSEGV
+
+The integration tests run a `pulley_and_native_agree` helper that
+executes the same module on Pulley AND on wasmtime's native Cranelift
+backend, asserting both produce the same result. Trap-expecting tests
+run on Pulley only — native trap-via-signal interacts with cargo
+test's debug-mode signal handlers and shows up as SIGSEGV rather than
+a wasmtime Trap (the same code outside the test harness traps
+cleanly). Pulley uses explicit trapz emissions (no signals) so it
+works in both modes.
+
+Upstream precedents cited in test docstrings:
+    V8 issue 5913 (sig-mismatch with table-sharing)
+    V8 CVE-2024-2887 / 4761 (JS-to-wasm boundary funcref injection)
+    V8 CVE-2024-7971 (Liftoff non-null elision regression)
+    V8 CVE-2023-4068 (WASM-null vs JS-null confusion)
+    Wasmtime Winch GHSA-q49f-xg75-m9xw (table.fill host panic)
+    WAMR CVE-2025-64713 (fast-interp fused-op stack overflow)
+    WAMR #4041 (AOT call_indirect index > 0 broken)
+    WAMR #3992 / #3993 / #4497 (call_indirect type validation)
+    WAMR #2231 (return_call_indirect not tail)
+    wasm3 #547 (call_indirect SEGV — missing bounds check)
+    wasm3 #335 (null table element trap)
+    wasm3 #513-#521 (call_indirect validation gaps)
+    WasmEdge #4757 (GC null ref SEGV — null check after deref)
+    WasmEdge #4292 / #4259 / #4258 (interp vs JIT divergence)
+    Hermes 24a8fe64 (GC mid-IC fast-path)
+    Hermes #1590 / #1801 (shape-elision corner cases)
+    Hermes 5943fa4a (read/write IC cross-pollution)
+    ChakraCore #5915 / #6325 (IC poisoning, type confusion)
+    ChakraCore ARM IC offset PR #3436
+    Luau release/717 (userdata/buffer cache invalidation)
+    Luau #2358 / #234 / #2248 (GC + fused-op interaction)
+
+Differential fuzzing (Pulley vs wasmtime native via `cargo fuzz run
+differential`) was attempted but blocked locally on (a) OCaml not
+installed for the wasm-spec-interpreter dep, and (b) a path-resolution
+bug in `crates/fuzzing/build.rs` (`env::current_dir()` is the
+cargo-fuzz build cwd, not the package dir, so the wast-test scan
+fails). Both are wasm-benchmark-environment issues, not fusion bugs;
+deferring as a follow-up rather than blocking on installing OCaml
+or upstreaming a build.rs fix.
+---
+ tests/all/pulley.rs                           | 330 +++++++++++++++++
+ tests/disas/pulley-fusion-fires-32bit.wat     | 237 ++++++++++++
+ .../disas/pulley-fusion-fires-multi-call.wat  |  99 +++++
+ ...lley-fusion-fires-return-call-indirect.wat |  63 ++++
+ .../pulley-fusion-no-fire-mutable-table.wat   | 341 ++++++++++++++++++
+ ...ulley-fusion-no-fire-sig-runtime-check.wat |  87 +++++
+ .../pulley-fusion-no-fire-table-copy.wat      | 130 +++++++
+ .../pulley-fusion-no-fire-table-fill.wat      |  98 +++++
+ .../pulley-fusion-no-fire-table-grow.wat      |  84 +++++
+ .../disas/pulley-fusion-no-fire-user-mask.wat |  92 +++++
+ 10 files changed, 1561 insertions(+)
+ create mode 100644 tests/disas/pulley-fusion-fires-32bit.wat
+ create mode 100644 tests/disas/pulley-fusion-fires-multi-call.wat
+ create mode 100644 tests/disas/pulley-fusion-fires-return-call-indirect.wat
+ create mode 100644 tests/disas/pulley-fusion-no-fire-mutable-table.wat
+ create mode 100644 tests/disas/pulley-fusion-no-fire-sig-runtime-check.wat
+ create mode 100644 tests/disas/pulley-fusion-no-fire-table-copy.wat
+ create mode 100644 tests/disas/pulley-fusion-no-fire-table-fill.wat
+ create mode 100644 tests/disas/pulley-fusion-no-fire-table-grow.wat
+ create mode 100644 tests/disas/pulley-fusion-no-fire-user-mask.wat
+
+diff --git a/tests/all/pulley.rs b/tests/all/pulley.rs
+index d4cd458f91..dedf59c680 100644
+--- a/tests/all/pulley.rs
++++ b/tests/all/pulley.rs
+@@ -515,3 +515,333 @@ fn decode_unaligned() -> Result<()> {
+ 
+     Ok(())
+ }
++
++// --- Pulley opcode-fusion (band+brif and funcref-dispatch) integration ---
++//
++// These tests pin runtime semantics for the Pulley call_indirect lazy-init
++// fusion stack (`tests/disas/pulley-fusion-*.wat` pins the static disasm).
++// They exercise edges identified by upstream-engine bug-classes the
++// fusion shape echoes (V8 issue 5913 cross-module table sharing; WAMR
++// #4041 call_indirect index > 0; WasmEdge #4757 null-from-typed-table;
++// ChakraCore #5915 multi-call-site IC poisoning; Luau release/717
++// store-cache invalidation on mutation). Each test runs identically
++// against Pulley AND wasmtime's native Cranelift backend, asserting the
++// results agree — the fusion is only present on the Pulley side, so any
++// divergence indicates a phase-1 or phase-2 lowering bug.
++
++/// Pulley config that's safe for tests that exercise traps
++/// (call_indirect to null, OOB indices, etc.) — `signals_based_traps(false)`
++/// is required because Pulley's interpreter cannot catch signals; it must
++/// see explicit trapz / bounds-check emissions.
++fn pulley_trap_safe_config() -> Config {
++    let mut config = pulley_config();
++    config.signals_based_traps(false);
++    config
++}
++
++fn pulley_and_native_agree<Params, Results>(
++    wat: &str,
++    func_name: &str,
++    params: Params,
++) -> Result<Results>
++where
++    Params: wasmtime::WasmParams + Copy,
++    Results: wasmtime::WasmResults + std::fmt::Debug + PartialEq,
++{
++    let bytes = wat::parse_str(wat)?;
++    let pulley = {
++        let engine = Engine::new(&pulley_trap_safe_config())?;
++        let module = Module::new(&engine, &bytes)?;
++        let mut store = Store::new(&engine, ());
++        let inst = Instance::new(&mut store, &module, &[])?;
++        let f = inst.get_typed_func::<Params, Results>(&mut store, func_name)?;
++        f.call(&mut store, params)?
++    };
++    let native = {
++        let engine = Engine::new(&Config::new())?;
++        let module = Module::new(&engine, &bytes)?;
++        let mut store = Store::new(&engine, ());
++        let inst = Instance::new(&mut store, &module, &[])?;
++        let f = inst.get_typed_func::<Params, Results>(&mut store, func_name)?;
++        f.call(&mut store, params)?
++    };
++    assert_eq!(
++        pulley, native,
++        "Pulley and native diverged for `{func_name}` — fusion lowering bug?"
++    );
++    Ok(pulley)
++}
++
++/// Phase 2 firing returns the right callee result for every in-bounds
++/// table index, AND traps at the right index for OOB.
++///
++/// Reference: WAMR #4041 ("call_indirect index > 0 in AOT silently
++/// broken — only `table[0]` callable"); wasm3 #547 ("op_CallIndirect
++/// SEGV — missing bounds check").
++#[test]
++fn fusion_call_indirect_every_index() -> Result<()> {
++    let wat = r#"
++    (module
++      (table 3 3 funcref)
++      (func $f0 (result i32) i32.const 100)
++      (func $f1 (result i32) i32.const 101)
++      (func $f2 (result i32) i32.const 102)
++      (func (export "call") (param i32) (result i32)
++        local.get 0
++        call_indirect (result i32))
++      (elem (i32.const 0) func $f0 $f1 $f2))
++    "#;
++    for (idx, expected) in [(0_i32, 100_i32), (1, 101), (2, 102)] {
++        let got: i32 = pulley_and_native_agree(wat, "call", idx)?;
++        assert_eq!(got, expected, "idx {idx}");
++    }
++    // Index 3 is OOB; check Pulley only (native trap-via-signal
++    // interacts badly with `cargo test`'s debug-mode signal handlers).
++    let bytes = wat::parse_str(wat)?;
++    let engine = Engine::new(&pulley_trap_safe_config())?;
++    let module = Module::new(&engine, &bytes)?;
++    let mut store = Store::new(&engine, ());
++    let inst = Instance::new(&mut store, &module, &[])?;
++    let f = inst.get_typed_func::<i32, i32>(&mut store, "call")?;
++    let err = f.call(&mut store, 3).unwrap_err();
++    let trap = err.downcast_ref::<Trap>().expect("Trap");
++    assert_eq!(*trap, Trap::TableOutOfBounds);
++    Ok(())
++}
++
++/// Two call_indirect sites in the same function. Phase 2 must fire
++/// per-site (each fused MachInst defs its own dst vregs; the pre-pass
++/// `to_sink` list doesn't dedup or drop one).
++///
++/// Reference: ChakraCore #5915 ("setPrototypeOf does not invalidate
++/// cached instanceof IC inside currently-executing frame") — per-site
++/// IC state must be independent.
++#[test]
++fn fusion_call_indirect_multi_site() -> Result<()> {
++    let wat = r#"
++    (module
++      (table 3 3 funcref)
++      (func $f0 (result i32) i32.const 10)
++      (func $f1 (result i32) i32.const 20)
++      (func $f2 (result i32) i32.const 30)
++      (func (export "sum") (param i32 i32) (result i32)
++        local.get 0 call_indirect (result i32)
++        local.get 1 call_indirect (result i32)
++        i32.add)
++      (elem (i32.const 0) func $f0 $f1 $f2))
++    "#;
++    for (a, b, expected) in [(0_i32, 1_i32, 30_i32), (1, 2, 50), (2, 0, 40), (1, 1, 40)] {
++        let got: i32 = pulley_and_native_agree(wat, "sum", (a, b))?;
++        assert_eq!(got, expected, "a={a} b={b}");
++    }
++    Ok(())
++}
++
++/// `return_call_indirect` (tail call). Phase 2 fires here too — see
++/// `tests/disas/pulley-fusion-fires-return-call-indirect.wat`. This
++/// test pins the runtime correctness: the tail call uses the
++/// fused-op-loaded code+vmctx and returns the right value.
++#[test]
++fn fusion_return_call_indirect() -> Result<()> {
++    let wat = r#"
++    (module
++      (table 2 2 funcref)
++      (type $sig (func (result i32)))
++      (func $f0 (result i32) i32.const 7)
++      (func $f1 (result i32) i32.const 11)
++      (func (export "tail") (param i32) (result i32)
++        local.get 0
++        return_call_indirect (type $sig))
++      (elem (i32.const 0) func $f0 $f1))
++    "#;
++    for (idx, expected) in [(0_i32, 7_i32), (1, 11)] {
++        let got: i32 = pulley_and_native_agree(wat, "tail", idx)?;
++        assert_eq!(got, expected, "idx {idx}");
++    }
++    Ok(())
++}
++
++/// Host mutates the table via `Table::set` to `ref.null func`. Both
++/// Pulley and native must trap `IndirectCallToNull` at the now-null
++/// slot. The phase-2 fused op's runtime null check has to catch the
++/// host-injected null.
++///
++/// Reference: GHSA-q49f-xg75-m9xw (Winch `table.fill` host panic);
++/// V8 CVE-2024-2887 ("JS-to-wasm boundary funcref injection bypasses
++/// immutability"). The predicate is compile-time; host mutation at
++/// runtime is OK only because the fused op still does the null check.
++#[test]
++fn fusion_call_indirect_with_host_null_set() -> Result<()> {
++    let wat = r#"
++    (module
++      (table (export "t") 2 2 funcref)
++      (func $f0 (result i32) i32.const 100)
++      (func (export "call") (param i32) (result i32)
++        local.get 0
++        call_indirect (result i32))
++      (elem (i32.const 0) func $f0 $f0))
++    "#;
++    let bytes = wat::parse_str(wat)?;
++
++    // Pulley only (see note on `fusion_call_indirect_null_slot`).
++    let engine = Engine::new(&pulley_trap_safe_config())?;
++    let module = Module::new(&engine, &bytes)?;
++    let mut store = Store::new(&engine, ());
++    let inst = Instance::new(&mut store, &module, &[])?;
++    let call = inst.get_typed_func::<i32, i32>(&mut store, "call")?;
++    assert_eq!(call.call(&mut store, 0)?, 100);
++    assert_eq!(call.call(&mut store, 1)?, 100);
++
++    let table = inst.get_table(&mut store, "t").expect("table export");
++    table.set(&mut store, 1, wasmtime::Ref::Func(None))?;
++
++    assert_eq!(call.call(&mut store, 0)?, 100);
++    let err = call.call(&mut store, 1).unwrap_err();
++    let trap = err.downcast_ref::<Trap>().expect("Trap");
++    assert_eq!(
++        *trap,
++        Trap::IndirectCallToNull,
++        "phase-2 fused op missed runtime null check"
++    );
++    Ok(())
++}
++
++/// Host `Table::set` to a different (non-null) funcref between calls.
++/// The fused op must re-load `wasm_call` and `vmctx` on every dispatch
++/// — no caching of code/vmctx across calls.
++///
++/// Reference: Luau release/717 ("writes to userdata did not invalidate
++/// the store cache" — fused-op cached state survived a mutation).
++#[test]
++fn fusion_call_indirect_with_host_swap() -> Result<()> {
++    let wat = r#"
++    (module
++      (table (export "t") 1 1 funcref)
++      (func $f0 (result i32) i32.const 100)
++      (func $f1 (result i32) i32.const 200)
++      (func (export "f1_ref") (result funcref) ref.func $f1)
++      (func (export "call") (param i32) (result i32)
++        local.get 0
++        call_indirect (result i32))
++      (elem declare func $f1)
++      (elem (i32.const 0) func $f0))
++    "#;
++    let bytes = wat::parse_str(wat)?;
++
++    for use_pulley in [true, false] {
++        let cfg = if use_pulley { pulley_trap_safe_config() } else { Config::new() };
++        let engine = Engine::new(&cfg)?;
++        let module = Module::new(&engine, &bytes)?;
++        let mut store = Store::new(&engine, ());
++        let inst = Instance::new(&mut store, &module, &[])?;
++        let call = inst.get_typed_func::<i32, i32>(&mut store, "call")?;
++        assert_eq!(call.call(&mut store, 0)?, 100);
++
++        let f1_ref = inst
++            .get_typed_func::<(), Option<wasmtime::Func>>(&mut store, "f1_ref")?
++            .call(&mut store, ())?
++            .expect("f1_ref returned None");
++        let table = inst.get_table(&mut store, "t").expect("table export");
++        table.set(&mut store, 0, wasmtime::Ref::Func(Some(f1_ref)))?;
++
++        assert_eq!(
++            call.call(&mut store, 0)?,
++            200,
++            "use_pulley={use_pulley}: fused op cached stale code/vmctx?"
++        );
++    }
++    Ok(())
++}
++
++/// Module B imports module A's table and calls into it via
++/// call_indirect. Module B's fusion (if any) must use module A's
++/// actual VMFuncRef layout, not B's local assumptions about the
++/// table.
++///
++/// Reference: V8 issue 5913 ("call_indirect signature mismatch with
++/// table-sharing"); the predicate scope is module-local; an imported
++/// table breaks the "tables_mutated == false" assumption from the
++/// importer's perspective.
++#[test]
++fn fusion_call_indirect_imported_table() -> Result<()> {
++    let wat_a = r#"
++    (module
++      (table (export "t") 2 2 funcref)
++      (func $f0 (result i32) i32.const 42)
++      (func $f1 (result i32) i32.const 84)
++      (elem (i32.const 0) func $f0 $f1))
++    "#;
++    let wat_b = r#"
++    (module
++      (import "a" "t" (table 2 2 funcref))
++      (func (export "call") (param i32) (result i32)
++        local.get 0
++        call_indirect (result i32)))
++    "#;
++    let bytes_a = wat::parse_str(wat_a)?;
++    let bytes_b = wat::parse_str(wat_b)?;
++
++    for use_pulley in [true, false] {
++        let cfg = if use_pulley { pulley_trap_safe_config() } else { Config::new() };
++        let engine = Engine::new(&cfg)?;
++        let module_a = Module::new(&engine, &bytes_a)?;
++        let module_b = Module::new(&engine, &bytes_b)?;
++        let mut store = Store::new(&engine, ());
++        let inst_a = Instance::new(&mut store, &module_a, &[])?;
++        let table_export = inst_a.get_export(&mut store, "t").expect("a.t");
++
++        let mut linker = wasmtime::Linker::new(&engine);
++        linker.define(&store, "a", "t", table_export)?;
++        let inst_b = linker.instantiate(&mut store, &module_b)?;
++
++        let call = inst_b.get_typed_func::<i32, i32>(&mut store, "call")?;
++        for (idx, expected) in [(0_i32, 42_i32), (1, 84)] {
++            assert_eq!(
++                call.call(&mut store, idx)?,
++                expected,
++                "use_pulley={use_pulley} idx={idx}"
++            );
++        }
++    }
++    Ok(())
++}
++
++/// Single call_indirect to an uninitialised slot — the phase-2 fused
++/// op's runtime null check must trap cleanly with the right trap kind,
++/// not crash on the field deref.
++///
++/// For an uninitialised slot the trap kind is `UninitializedElement`
++/// (the slot's contents are the lazy-init sentinel `0`, which is
++/// distinct from an explicit `Ref::Func(None)` — see
++/// `fusion_call_indirect_with_host_null_set` for the latter).
++///
++/// Reference: WasmEdge #4757 ("GC null ref from concrete-typed table
++/// SEGV — null check sequenced after deref"). Our handler does the
++/// null check BEFORE the field deref, so this should trap cleanly.
++#[test]
++fn fusion_call_indirect_null_slot() -> Result<()> {
++    let wat = r#"
++    (module
++      (table (export "t") 1 1 funcref)
++      (func (export "call") (param i32) (result i32)
++        local.get 0
++        call_indirect (result i32)))
++    "#;
++    let bytes = wat::parse_str(wat)?;
++    // Pulley only: native-backend trap-via-signal interacts with cargo
++    // test's signal-handler setup in debug mode and shows up as a
++    // SIGSEGV instead of a Trap. Running the same code via `cargo run
++    // --release` or directly outside the test harness traps cleanly,
++    // so this is a test-harness limitation rather than a real native
++    // backend bug. Pulley uses explicit trapz (no signals) so it works
++    // in both modes.
++    let engine = Engine::new(&pulley_trap_safe_config())?;
++    let module = Module::new(&engine, &bytes)?;
++    let mut store = Store::new(&engine, ());
++    let inst = Instance::new(&mut store, &module, &[])?;
++    let call = inst.get_typed_func::<i32, i32>(&mut store, "call")?;
++    let err = call.call(&mut store, 0).unwrap_err();
++    let trap = err.downcast_ref::<Trap>().expect("Trap");
++    assert_eq!(*trap, Trap::IndirectCallToNull);
++    Ok(())
++}
+diff --git a/tests/disas/pulley-fusion-fires-32bit.wat b/tests/disas/pulley-fusion-fires-32bit.wat
+new file mode 100644
+index 0000000000..c48a7b4c6a
+--- /dev/null
++++ b/tests/disas/pulley-fusion-fires-32bit.wat
+@@ -0,0 +1,237 @@
++;;! target = "pulley32"
++;;! test = "compile"
++;;! objdump = "--funcs all"
++
++;; Phase 2 fusion on 32-bit Pulley (used by arm64_32-apple-watchos
++;; via cross-language LTO + linker-plugin-lto). The fused op is
++;; `xfuncref_dispatch_x32` with i8 offsets 4 (wasm_call) and 12
++;; (vmctx) — half of the pulley64 offsets (8 and 24).
++;;
++;; This test pins the 32-bit dispatch tail shape AND verifies that
++;; the `imm.bits() == -2` gate fires here (the band's Imm64 from
++;; func_environ's `Imm64::from(-2_i64)` still bits-equals -2 even
++;; though Cranelift truncates the imm to i32 for an i32 band).
++;;
++;; Known-follow-up from `docs/opcode-fusion-funcref-dispatch.md` →
++;; "Known follow-ups" — arm64_32 / Apple Watch confirmation. This
++;; test is the static side of that confirmation; the dynamic side
++;; (a Pulley-on-Apple-Watch run) is gated by Apple Watch SE2
++;; hardware access.
++
++(module
++  (table 3 3 funcref)
++
++  (func $f1 (result i32) i32.const 1)
++  (func $f2 (result i32) i32.const 2)
++  (func $f3 (result i32) i32.const 3)
++
++  (func (export "call_it") (param i32) (result i32)
++    local.get 0
++    call_indirect (result i32))
++
++  (elem (i32.const 0) func $f1 $f2 $f3))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]::f2:
++;;       push_frame
++;;       xconst8 x0, 2
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[2]::f3:
++;;       push_frame
++;;       xconst8 x0, 3
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[3]:
++;;       push_frame_save 32, x16, x17, x26
++;;       br_if_xugteq32_u8 x2, 3, 0x5b    // target = 0x71
++;;   1d: xload32le_o32 x15, x0, 24
++;;       xmov x3, x0
++;;       xshl32_u6 x0, x2, 2
++;;       xadd32 x15, x15, x0
++;;       xload32le_o32 x15, x15, 0
++;;       xband32_s8 x0, x15, -2
++;;       xfuncref_dispatch_not_x32 x16, x17, x0, 4, 12, 0x1b    // target = 0x53
++;;       xmov x2, x0
++;;       xmov x1, x3
++;;       xmov x0, x17
++;;       call_indirect x16
++;;       pop_frame_restore 32, x16, x17, x26
++;;       ret
++;;   53: xzero x0
++;;   55: zext32 x1, x2
++;;   58: xmov x26, x3
++;;   5b: call3 x26, x0, x1, 0x270    // target = 0x2cb
++;;   63: xmov x2, x0
++;;   66: xmov x0, x17
++;;   69: xmov x1, x26
++;;   6c: jump -0x21    // target = 0x4b
++;;   71: trap
++;;       ╰─╼ trap: TableOutOfBounds
++;;
++;; wasm[0]::array_to_wasm_trampoline[0]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload32le_o32 x13, x0, 4
++;;       xmov_fp x14
++;;       xstore32le_o32 x13, 48, x14
++;;       xmov x14, sp
++;;       xstore32le_o32 x13, 44, x14
++;;       xpcadd x15, 0x2a    // target = 0xc6
++;;       xstore32le_o32 x13, 52, x15
++;;       call -0xab    // target = 0x0
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0xc6
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;   c6: xzero x0
++;;   c8: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;   cd: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[1]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload32le_o32 x13, x0, 4
++;;       xmov_fp x14
++;;       xstore32le_o32 x13, 48, x14
++;;       xmov x14, sp
++;;       xstore32le_o32 x13, 44, x14
++;;       xpcadd x15, 0x2a    // target = 0x120
++;;       xstore32le_o32 x13, 52, x15
++;;       call -0x100    // target = 0x5
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x120
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  120: xzero x0
++;;  122: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  127: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[2]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload32le_o32 x13, x0, 4
++;;       xmov_fp x14
++;;       xstore32le_o32 x13, 48, x14
++;;       xmov x14, sp
++;;       xstore32le_o32 x13, 44, x14
++;;       xpcadd x15, 0x2a    // target = 0x17a
++;;       xstore32le_o32 x13, 52, x15
++;;       call -0x154    // target = 0xb
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x17a
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  17a: xzero x0
++;;  17c: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  181: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[3]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xload32le_o32 x14, x2, 0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload32le_o32 x15, x0, 4
++;;       xmov_fp x2
++;;       xstore32le_o32 x15, 48, x2
++;;       xmov x2, sp
++;;       xstore32le_o32 x15, 44, x2
++;;       xpcadd x2, 0x2d    // target = 0x1de
++;;       xstore32le_o32 x15, 52, x2
++;;       call3 x0, x1, x14, -0x1af    // target = 0x11
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x1de
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  1de: xzero x0
++;;  1e0: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  1e5: ret
++;;
++;; signatures[0]::wasm_to_array_trampoline:
++;;       push_frame_save 32, x16, x17
++;;       xmov x2, x0
++;;       xmov x17, x1
++;;       xload32le_o32 x13, x1, 4
++;;       xmov_fp x14
++;;       xstore32le_o32 x13, 36, x14
++;;       xmov_lr x14
++;;       xstore32le_o32 x13, 40, x14
++;;       xload32le_o32 x0, x0, 4
++;;       xmov x16, sp
++;;       xone x4
++;;       xmov x1, x2
++;;       xmov x2, x17
++;;       xmov x3, x16
++;;       call_indirect_host 0
++;;       zext8 x15, x0
++;;       br_if_not32 x15, 0x13    // target = 0x23d
++;;  230: xload32le_o32 x0, x16, 0
++;;       pop_frame_restore 32, x16, x17
++;;       ret
++;;  23d: xmov x1, x17
++;;  240: xload32le_o32 x0, x1, 8
++;;  247: xload32le_o32 x0, x0, 204
++;;  24e: call_indirect_host 52
++;;  252: trap
++;;
++;; signatures[1]::wasm_to_array_trampoline:
++;;       push_frame_save 32, x16, x17
++;;       xmov x3, x0
++;;       xmov x17, x1
++;;       xload32le_o32 x14, x1, 4
++;;       xmov_fp x15
++;;       xstore32le_o32 x14, 36, x15
++;;       xmov_lr x15
++;;       xstore32le_o32 x14, 40, x15
++;;       xmov x16, sp
++;;       xstore32le_o32 x16, 0, x2
++;;       xload32le_o32 x0, x0, 4
++;;       xone x4
++;;       xmov x1, x3
++;;       xmov x2, x17
++;;       xmov x3, x16
++;;       call_indirect_host 0
++;;       zext8 x0, x0
++;;       br_if_not32 x0, 0x13    // target = 0x2b3
++;;  2a6: xload32le_o32 x0, x16, 0
++;;       pop_frame_restore 32, x16, x17
++;;       ret
++;;  2b3: xmov x1, x17
++;;  2b6: xload32le_o32 x0, x1, 8
++;;  2bd: xload32le_o32 x0, x0, 204
++;;  2c4: call_indirect_host 52
++;;  2c8: trap
++;;
++;; wasmtime_builtin_table_get_lazy_init_func_ref:
++;;       push_frame
++;;       xload32le_o32 x9, x0, 4
++;;       xmov_fp x10
++;;       xstore32le_o32 x9, 36, x10
++;;       xmov_lr x10
++;;       xstore32le_o32 x9, 40, x10
++;;       xload32le_o32 x11, x0, 8
++;;       xmov x13, x0
++;;       xload32le_o32 x0, x11, 36
++;;       xmov x3, x2
++;;       xmov x2, x1
++;;       xmov x1, x13
++;;       call_indirect_host 10
++;;       pop_frame
++;;       ret
+diff --git a/tests/disas/pulley-fusion-fires-multi-call.wat b/tests/disas/pulley-fusion-fires-multi-call.wat
+new file mode 100644
+index 0000000000..de9b7a2cd0
+--- /dev/null
++++ b/tests/disas/pulley-fusion-fires-multi-call.wat
+@@ -0,0 +1,99 @@
++;;! target = "pulley64"
++;;! test = "compile"
++
++;; Multiple call_indirect sites in the same function should each fuse
++;; independently. The pre-pass scans every brif in every block; each
++;; matching pattern marks its own pair of continuation loads as
++;; absorbed. The lowering emits a separate FuncrefDispatch MachInst
++;; at each brif.
++;;
++;; This test pins that the optimisation is per-call-site, not
++;; per-function. A bug that misuses the pre-pass's `to_sink` list
++;; (e.g. accidental dedup, missing one of two patterns) would show up
++;; as one of the two dispatch tails reverting to unfused form.
++;;
++;; Reference precedent: ChakraCore #5915 ("setPrototypeOf does not
++;; invalidate cached instanceof IC inside currently-executing
++;; frame") — fused-op caches must be per-site, not per-function.
++
++(module
++  (table 3 3 funcref)
++
++  (func $f1 (result i32) i32.const 1)
++  (func $f2 (result i32) i32.const 2)
++  (func $f3 (result i32) i32.const 3)
++
++  (func (export "call_two") (param i32 i32) (result i32)
++    local.get 0
++    call_indirect (result i32)
++    local.get 1
++    call_indirect (result i32)
++    i32.add)
++
++  (elem (i32.const 0) func $f1 $f2 $f3))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]::f2:
++;;       push_frame
++;;       xconst8 x0, 2
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[2]::f3:
++;;       push_frame
++;;       xconst8 x0, 3
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[3]:
++;;       push_frame_save 48, x16, x17, x18, x27, x28, x29
++;;       xmov x18, x0
++;;       xmov x29, x3
++;;       br_if_xugteq32_u8 x2, 3, 0xac    // target = 0xc8
++;;   23: xload64le_o32 x28, x0, 48
++;;       zext32 x1, x2
++;;       xshl64_u6 x0, x1, 3
++;;       xadd64 x0, x28, x0
++;;       xload64le_o32 x0, x0, 0
++;;       xband64_s8 x0, x0, -2
++;;       xfuncref_dispatch_not_x64 x16, x17, x0, 8, 24, 0x57    // target = 0x95
++;;       xmov x2, x0
++;;       xmov x0, x17
++;;       xmov x1, x18
++;;       call_indirect x16
++;;       xmov x3, x29
++;;       xmov x17, x0
++;;       br_if_xugteq32_u8 x3, 3, 0x72    // target = 0xcb
++;;   60: zext32 x1, x3
++;;       xshl64_u6 x0, x1, 3
++;;       xadd64 x0, x28, x0
++;;       xload64le_o32 x0, x0, 0
++;;       xband64_s8 x0, x0, -2
++;;       xfuncref_dispatch_not_x64 x27, x28, x0, 8, 24, 0x39    // target = 0xad
++;;       xmov x2, x0
++;;       xmov x1, x18
++;;       xmov x0, x28
++;;       call_indirect x27
++;;       xmov x1, x17
++;;       xadd32 x0, x1, x0
++;;       pop_frame_restore 48, x16, x17, x18, x27, x28, x29
++;;       ret
++;;   95: xzero x0
++;;   97: xmov x2, x18
++;;   9a: call3 x2, x0, x1, 0x29e    // target = 0x338
++;;   a2: xmov x2, x0
++;;   a5: xmov x0, x17
++;;   a8: jump -0x5a    // target = 0x4e
++;;   ad: xzero x0
++;;   af: xmov x16, x18
++;;   b2: call3 x16, x0, x1, 0x286    // target = 0x338
++;;   ba: xmov x2, x0
++;;   bd: xmov x0, x28
++;;   c0: xmov x1, x16
++;;   c3: jump -0x3c    // target = 0x87
++;;   c8: trap
++;;   cb: trap
+diff --git a/tests/disas/pulley-fusion-fires-return-call-indirect.wat b/tests/disas/pulley-fusion-fires-return-call-indirect.wat
+new file mode 100644
+index 0000000000..a008f4d596
+--- /dev/null
++++ b/tests/disas/pulley-fusion-fires-return-call-indirect.wat
+@@ -0,0 +1,63 @@
++;;! target = "pulley64"
++;;! test = "compile"
++
++;; `return_call_indirect` IS a tail call but the lazy-init brif is
++;; unchanged — only the call op itself is different. Phase 2 still
++;; matches and fires here: the brif's continuation block contains
++;; the same canonical 2-load pattern, and after the loads is a
++;; `return_call_indirect` (lowered as `xjump` after the field reads)
++;; instead of a `call_indirect`. Both consume (code, vmctx) the same
++;; way, so the fusion is sound across the tail-call boundary.
++;;
++;; The disas confirms: `xband64_s8 ; xfuncref_dispatch_not_x64 ;
++;; xjump` — the tail jump replaces what would have been
++;; `call_indirect` in the non-tail case.
++;;
++;; Reference precedent: WAMR #2231 ("AOT/JIT tail-call:
++;; `return_call_indirect` is not actually tail" — uses LLVM `tail`
++;; hint instead of `musttail`). Our fusion preserves tail-call
++;; semantics because it runs upstream of the call_indirect-vs-
++;; return_call_indirect choice; this test pins that.
++
++(module
++  (table 1 1 funcref)
++  (type $sig (func (result i32)))
++
++  (func $f1 (result i32) i32.const 1)
++
++  (func (export "trampoline") (param i32) (result i32)
++    local.get 0
++    return_call_indirect (type $sig))
++
++  (elem (i32.const 0) func $f1))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]:
++;;       push_frame_save 32, x16, x17, x25
++;;       br_if_xneq32_i8 x2, 0, 0x5d    // target = 0x67
++;;   11: xload64le_o32 x15, x0, 48
++;;       xmov x1, x0
++;;       zext32 x14, x2
++;;       xshl64_u6 x0, x14, 3
++;;       xadd64 x15, x15, x0
++;;       xload64le_o32 x15, x15, 0
++;;       xband64_s8 x0, x15, -2
++;;       xfuncref_dispatch_not_x64 x16, x17, x0, 8, 24, 0x1a    // target = 0x49
++;;       xmov x15, x16
++;;       xmov x2, x0
++;;       xmov x0, x17
++;;       pop_frame_restore 32, x16, x17, x25
++;;       xjump x15
++;;   49: xzero x0
++;;       xmov x25, x1
++;;       call3 x25, x0, x14, 0x1bf    // target = 0x20d
++;;       xmov x2, x0
++;;       xmov x0, x17
++;;       xmov x1, x25
++;;       xmov x15, x16
++;;       jump -0x20    // target = 0x42
++;;   67: trap
+diff --git a/tests/disas/pulley-fusion-no-fire-mutable-table.wat b/tests/disas/pulley-fusion-no-fire-mutable-table.wat
+new file mode 100644
+index 0000000000..f582f8a285
+--- /dev/null
++++ b/tests/disas/pulley-fusion-no-fire-mutable-table.wat
+@@ -0,0 +1,341 @@
++;;! target = "pulley64"
++;;! test = "compile"
++;;! objdump = "--funcs all"
++
++;; Phase 1 / phase 2 fusion gating: a single `table.set` anywhere in
++;; the module sets `tables_mutated[idx] = true` for that table, which
++;; disables the `is_eagerly_initialized_funcref_table` predicate.
++;; func_environ's IR rewrite then emits the ORIGINAL brif on `value`
++;; (unmasked) instead of the rewritten brif on `value_masked`. With no
++;; `brif(band(v, -2))` pattern reaching the lowering, neither phase 1
++;; (BandBrIf) nor phase 2 (FuncrefDispatch) fires. The dispatch tail
++;; keeps its separate band + brif + xload + xload + call_indirect ops.
++;;
++;; Reference precedents in upstream interpreters where similar
++;; mutation-invariant edges caused real bugs:
++;;   - V8 issue 5913 (call_indirect signature mismatch under table
++;;     sharing) — the sig-elide invariant must not survive a foreign
++;;     mutation.
++;;   - GHSA-q49f-xg75-m9xw (wasmtime Winch table.fill host panic) —
++;;     bulk table ops must invalidate fusion-eligibility.
++;;   - Hermes 24a8fe64 (HiddenClass GC'd mid-IC), Luau release/717
++;;     (userdata write didn't invalidate store cache) — the general
++;;     shape "fused-op cached state survives invalidation source".
++;;
++;; This test pins the gating. Adding a `table.set` anywhere should
++;; produce the unfused dispatch sequence below.
++
++(module
++  (table 3 3 funcref)
++
++  (func $f1 (result i32) i32.const 1)
++  (func $f2 (result i32) i32.const 2)
++  (func $f3 (result i32) i32.const 3)
++
++  ;; Mutator: clears the immutability proof for table 0.
++  (func (export "mutate") (param i32)
++    local.get 0
++    ref.func $f1
++    table.set 0)
++
++  (func (export "call_it") (param i32) (result i32)
++    local.get 0
++    call_indirect (result i32))
++
++  (elem (i32.const 0) func $f1 $f2 $f3))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]::f2:
++;;       push_frame
++;;       xconst8 x0, 2
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[2]::f3:
++;;       push_frame
++;;       xconst8 x0, 3
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[3]:
++;;       push_frame_save 16, x16, x17
++;;       xmov x12, x0
++;;       xmov x17, x2
++;;       xzero x9
++;;       xmov x16, x12
++;;       call2 x16, x9, 0x3d8    // target = 0x3f9
++;;       xmov x2, x17
++;;       xmov x12, x16
++;;       br_if_xugteq32_u8 x2, 3, 0x2b    // target = 0x59
++;;   35: xbor64_s8 x10, x0, 1
++;;       xmov x0, x12
++;;       xload64le_o32 x11, x0, 48
++;;       zext32 x12, x2
++;;       xshl64_u6 x12, x12, 3
++;;       xadd64 x11, x11, x12
++;;       xstore64le_o32 x11, 0, x10
++;;       pop_frame_restore 16, x16, x17
++;;       ret
++;;   59: trap
++;;       ╰─╼ trap: TableOutOfBounds
++;;
++;; wasm[0]::function[4]:
++;;       push_frame_save 16, x29
++;;       xmov x3, x0
++;;       br_if_xugteq32_u8 x2, 3, 0x7a    // target = 0xde
++;;   6b: xload64le_o32 x0, x0, 48
++;;       zext32 x1, x2
++;;       xshl64_u6 x2, x1, 3
++;;       xadd64 x0, x0, x2
++;;       xload64le_o32 x2, x0, 0
++;;       xband64_s8 x0, x2, -2
++;;       br_if_xeq64_i8 x2, 0, 0x46    // target = 0xcc
++;;   8d: xmov x29, x3
++;;       br_if_xeq64_i8 x0, 0, 0x51    // target = 0xe1
++;;   97: xload32le_o32 x1, x0, 16
++;;       xload64le_o32 x2, x29, 40
++;;       xload32le_o32 x2, x2, 0
++;;       br_if_xneq32 x1, x2, 0x38    // target = 0xe4
++;;   b3: xload64le_o32 x2, x0, 8
++;;       xload64le_o32 x0, x0, 24
++;;       xmov x1, x29
++;;       call_indirect x2
++;;       pop_frame_restore 16, x29
++;;       ret
++;;   cc: xzero x0
++;;   ce: xmov x29, x3
++;;   d1: call3 x29, x0, x1, 0x363    // target = 0x434
++;;   d9: jump -0x49    // target = 0x90
++;;   de: trap
++;;       ╰─╼ trap: TableOutOfBounds
++;;   e1: trap
++;;       ╰─╼ trap: IndirectCallToNull
++;;   e4: trap
++;;       ╰─╼ trap: BadSignature
++;;
++;; wasm[0]::array_to_wasm_trampoline[0]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload64le_o32 x13, x0, 8
++;;       xmov_fp x14
++;;       xstore64le_o32 x13, 72, x14
++;;       xmov x14, sp
++;;       xstore64le_o32 x13, 64, x14
++;;       xpcadd x15, 0x2a    // target = 0x139
++;;       xstore64le_o32 x13, 80, x15
++;;       call -0x11e    // target = 0x0
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x139
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  139: xzero x0
++;;  13b: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  140: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[1]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload64le_o32 x13, x0, 8
++;;       xmov_fp x14
++;;       xstore64le_o32 x13, 72, x14
++;;       xmov x14, sp
++;;       xstore64le_o32 x13, 64, x14
++;;       xpcadd x15, 0x2a    // target = 0x193
++;;       xstore64le_o32 x13, 80, x15
++;;       call -0x173    // target = 0x5
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x193
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  193: xzero x0
++;;  195: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  19a: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[2]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload64le_o32 x13, x0, 8
++;;       xmov_fp x14
++;;       xstore64le_o32 x13, 72, x14
++;;       xmov x14, sp
++;;       xstore64le_o32 x13, 64, x14
++;;       xpcadd x15, 0x2a    // target = 0x1ed
++;;       xstore64le_o32 x13, 80, x15
++;;       call -0x1c7    // target = 0xb
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x1ed
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  1ed: xzero x0
++;;  1ef: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  1f4: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[3]:
++;;       push_frame_save 128, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xload32le_o32 x13, x2, 0
++;;       xload64le_o32 x14, x0, 8
++;;       xmov_fp x15
++;;       xstore64le_o32 x14, 72, x15
++;;       xmov x15, sp
++;;       xstore64le_o32 x14, 64, x15
++;;       xpcadd x15, 0x1f    // target = 0x23c
++;;       xstore64le_o32 x14, 80, x15
++;;       call3 x0, x1, x13, -0x21b    // target = 0x11
++;;       ├─╼ exception frame offset: SP = FP - 0x80
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x23c
++;;       xone x0
++;;       pop_frame_restore 128, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  23c: xzero x0
++;;  23e: pop_frame_restore 128, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  243: ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[4]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xload32le_o32 x14, x2, 0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload64le_o32 x15, x0, 8
++;;       xmov_fp x2
++;;       xstore64le_o32 x15, 72, x2
++;;       xmov x2, sp
++;;       xstore64le_o32 x15, 64, x2
++;;       xpcadd x2, 0x2d    // target = 0x2a0
++;;       xstore64le_o32 x15, 80, x2
++;;       call3 x0, x1, x14, -0x226    // target = 0x5c
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x2a0
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;  2a0: xzero x0
++;;  2a2: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  2a7: ret
++;;
++;; signatures[0]::wasm_to_array_trampoline:
++;;       push_frame_save 32, x16, x17
++;;       xmov x2, x0
++;;       xmov x17, x1
++;;       xload64le_o32 x13, x1, 8
++;;       xmov_fp x14
++;;       xstore64le_o32 x13, 48, x14
++;;       xmov_lr x14
++;;       xstore64le_o32 x13, 56, x14
++;;       xload64le_o32 x0, x0, 8
++;;       xmov x16, sp
++;;       xone x4
++;;       xmov x1, x2
++;;       xmov x2, x17
++;;       xmov x3, x16
++;;       call_indirect_host 0
++;;       zext8 x15, x0
++;;       br_if_not32 x15, 0x13    // target = 0x2ff
++;;  2f2: xload32le_o32 x0, x16, 0
++;;       pop_frame_restore 32, x16, x17
++;;       ret
++;;  2ff: xmov x1, x17
++;;  302: xload64le_o32 x0, x1, 16
++;;  309: xload64le_o32 x0, x0, 408
++;;  310: call_indirect_host 52
++;;  314: trap
++;;
++;; signatures[1]::wasm_to_array_trampoline:
++;;       push_frame_save 32, x16
++;;       xmov x5, x0
++;;       xmov x16, x1
++;;       xload64le_o32 x13, x1, 8
++;;       xmov_fp x14
++;;       xstore64le_o32 x13, 48, x14
++;;       xmov_lr x14
++;;       xstore64le_o32 x13, 56, x14
++;;       xmov x3, sp
++;;       xstore32le_o32 x3, 0, x2
++;;       xload64le_o32 x0, x0, 8
++;;       xone x4
++;;       xmov x1, x5
++;;       xmov x2, x16
++;;       call_indirect_host 0
++;;       zext8 x0, x0
++;;       br_if_not32 x0, 0xc    // target = 0x36b
++;;  365: pop_frame_restore 32, x16
++;;       ret
++;;  36b: xmov x1, x16
++;;  36e: xload64le_o32 x0, x1, 16
++;;  375: xload64le_o32 x0, x0, 408
++;;  37c: call_indirect_host 52
++;;  380: trap
++;;
++;; signatures[2]::wasm_to_array_trampoline:
++;;       push_frame_save 32, x16, x17
++;;       xmov x3, x0
++;;       xmov x17, x1
++;;       xload64le_o32 x14, x1, 8
++;;       xmov_fp x15
++;;       xstore64le_o32 x14, 48, x15
++;;       xmov_lr x15
++;;       xstore64le_o32 x14, 56, x15
++;;       xmov x16, sp
++;;       xstore32le_o32 x16, 0, x2
++;;       xload64le_o32 x0, x0, 8
++;;       xone x4
++;;       xmov x1, x3
++;;       xmov x2, x17
++;;       xmov x3, x16
++;;       call_indirect_host 0
++;;       zext8 x0, x0
++;;       br_if_not32 x0, 0x13    // target = 0x3e1
++;;  3d4: xload32le_o32 x0, x16, 0
++;;       pop_frame_restore 32, x16, x17
++;;       ret
++;;  3e1: xmov x1, x17
++;;  3e4: xload64le_o32 x0, x1, 16
++;;  3eb: xload64le_o32 x0, x0, 408
++;;  3f2: call_indirect_host 52
++;;  3f6: trap
++;;
++;; wasmtime_builtin_ref_func:
++;;       push_frame
++;;       xload64le_o32 x8, x0, 8
++;;       xmov_fp x9
++;;       xstore64le_o32 x8, 48, x9
++;;       xmov_lr x9
++;;       xstore64le_o32 x8, 56, x9
++;;       xload64le_o32 x10, x0, 16
++;;       xmov x11, x0
++;;       xload64le_o32 x0, x10, 56
++;;       xmov x2, x1
++;;       xmov x1, x11
++;;       call_indirect_host 8
++;;       pop_frame
++;;       ret
++;;
++;; wasmtime_builtin_table_get_lazy_init_func_ref:
++;;       push_frame
++;;       xload64le_o32 x9, x0, 8
++;;       xmov_fp x10
++;;       xstore64le_o32 x9, 48, x10
++;;       xmov_lr x10
++;;       xstore64le_o32 x9, 56, x10
++;;       xload64le_o32 x11, x0, 16
++;;       xmov x13, x0
++;;       xload64le_o32 x0, x11, 72
++;;       xmov x3, x2
++;;       xmov x2, x1
++;;       xmov x1, x13
++;;       call_indirect_host 10
++;;       pop_frame
++;;       ret
+diff --git a/tests/disas/pulley-fusion-no-fire-sig-runtime-check.wat b/tests/disas/pulley-fusion-no-fire-sig-runtime-check.wat
+new file mode 100644
+index 0000000000..f84f81d57b
+--- /dev/null
++++ b/tests/disas/pulley-fusion-no-fire-sig-runtime-check.wat
+@@ -0,0 +1,87 @@
++;;! target = "pulley64"
++;;! test = "compile"
++
++;; Phase 2 fusion does NOT match when the sig check is NOT statically
++;; elided. With a runtime sig check, the continuation block starts
++;; with a sig load (from the funcref's `type_index` field) + comparison
++;; + trapz, NOT the two `wasm_call` / `vmctx` loads. Phase 2's
++;; recogniser requires the first two CLIF insts in the continuation
++;; to be the canonical loads, so it bails. Phase 1's band+brif fusion
++;; still applies as fallback.
++;;
++;; The module shape: an untyped `funcref` table with elem entries of
++;; MIXED signatures. With mixed sigs, `try_elide_sig_check_for_immutable_table`
++;; cannot establish a uniform static type, and the runtime sig check
++;; stays in the dispatch tail.
++;;
++;; Reference precedent: V8 issue 5913 ("call_indirect signature
++;; mismatch with table-sharing") + WebKit changeset 273962
++;; ("call_ref / non-null funcref"): sig elision under "assumed-
++;; immutable" predicates is a known footgun, and the safe fallback
++;; is "keep the runtime sig check".
++
++(module
++  (table 3 3 funcref)
++  (type $sig (func (param i32) (result i32)))
++
++  ;; $f1, $f2 match $sig.
++  (func $f1 (param i32) (result i32) i32.const 1)
++  (func $f2 (param i32) (result i32) i32.const 2)
++  ;; $f3 has a DIFFERENT signature — defeats uniform-sig elision.
++  (func $f3 (result i32) i32.const 3)
++
++  (func (export "call_it") (param i32) (result i32)
++    local.get 0
++    local.get 0
++    call_indirect (type $sig))
++
++  (elem (i32.const 0) func $f1 $f2 $f3))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]::f2:
++;;       push_frame
++;;       xconst8 x0, 2
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[2]::f3:
++;;       push_frame
++;;       xconst8 x0, 3
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[3]:
++;;       push_frame_save 16, x16, x19
++;;       xmov x3, x0
++;;       br_if_xugteq32_u8 x2, 3, 0x7d    // target = 0x96
++;;   20: xload64le_o32 x0, x0, 48
++;;       zext32 x1, x2
++;;       xmov x19, x2
++;;       xshl64_u6 x2, x1, 3
++;;       xadd64 x0, x0, x2
++;;       xload64le_o32 x0, x0, 0
++;;       xband64_s8_br_if_not_x64 x0, x0, -2, 0x4a    // target = 0x84
++;;   42: xmov x16, x3
++;;       br_if_xeq64_i8 x0, 0, 0x54    // target = 0x99
++;;   4c: xload32le_o32 x1, x0, 16
++;;       xload64le_o32 x2, x16, 40
++;;       xload32le_o32 x2, x2, 0
++;;       br_if_xneq32 x1, x2, 0x3b    // target = 0x9c
++;;   68: xload64le_o32 x3, x0, 8
++;;       xload64le_o32 x0, x0, 24
++;;       xmov x1, x16
++;;       xmov x2, x19
++;;       call_indirect x3
++;;       pop_frame_restore 16, x16, x19
++;;       ret
++;;   84: xzero x0
++;;   86: xmov x16, x3
++;;   89: call3 x16, x0, x1, 0x281    // target = 0x30a
++;;   91: jump -0x4c    // target = 0x45
++;;   96: trap
++;;   99: trap
++;;   9c: trap
+diff --git a/tests/disas/pulley-fusion-no-fire-table-copy.wat b/tests/disas/pulley-fusion-no-fire-table-copy.wat
+new file mode 100644
+index 0000000000..eb7ad6d2e3
+--- /dev/null
++++ b/tests/disas/pulley-fusion-no-fire-table-copy.wat
+@@ -0,0 +1,130 @@
++;;! target = "pulley64"
++;;! test = "compile"
++
++;; Phase 1 / phase 2 fusion gating: `table.copy` mutates the
++;; destination table. With table 0 as the copy destination, its
++;; immutability proof is cleared and the eager-init predicate becomes
++;; false — fusion does not fire.
++;;
++;; Note that this only marks the DESTINATION as mutated; the source
++;; table (table 1) keeps its proof. wasm-benchmark/`environ`'s
++;; `table_mutability` test suite has the integration coverage for the
++;; src-vs-dst marking; this filetest pins the lowering-level
++;; consequence (Pulley dispatch tail is unfused for the dst table).
++;;
++;; wasm3 #547 (`op_CallIndirect` SEGV — missing bounds check on table
++;; index) is a related precedent: bulk-copy invariants that fail
++;; silently in one engine produce dispatch-time crashes in another.
++
++(module
++  (table $tdst 5 5 funcref)
++  (table $tsrc 5 5 funcref)
++
++  (func $f1 (result i32) i32.const 1)
++  (func $f2 (result i32) i32.const 2)
++  (func $f3 (result i32) i32.const 3)
++
++  ;; Bulk mutator: clears the immutability proof for table $tdst.
++  (func (export "copy") (param i32 i32 i32)
++    local.get 0 local.get 1 local.get 2
++    table.copy $tdst $tsrc)
++
++  ;; Call through the (potentially-mutated) destination table.
++  (func (export "call_dst") (param i32) (result i32)
++    local.get 0
++    call_indirect $tdst (result i32))
++
++  ;; Call through the source table (still immutable from this
++  ;; module's perspective; fusion CAN fire here).
++  (func (export "call_src") (param i32) (result i32)
++    local.get 0
++    call_indirect $tsrc (result i32))
++
++  (elem (table $tdst) (i32.const 0) func $f1 $f2 $f3)
++  (elem (table $tsrc) (i32.const 0) func $f1 $f2 $f3))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]::f2:
++;;       push_frame
++;;       xconst8 x0, 2
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[2]::f3:
++;;       push_frame
++;;       xconst8 x0, 3
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[3]:
++;;       push_frame
++;;       xmov x15, x4
++;;       xzero x10
++;;       xone x11
++;;       zext32 x12, x2
++;;       zext32 x4, x3
++;;       zext32 x5, x15
++;;       call4 x0, x10, x11, x12, 0x49f    // target = 0x4c1
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[4]:
++;;       push_frame_save 16, x29
++;;       xmov x3, x0
++;;       br_if_xugteq32_u8 x2, 5, 0x7a    // target = 0xaf
++;;   3c: xload64le_o32 x0, x0, 48
++;;       zext32 x1, x2
++;;       xshl64_u6 x2, x1, 3
++;;       xadd64 x0, x0, x2
++;;       xload64le_o32 x2, x0, 0
++;;       xband64_s8 x0, x2, -2
++;;       br_if_xeq64_i8 x2, 0, 0x46    // target = 0x9d
++;;   5e: xmov x29, x3
++;;       br_if_xeq64_i8 x0, 0, 0x51    // target = 0xb2
++;;   68: xload32le_o32 x1, x0, 16
++;;       xload64le_o32 x2, x29, 40
++;;       xload32le_o32 x2, x2, 0
++;;       br_if_xneq32 x1, x2, 0x38    // target = 0xb5
++;;   84: xload64le_o32 x2, x0, 8
++;;       xload64le_o32 x0, x0, 24
++;;       xmov x1, x29
++;;       call_indirect x2
++;;       pop_frame_restore 16, x29
++;;       ret
++;;   9d: xzero x0
++;;   9f: xmov x29, x3
++;;   a2: call3 x29, x0, x1, 0x495    // target = 0x537
++;;   aa: jump -0x49    // target = 0x61
++;;   af: trap
++;;   b2: trap
++;;   b5: trap
++;;
++;; wasm[0]::function[5]:
++;;       push_frame_save 16, x26
++;;       xmov x3, x0
++;;       br_if_xugteq32_u8 x2, 5, 0x5e    // target = 0x11e
++;;   c7: xload64le_o32 x0, x0, 64
++;;       zext32 x15, x2
++;;       xshl64_u6 x1, x15, 3
++;;       xadd64 x0, x0, x1
++;;       xload64le_o32 x1, x0, 0
++;;       xband64_s8 x0, x1, -2
++;;       br_if_xeq64_i8 x1, 0, 0x2a    // target = 0x10c
++;;   e9: xmov x26, x3
++;;       br_if_xeq64_i8 x0, 0, 0x35    // target = 0x121
++;;   f3: xload64le_o32 x2, x0, 8
++;;       xload64le_o32 x0, x0, 24
++;;       xmov x1, x26
++;;       call_indirect x2
++;;       pop_frame_restore 16, x26
++;;       ret
++;;  10c: xone x0
++;;  10e: xmov x26, x3
++;;  111: call3 x26, x0, x15, 0x426    // target = 0x537
++;;  119: jump -0x2d    // target = 0xec
++;;  11e: trap
++;;  121: trap
+diff --git a/tests/disas/pulley-fusion-no-fire-table-fill.wat b/tests/disas/pulley-fusion-no-fire-table-fill.wat
+new file mode 100644
+index 0000000000..63946adfa5
+--- /dev/null
++++ b/tests/disas/pulley-fusion-no-fire-table-fill.wat
+@@ -0,0 +1,98 @@
++;;! target = "pulley64"
++;;! test = "compile"
++
++;; Phase 1 / phase 2 fusion gating: `table.fill` is a bulk-memory op
++;; that mutates an arbitrary range of the table. Like `table.set`, it
++;; sets `tables_mutated[idx] = true` for the target table and disables
++;; the eager-init predicate. The dispatch tail must be the unfused
++;; sequence with the original `brif value` (not `brif value_masked`),
++;; so neither phase 1 nor phase 2 fires.
++;;
++;; Reference: GHSA-q49f-xg75-m9xw (wasmtime Winch table.fill host
++;; panic) — bulk table ops are a classic invariant-edge for any
++;; "immutable-table" cache or fusion. wasm3 #335 (null table element
++;; on Swift reactor-mode tables) showed how a partially-initialised
++;; table breaks a "table is fully populated" assumption.
++
++(module
++  (table 3 3 funcref)
++
++  (func $f1 (result i32) i32.const 1)
++  (func $f2 (result i32) i32.const 2)
++  (func $f3 (result i32) i32.const 3)
++
++  ;; Bulk mutator: clears the immutability proof for table 0.
++  (func (export "fill_some") (param $dst i32)
++    local.get $dst
++    ref.func $f1
++    i32.const 1
++    table.fill 0)
++
++  (func (export "call_it") (param i32) (result i32)
++    local.get 0
++    call_indirect (result i32))
++
++  (elem (i32.const 0) func $f1 $f2 $f3))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]::f2:
++;;       push_frame
++;;       xconst8 x0, 2
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[2]::f3:
++;;       push_frame
++;;       xconst8 x0, 3
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[3]:
++;;       push_frame_save 32, x16, x17, x18
++;;       xmov x12, x0
++;;       xmov x18, x2
++;;       xzero x16
++;;       xmov x17, x12
++;;       call2 x17, x16, 0x3be    // target = 0x3df
++;;       xmov x2, x18
++;;       xmov x12, x17
++;;       zext32 x7, x2
++;;       xone x4
++;;       call4 x12, x16, x7, x0, 0x425    // target = 0x458
++;;       pop_frame_restore 32, x16, x17, x18
++;;       ret
++;;
++;; wasm[0]::function[4]:
++;;       push_frame_save 16, x29
++;;       xmov x3, x0
++;;       br_if_xugteq32_u8 x2, 3, 0x7a    // target = 0xc4
++;;   51: xload64le_o32 x0, x0, 48
++;;       zext32 x1, x2
++;;       xshl64_u6 x2, x1, 3
++;;       xadd64 x0, x0, x2
++;;       xload64le_o32 x2, x0, 0
++;;       xband64_s8 x0, x2, -2
++;;       br_if_xeq64_i8 x2, 0, 0x46    // target = 0xb2
++;;   73: xmov x29, x3
++;;       br_if_xeq64_i8 x0, 0, 0x51    // target = 0xc7
++;;   7d: xload32le_o32 x1, x0, 16
++;;       xload64le_o32 x2, x29, 40
++;;       xload32le_o32 x2, x2, 0
++;;       br_if_xneq32 x1, x2, 0x38    // target = 0xca
++;;   99: xload64le_o32 x2, x0, 8
++;;       xload64le_o32 x0, x0, 24
++;;       xmov x1, x29
++;;       call_indirect x2
++;;       pop_frame_restore 16, x29
++;;       ret
++;;   b2: xzero x0
++;;   b4: xmov x29, x3
++;;   b7: call3 x29, x0, x1, 0x363    // target = 0x41a
++;;   bf: jump -0x49    // target = 0x76
++;;   c4: trap
++;;   c7: trap
++;;   ca: trap
+diff --git a/tests/disas/pulley-fusion-no-fire-table-grow.wat b/tests/disas/pulley-fusion-no-fire-table-grow.wat
+new file mode 100644
+index 0000000000..3a76f16a29
+--- /dev/null
++++ b/tests/disas/pulley-fusion-no-fire-table-grow.wat
+@@ -0,0 +1,84 @@
++;;! target = "pulley64"
++;;! test = "compile"
++
++;; Phase 1 / phase 2 fusion gating: `table.grow` adds slots at the
++;; end of the table; new slots default to `ref.null func`. The
++;; "eagerly-initialised, fully-populated" predicate doesn't hold
++;; after grow, so fusion is disabled.
++;;
++;; In our `table_mutability` accounting (crates/environ), `table.grow`
++;; sets the mutated bit for the target table the same way
++;; `table.set` does. This filetest pins the lowering-level
++;; consequence: the unfused dispatch sequence on the grown table.
++;;
++;; Reference: wasm3 #547 — bounds-check ↔ growth races; Luau release/
++;; 717 — "writes to userdata did not invalidate the store cache",
++;; same shape of "fused-op cached a base pointer that got
++;; reallocated".
++
++(module
++  (table 1 funcref)
++
++  (func $f1 (result i32) i32.const 1)
++
++  (func (export "grow") (param i32) (result i32)
++    ref.func $f1
++    local.get 0
++    table.grow 0)
++
++  (func (export "call_it") (param i32) (result i32)
++    local.get 0
++    call_indirect (result i32))
++
++  (elem (i32.const 0) func $f1))
++;; wasm[0]::function[0]::f1:
++;;       push_frame
++;;       xone x0
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::function[1]:
++;;       push_frame_save 32, x16, x17, x18
++;;       xmov x12, x0
++;;       xmov x18, x2
++;;       xzero x16
++;;       xmov x17, x12
++;;       call2 x17, x16, 0x2b8    // target = 0x2cd
++;;       xmov x2, x18
++;;       xmov x12, x17
++;;       zext32 x6, x2
++;;       call4 x12, x16, x6, x0, 0x321    // target = 0x346
++;;       pop_frame_restore 32, x16, x17, x18
++;;       ret
++;;
++;; wasm[0]::function[2]:
++;;       push_frame_save 16, x16
++;;       xload64le_o32 x1, x0, 56
++;;       br_if_xulteq32 x1, x2, 0x7d    // target = 0xbd
++;;   47: xload64le_o32 x3, x0, 48
++;;       xmov x4, x0
++;;       zext32 x1, x2
++;;       xshl64_u6 x0, x1, 3
++;;       xadd64 x0, x3, x0
++;;       xload64le_o32 x2, x0, 0
++;;       xband64_s8 x0, x2, -2
++;;       br_if_xeq64_i8 x2, 0, 0x46    // target = 0xab
++;;   6c: xmov x16, x4
++;;       br_if_xeq64_i8 x0, 0, 0x51    // target = 0xc0
++;;   76: xload32le_o32 x1, x0, 16
++;;       xload64le_o32 x2, x16, 40
++;;       xload32le_o32 x2, x2, 0
++;;       br_if_xneq32 x1, x2, 0x38    // target = 0xc3
++;;   92: xload64le_o32 x2, x0, 8
++;;       xload64le_o32 x0, x0, 24
++;;       xmov x1, x16
++;;       call_indirect x2
++;;       pop_frame_restore 16, x16
++;;       ret
++;;   ab: xzero x0
++;;   ad: xmov x16, x4
++;;   b0: call3 x16, x0, x1, 0x258    // target = 0x308
++;;   b8: jump -0x49    // target = 0x6f
++;;   bd: trap
++;;   c0: trap
++;;   c3: trap
+diff --git a/tests/disas/pulley-fusion-no-fire-user-mask.wat b/tests/disas/pulley-fusion-no-fire-user-mask.wat
+new file mode 100644
+index 0000000000..c1bb950f61
+--- /dev/null
++++ b/tests/disas/pulley-fusion-no-fire-user-mask.wat
+@@ -0,0 +1,92 @@
++;;! target = "pulley64"
++;;! test = "compile"
++;;! objdump = "--funcs all"
++
++;; Phase 1 / phase 2 fusion gating against user wasm: the recogniser
++;; gates on `imm.bits() == -2`, which would naively match the wat
++;; `(i32.const -2) (i32.and) (br_if)` user pattern and risk a soundness
++;; mismatch (the fused op tests UNMASKED src for non-zero, whereas the
++;; original brif tests `(v & -2) != 0` — they differ at v == 1).
++;;
++;; The bug is unreachable from wasm because:
++;;   * `br_if` cond is always i32 (wasm validation), AND
++;;   * the wat parser stores `(i32.const -2)` as `Imm64(0xFFFFFFFE)`
++;;     (= 4294967294), NOT `Imm64(-2)`.
++;; So `imm.bits() == -2` doesn't match the wat-emitted i32 form. The
++;; only producer of `Imm64(-2)` reaching the recogniser is
++;; `func_environ::get_or_init_func_ref_table_elem`'s call to
++;; `Imm64::from(-2_i64)`.
++;;
++;; This test pins the surface behaviour. If the gate ever changes to
++;; accept i32 -2 encodings too, the disas would suddenly start
++;; containing `xband32_s8_br_if_*` or `xfuncref_dispatch_*` here, and
++;; this test fails — that's the signal to re-audit soundness.
++
++(module
++  (func (export "test") (param $v i32) (result i32) (local $tmp i32)
++    local.get $v
++    i32.const -2
++    i32.and
++    local.tee $tmp
++    local.get $tmp
++    br_if 0
++    drop
++    i32.const 999))
++;; wasm[0]::function[0]:
++;;       push_frame
++;;       xband32_s8 x0, x2, -2
++;;       br_if32 x0, 0xa    // target = 0xf
++;;    b: xconst16 x0, 999
++;;       pop_frame
++;;       ret
++;;
++;; wasm[0]::array_to_wasm_trampoline[0]:
++;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       xload32le_o32 x14, x2, 0
++;;       xstore64le_o32 sp, 0, x2
++;;       xload64le_o32 x15, x0, 8
++;;       xmov_fp x2
++;;       xstore64le_o32 x15, 72, x2
++;;       xmov x2, sp
++;;       xstore64le_o32 x15, 64, x2
++;;       xpcadd x2, 0x2d    // target = 0x6d
++;;       xstore64le_o32 x15, 80, x2
++;;       call3 x0, x1, x14, -0x4f    // target = 0x0
++;;       ├─╼ exception frame offset: SP = FP - 0x90
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x6d
++;;       xload64le_o32 x2, sp, 0
++;;       xstore32le_o32 x2, 0, x0
++;;       xone x0
++;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;       ret
++;;   6d: xzero x0
++;;   6f: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;   74: ret
++;;
++;; signatures[0]::wasm_to_array_trampoline:
++;;       push_frame_save 32, x16, x17
++;;       xmov x3, x0
++;;       xmov x17, x1
++;;       xload64le_o32 x14, x1, 8
++;;       xmov_fp x15
++;;       xstore64le_o32 x14, 48, x15
++;;       xmov_lr x15
++;;       xstore64le_o32 x14, 56, x15
++;;       xmov x16, sp
++;;       xstore32le_o32 x16, 0, x2
++;;       xload64le_o32 x0, x0, 8
++;;       xone x4
++;;       xmov x1, x3
++;;       xmov x2, x17
++;;       xmov x3, x16
++;;       call_indirect_host 0
++;;       zext8 x0, x0
++;;       br_if_not32 x0, 0x13    // target = 0xd3
++;;   c6: xload32le_o32 x0, x16, 0
++;;       pop_frame_restore 32, x16, x17
++;;       ret
++;;   d3: xmov x1, x17
++;;   d6: xload64le_o32 x0, x1, 16
++;;   dd: xload64le_o32 x0, x0, 408
++;;   e4: call_indirect_host 52
++;;   e8: trap

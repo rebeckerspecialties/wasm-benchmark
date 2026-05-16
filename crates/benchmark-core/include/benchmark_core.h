@@ -85,6 +85,18 @@ BenchReport bench_run_vtable_bi(void);
 BenchReport bench_run_vtable_poly4(void);
 BenchReport bench_run_vtable_poly6(void);
 
+// WAMR comparison variants for the workloads above. graphql-validation
+// Porffor on WAMR may fail at instantiation because Porffor compiles
+// JS try/catch to wasm exceptions and our WAMR build has
+// WAMR_BUILD_EXCE_HANDLING=0 — the runner reports the wasm-level
+// error string from wasm_runtime_get_exception in that case.
+BenchReport bench_run_vtable_mono_wamr(void);
+BenchReport bench_run_vtable_bi_wamr(void);
+BenchReport bench_run_vtable_poly4_wamr(void);
+BenchReport bench_run_vtable_poly6_wamr(void);
+BenchReport bench_run_graphql_validation_as_wamr(void);
+BenchReport bench_run_graphql_validation_porf_wamr(void);
+
 // Initialize the WAMR runtime. MUST be called from the main thread before
 // any bench_run_*_wamr call. Returns 1 on success, 0 on failure (e.g. if
 // WAMR is not linked in for this build target).

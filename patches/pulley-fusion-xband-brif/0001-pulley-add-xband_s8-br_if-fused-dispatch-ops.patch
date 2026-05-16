@@ -1,0 +1,137 @@
+From 0a0127b420337a74c33a3219757a45b6660b0b76 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 15 May 2026 00:09:33 +0000
+Subject: pulley: add xband_s8 + br_if fused dispatch ops
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds four new Pulley bytecode ops via for_each_op:
+
+  xband32_s8_br_if_x32       low32(dst) = low32(src) & sext(mask); if low32(src) != 0 jump
+  xband32_s8_br_if_not_x32   low32(dst) = low32(src) & sext(mask); if low32(src) == 0 jump
+  xband64_s8_br_if_x64       dst        = src        & sext(mask); if src        != 0 jump
+  xband64_s8_br_if_not_x64   dst        = src        & sext(mask); if src        == 0 jump
+
+The forward/inverted pairs let the Cranelift Pulley backend's MachBuffer
+flip branch direction for fallthrough optimization without losing the
+fusion. The 32-bit and 64-bit variants cover the pointer-width split
+across aarch64-apple-darwin/-ios (64-bit) and arm64_32-apple-watchos
+(32-bit) target deployments.
+
+These ops are emitted by the Cranelift Pulley backend at the call_indirect
+lazy-init brif site, fusing the masked-funcref AND with the null-check
+branch into a single match_loop dispatch — the smallest viable step on
+the "next branch -- opcode fusion" track from PR #2's description.
+---
+ pulley/src/interp.rs | 64 ++++++++++++++++++++++++++++++++++++++++++++
+ pulley/src/lib.rs    | 21 +++++++++++++++
+ 2 files changed, 85 insertions(+)
+
+diff --git a/pulley/src/interp.rs b/pulley/src/interp.rs
+index 940d35237b..7cd1996f20 100644
+--- a/pulley/src/interp.rs
++++ b/pulley/src/interp.rs
+@@ -2296,6 +2296,70 @@ impl OpVisitor for Interpreter<'_> {
+         ControlFlow::Continue(())
+     }
+ 
++    fn xband32_s8_br_if_x32(
++        &mut self,
++        dst: XReg,
++        src: XReg,
++        mask: i8,
++        offset: PcRelOffset,
++    ) -> ControlFlow<Done> {
++        let s = self.state[src].get_i32();
++        self.state[dst].set_i32(s & i32::from(mask));
++        if s != 0 {
++            self.pc_rel_jump::<crate::Xband32S8BrIfX32>(offset)
++        } else {
++            ControlFlow::Continue(())
++        }
++    }
++
++    fn xband32_s8_br_if_not_x32(
++        &mut self,
++        dst: XReg,
++        src: XReg,
++        mask: i8,
++        offset: PcRelOffset,
++    ) -> ControlFlow<Done> {
++        let s = self.state[src].get_i32();
++        self.state[dst].set_i32(s & i32::from(mask));
++        if s == 0 {
++            self.pc_rel_jump::<crate::Xband32S8BrIfNotX32>(offset)
++        } else {
++            ControlFlow::Continue(())
++        }
++    }
++
++    fn xband64_s8_br_if_x64(
++        &mut self,
++        dst: XReg,
++        src: XReg,
++        mask: i8,
++        offset: PcRelOffset,
++    ) -> ControlFlow<Done> {
++        let s = self.state[src].get_i64();
++        self.state[dst].set_i64(s & i64::from(mask));
++        if s != 0 {
++            self.pc_rel_jump::<crate::Xband64S8BrIfX64>(offset)
++        } else {
++            ControlFlow::Continue(())
++        }
++    }
++
++    fn xband64_s8_br_if_not_x64(
++        &mut self,
++        dst: XReg,
++        src: XReg,
++        mask: i8,
++        offset: PcRelOffset,
++    ) -> ControlFlow<Done> {
++        let s = self.state[src].get_i64();
++        self.state[dst].set_i64(s & i64::from(mask));
++        if s == 0 {
++            self.pc_rel_jump::<crate::Xband64S8BrIfNotX64>(offset)
++        } else {
++            ControlFlow::Continue(())
++        }
++    }
++
+     fn xbor32(&mut self, operands: BinaryOperands<XReg>) -> ControlFlow<Done> {
+         let a = self.state[operands.src1].get_u32();
+         let b = self.state[operands.src2].get_u32();
+diff --git a/pulley/src/lib.rs b/pulley/src/lib.rs
+index dba201017d..b957f85174 100644
+--- a/pulley/src/lib.rs
++++ b/pulley/src/lib.rs
+@@ -562,6 +562,27 @@ macro_rules! for_each_op {
+             xband64_s8 = Xband64S8 { dst: XReg, src1: XReg, src2: i8 };
+             /// Same as `xband64` but `src2` is a sign-extended 32-bit immediate.
+             xband64_s32 = Xband64S32 { dst: XReg, src1: XReg, src2: i32 };
++
++            /// `low32(dst) = low32(src) & sign_extend(mask)`, then conditionally
++            /// branch by `offset` if `low32(src)` is non-zero.
++            ///
++            /// Fused form of `xband32_s8 dst, src, mask` + `br_if32 src, offset`,
++            /// emitted by the Cranelift Pulley backend at call_indirect lazy-init
++            /// brif sites where the same loaded funcref value feeds both the
++            /// init-bit mask (`band v, -2`) and the null-check branch
++            /// (`brif v`). Shaves one match_loop dispatch per call_indirect
++            /// site. See pulley/PR for the full design discussion.
++            xband32_s8_br_if_x32 = Xband32S8BrIfX32 { dst: XReg, src: XReg, mask: i8, offset: PcRelOffset };
++            /// Inverted form of `xband32_s8_br_if_x32`: branch if `low32(src)`
++            /// is zero. The mask + dst write happen unconditionally. Used by
++            /// MachBuffer's branch-direction-flip fallthrough optimization.
++            xband32_s8_br_if_not_x32 = Xband32S8BrIfNotX32 { dst: XReg, src: XReg, mask: i8, offset: PcRelOffset };
++            /// 64-bit form: `dst = src & sign_extend(mask)`, then conditionally
++            /// branch by `offset` if `src` is non-zero. Same fusion as
++            /// `xband32_s8_br_if_x32` but for 64-bit pointer-width Pulley.
++            xband64_s8_br_if_x64 = Xband64S8BrIfX64 { dst: XReg, src: XReg, mask: i8, offset: PcRelOffset };
++            /// Inverted form of `xband64_s8_br_if_x64`: branch if `src` is zero.
++            xband64_s8_br_if_not_x64 = Xband64S8BrIfNotX64 { dst: XReg, src: XReg, mask: i8, offset: PcRelOffset };
+             /// `low32(dst) = low32(src1) | low32(src2)`
+             xbor32 = XBor32 { operands: BinaryOperands<XReg> };
+             /// Same as `xbor64` but `src2` is a sign-extended 8-bit immediate.

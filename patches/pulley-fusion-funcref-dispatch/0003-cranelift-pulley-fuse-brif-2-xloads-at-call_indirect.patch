@@ -1,0 +1,868 @@
+From 2f8ce110c231353dd29d887b58d58380bbe09bc0 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Thu, 14 May 2026 21:30:07 -0700
+Subject: cranelift/pulley: fuse brif + 2 xloads at call_indirect dispatch tail
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Wires the new Pulley `xfuncref_dispatch_*` ops (two commits back)
+into the Cranelift Pulley backend. At call_indirect lazy-init brif
+sites where (a) `is_eagerly_initialized_funcref_table` holds AND
+(b) the sig check is statically elided (typed-funcref table or
+matching-sig-cache hit), the brif + the two VMFuncRef field loads
+emitted by `load_code_and_vmctx` are fused into one
+`MInst::FuncrefDispatch` whose underlying bytecode is one of the
+four `xfuncref_dispatch_*` variants. Saves 2 match_loop dispatches
+per call_indirect site.
+
+Layered changes:
+
+  pulley_shared::inst: new `MInst::FuncrefDispatch` terminator
+  variant with `dst_code / dst_vmctx / src / offset_code /
+  offset_vmctx / size / taken / not_taken`. Treated as a Branch by
+  `is_term`; the operand collector reports both dsts as defs and
+  src as a use, so regalloc handles the cross-block live ranges
+  (FuncrefDispatch is emitted in the predecessor block; the dsts'
+  uses live across the branch into the continuation).
+
+  pulley_shared::lower::pre_lower: backend pre-pass that scans every
+  block for the canonical pattern (brif of band(v, -2), where the
+  taken target is a block whose first two CLIF insts are loads from
+  the brif's first block-call-arg at the canonical
+  `vm_func_ref_wasm_call` / `vm_func_ref_vmctx` offsets). When
+  matched, the two continuation-block loads are marked
+  `sink_pure_inst`. The band is NOT sunk — its result vreg is
+  consumed as FuncrefDispatch's `src`.
+
+  pulley_shared::lower::try_fuse_funcref_dispatch: per-brif
+  recogniser in `lower_branch`. Re-derives the pattern (matched
+  the same way as the pre-pass), looks up the relevant vregs, emits
+  one FuncrefDispatch MachInst, and returns true. Phase-1's
+  `try_fuse_band_brif` is tried only as a fallback when phase 2
+  does NOT match, so on workloads where the eager-init + sig-elide
+  pattern fires every time, phase 1's BandBrIf ops never appear in
+  the final bytecode. (Phase 1's infrastructure — sink_pure_inst,
+  the mask = -2 gate, the `MInst::BandBrIf` op — remains for the
+  fallback case and for clarity of the layered design.)
+
+  pulley_shared::inst::emit: `FuncrefDispatch` emits as a forward
+  `xfuncref_dispatch_x{32,64}` followed by an unconditional jump to
+  not_taken, with the inverted `xfuncref_dispatch_not_*` encoded
+  into the `add_cond_branch` slot for MachBuffer fallthrough
+  optimization. Same scaffolding as `MInst::BrIf` and
+  `MInst::BandBrIf`.
+
+Tests:
+
+  tests/disas/pulley-call-indirect-band-brif-fusion.wat: re-blessed.
+  The dispatch tail is now `xband64_s8 ; xfuncref_dispatch_not_x64 ;
+  call_indirect` — three Pulley ops instead of the unfused five.
+  The standalone xload64le's for the wasm_call / vmctx fields are
+  gone, as is the standalone br_if.
+
+  Disas + table_mutability suites: 2228 + 16, all pass.
+---
+ .../codegen/src/isa/pulley_shared/inst.isle   |  23 ++
+ .../src/isa/pulley_shared/inst/emit.rs        |  75 ++++
+ .../codegen/src/isa/pulley_shared/inst/mod.rs |  42 +++
+ .../codegen/src/isa/pulley_shared/lower.rs    | 355 +++++++++++++++++-
+ .../pulley-call-indirect-band-brif-fusion.wat | 132 ++++---
+ 5 files changed, 561 insertions(+), 66 deletions(-)
+
+diff --git a/cranelift/codegen/src/isa/pulley_shared/inst.isle b/cranelift/codegen/src/isa/pulley_shared/inst.isle
+index 373508d8b1..2987dc7db1 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/inst.isle
++++ b/cranelift/codegen/src/isa/pulley_shared/inst.isle
+@@ -85,6 +85,29 @@
+       (taken MachLabel)
+       (not_taken MachLabel))
+ 
++    ;; Funcref-dispatch fusion: branch-and-load fused dispatch op emitted
++    ;; at the call_indirect lazy-init brif site under the eager-init
++    ;; predicate + statically-elided sig check. Fuses
++    ;;   `band v, -2 ; brif ; xload (v_masked + offset_code) ; xload (v_masked + offset_vmctx)`
++    ;; from across the brif's predecessor and continuation blocks into one
++    ;; Pulley dispatch. The pulley-side ops are `xfuncref_dispatch_{x64,
++    ;; not_x64, x32, not_x32}`; the runtime null check is defence-in-depth
++    ;; (the predicate guarantees the funcref is non-null at runtime, but
++    ;; the handler must match the original brif's null branch as a
++    ;; correctness fallback). See `try_fuse_funcref_dispatch` in
++    ;; `pulley_shared::lower` for the recogniser + Pulley's
++    ;; `pre_lower_analysis` for the cross-block sink that lets the
++    ;; continuation-block loads be absorbed into one MachInst here.
++    (FuncrefDispatch
++      (dst_code WritableXReg)
++      (dst_vmctx WritableXReg)
++      (src XReg)
++      (offset_code i8)
++      (offset_vmctx i8)
++      (size OperandSize)
++      (taken MachLabel)
++      (not_taken MachLabel))
++
+     ;; Load the memory address referenced by `mem` into `dst`.
+     (LoadAddr (dst WritableXReg) (mem Amode))
+ 
+diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs b/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
+index ac1b4f45c6..0bc0744052 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/inst/emit.rs
+@@ -440,6 +440,81 @@ fn pulley_emit<P>(
+             assert_eq!(sink.cur_offset(), not_taken_end);
+         }
+ 
++        Inst::FuncrefDispatch {
++            dst_code,
++            dst_vmctx,
++            src,
++            offset_code,
++            offset_vmctx,
++            size,
++            taken,
++            not_taken,
++        } => {
++            // Same scaffolding as Inst::BrIf / Inst::BandBrIf. Forward
++            // form's branch fires on `src != 0` (after loads); inverted
++            // form branches on `src == 0` (loads on fall-through). Both
++            // encodings have the same length because they share the
++            // 5-operand shape.
++            let dst_code_w = *dst_code;
++            let dst_vmctx_w = *dst_vmctx;
++            let src_reg = *src;
++            let oc = *offset_code;
++            let ov = *offset_vmctx;
++
++            // Inverted encoding into a scratch SmallVec for MachBuffer.
++            let mut inverted = SmallVec::<[u8; 16]>::new();
++            match size {
++                OperandSize::Size32 => {
++                    enc::xfuncref_dispatch_not_x32(
++                        &mut inverted, dst_code_w, dst_vmctx_w, src_reg, oc, ov, 0,
++                    );
++                }
++                OperandSize::Size64 => {
++                    enc::xfuncref_dispatch_not_x64(
++                        &mut inverted, dst_code_w, dst_vmctx_w, src_reg, oc, ov, 0,
++                    );
++                }
++            }
++            let len = inverted.len() as u32;
++            inverted.clear();
++            let inv_rel = i32::try_from(len - 4).unwrap();
++            match size {
++                OperandSize::Size32 => {
++                    enc::xfuncref_dispatch_not_x32(
++                        &mut inverted, dst_code_w, dst_vmctx_w, src_reg, oc, ov, inv_rel,
++                    );
++                }
++                OperandSize::Size64 => {
++                    enc::xfuncref_dispatch_not_x64(
++                        &mut inverted, dst_code_w, dst_vmctx_w, src_reg, oc, ov, inv_rel,
++                    );
++                }
++            }
++            assert!(len > 4);
++
++            // Emit the forward form (branch on src != 0).
++            let taken_end = *start_offset + len;
++            sink.use_label_at_offset(taken_end - 4, *taken, LabelUse::PcRel);
++            sink.add_cond_branch(*start_offset, taken_end, *taken, &inverted);
++            patch_pc_rel_offset(sink, |sink| match size {
++                OperandSize::Size32 => enc::xfuncref_dispatch_x32(
++                    sink, dst_code_w, dst_vmctx_w, src_reg, oc, ov, 0,
++                ),
++                OperandSize::Size64 => enc::xfuncref_dispatch_x64(
++                    sink, dst_code_w, dst_vmctx_w, src_reg, oc, ov, 0,
++                ),
++            });
++            debug_assert_eq!(sink.cur_offset(), taken_end);
++
++            // Unconditional jump to `not_taken` for the fall-through path.
++            let not_taken_start = taken_end + 1;
++            let not_taken_end = not_taken_start + 4;
++            sink.use_label_at_offset(not_taken_start, *not_taken, LabelUse::PcRel);
++            sink.add_uncond_branch(taken_end, not_taken_end, *not_taken);
++            patch_pc_rel_offset(sink, |sink| enc::jump(sink, 0));
++            assert_eq!(sink.cur_offset(), not_taken_end);
++        }
++
+         Inst::LoadAddr { dst, mem } => {
+             let base = mem.get_base_register();
+             let offset = mem.get_offset_with_state(state);
+diff --git a/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs b/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
+index 0b65699499..6749414778 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/inst/mod.rs
+@@ -273,6 +273,21 @@ fn pulley_get_operands(inst: &mut Inst, collector: &mut impl OperandVisitor) {
+             collector.reg_use(src);
+         }
+ 
++        Inst::FuncrefDispatch {
++            dst_code,
++            dst_vmctx,
++            src,
++            offset_code: _,
++            offset_vmctx: _,
++            size: _,
++            taken: _,
++            not_taken: _,
++        } => {
++            collector.reg_def(dst_code);
++            collector.reg_def(dst_vmctx);
++            collector.reg_use(src);
++        }
++
+         Inst::LoadAddr { dst, mem } => {
+             collector.reg_def(dst);
+             mem.get_operands(collector);
+@@ -496,6 +511,7 @@ where
+             Inst::Jump { .. } => MachTerminator::Branch,
+             Inst::BrIf { .. } => MachTerminator::Branch,
+             Inst::BandBrIf { .. } => MachTerminator::Branch,
++            Inst::FuncrefDispatch { .. } => MachTerminator::Branch,
+             Inst::BrTable { .. } => MachTerminator::Branch,
+             Inst::ReturnCall { .. } | Inst::ReturnIndirectCall { .. } => MachTerminator::RetCall,
+             Inst::Call { info } if info.try_call_info.is_some() => MachTerminator::Branch,
+@@ -789,6 +805,32 @@ impl Inst {
+                 )
+             }
+ 
++            Inst::FuncrefDispatch {
++                dst_code,
++                dst_vmctx,
++                src,
++                offset_code,
++                offset_vmctx,
++                size,
++                taken,
++                not_taken,
++            } => {
++                let dst_code = format_reg(*dst_code.to_reg());
++                let dst_vmctx = format_reg(*dst_vmctx.to_reg());
++                let src = format_reg(**src);
++                let taken = taken.to_string();
++                let not_taken = not_taken.to_string();
++                let width = match size {
++                    OperandSize::Size32 => 32,
++                    OperandSize::Size64 => 64,
++                };
++                format!(
++                    "{dst_code}, {dst_vmctx} = xfuncref_dispatch_x{width} \
++                     {src}, code+{offset_code}, vmctx+{offset_vmctx}; \
++                     br_if {taken}; jump {not_taken}"
++                )
++            }
++
+             Inst::LoadAddr { dst, mem } => {
+                 let dst = format_reg(*dst.to_reg());
+                 let mem = mem.to_string();
+diff --git a/cranelift/codegen/src/isa/pulley_shared/lower.rs b/cranelift/codegen/src/isa/pulley_shared/lower.rs
+index 8eb8625e59..2854b38a58 100644
+--- a/cranelift/codegen/src/isa/pulley_shared/lower.rs
++++ b/cranelift/codegen/src/isa/pulley_shared/lower.rs
+@@ -25,12 +25,18 @@ where
+         ir_inst: ir::Inst,
+         targets: &[MachLabel],
+     ) -> Option<()> {
+-        // Peephole: fuse `brif (band v c) _ _` where the band's i8-fittable
+-        // immediate `c` is the only thing standing between the brif's cond
+-        // and the funcref load. Emitted by the call_indirect lazy-init
+-        // brif site when `is_eagerly_initialized_funcref_table` lets us
+-        // safely test the masked value. See the doc-comment on
+-        // `MInst::BandBrIf` for the bytecode-level shape.
++        // Phase-2 first: try fusing band+brif+xload+xload across the brif's
++        // predecessor block and its taken (continuation) target. The matching
++        // continuation-block loads were marked `absorbed_pure` by the
++        // `pre_lower` analysis hook below, so they have already been skipped
++        // in `lower_clif_block` and the FuncrefDispatch MachInst here defs
++        // their result vregs directly.
++        if try_fuse_funcref_dispatch::<P>(ctx, ir_inst, targets) {
++            return Some(());
++        }
++        // Phase-1 fallback: fuse just band+brif (no continuation loads).
++        // Emits MInst::BandBrIf. See the doc-comment on the variant in
++        // `pulley_shared::inst::Inst`.
+         if try_fuse_band_brif(ctx, ir_inst, targets) {
+             return Some(());
+         }
+@@ -41,6 +47,28 @@ where
+         // Pulley does not support this feature right now.
+         None
+     }
++
++    fn pre_lower(&self, ctx: &mut Lower<Self::MInst>) {
++        // Cross-block fusion analysis for phase-2 funcref dispatch.
++        //
++        // The main block-lowering loop runs in reverse layout order, so by
++        // the time `lower_branch` fires for the predecessor's brif, its
++        // taken target (the continuation block) has already had its
++        // instructions emitted to VCode. Marking the continuation's loads
++        // as `inst_absorbed_pure` AFTER that point is too late — the loads
++        // have already been lowered into MachInsts that write to the
++        // result vregs, and the FuncrefDispatch we'd emit at brif time
++        // would double-write to those same vregs (SSA violation).
++        //
++        // This analysis runs once before any block is lowered. For each
++        // brif whose cond is `band(v, -2)` AND whose taken target is a
++        // block that starts with two loads from the brif's first
++        // block-call-arg at the canonical VMFuncRef wasm_call / vmctx
++        // offsets, mark band + the two loads as absorbed_pure. The brif
++        // lowering then sees a clean slate (no double-writes) and emits
++        // one FuncrefDispatch MachInst.
++        pre_lower_pulley(ctx, P::pointer_width().bytes());
++    }
+ }
+ 
+ /// Recognise the `brif (band v c) block(...) cold` shape emitted by
+@@ -148,3 +176,318 @@ where
+ 
+     true
+ }
++
++/// VMFuncRef field offsets, parameterised on the Pulley pointer width.
++///
++/// Mirrors `crates/environ/src/vmoffsets.rs`'s `vm_func_ref_wasm_call` (=
++/// 1 * size) and `vm_func_ref_vmctx` (= 3 * size). Both fit in i8 for both
++/// pointer widths (8 + 24 on 64-bit, 4 + 12 on 32-bit), which is the
++/// constraint imposed by the pulley `xfuncref_dispatch_*` ops (i8
++/// sign-extended offsets).
++fn vm_func_ref_offsets(pointer_bytes: u8) -> (i8, i8) {
++    let size = pointer_bytes as i8;
++    (size, size.checked_mul(3).expect("VMFuncRef offsets fit i8"))
++}
++
++/// Recognise the canonical funcref-dispatch shape produced by
++/// `func_environ::get_or_init_func_ref_table_elem` followed by
++/// `load_code_and_vmctx` under the eager-init predicate + statically-
++/// elided sig check:
++///
++/// ```text
++/// predecessor:
++///     value        = load .ptr (table_entry + 0)
++///     value_masked = band value, -2
++///     brif value_masked, continuation([value_masked]), null_block([])
++///
++/// continuation(funcref_ptr):
++///     code  = load .ptr (funcref_ptr + offset_code)
++///     vmctx = load .ptr (funcref_ptr + offset_vmctx)
++///     ...                                       <- other uses of code, vmctx
++/// ```
++///
++/// If found, returns the brif inst, the band inst, the two load insts (in
++/// continuation), the funcref source value `v` (band's first arg), the
++/// CLIF result values `code` and `vmctx`, and the offsets. Otherwise None.
++fn match_funcref_dispatch_pattern<P: PulleyTargetKind>(
++    f: &ir::Function,
++    brif_inst: ir::Inst,
++    pointer_bytes: u8,
++) -> Option<FuncrefDispatchPattern> {
++    let dfg = &f.dfg;
++    let InstructionData::Brif {
++        opcode: Opcode::Brif,
++        arg: cond,
++        blocks,
++        ..
++    } = dfg.insts[brif_inst]
++    else {
++        return None;
++    };
++    // cond = band(v, -2)
++    let band_inst = dfg.value_def(cond).inst()?;
++    let (v, _imm) = match dfg.insts[band_inst] {
++        InstructionData::Binary {
++            opcode: Opcode::Band,
++            args: [a, b],
++        } => match dfg.value_def(b).inst() {
++            Some(b_inst) => match dfg.insts[b_inst] {
++                InstructionData::UnaryImm {
++                    opcode: Opcode::Iconst,
++                    imm,
++                } if imm.bits() == -2 => (a, -2_i8),
++                _ => return None,
++            },
++            None => return None,
++        },
++        _ => return None,
++    };
++    let cond_ty = dfg.value_type(cond);
++    let size = match cond_ty {
++        ir::types::I32 => OperandSize::Size32,
++        ir::types::I64 => OperandSize::Size64,
++        _ => return None,
++    };
++    // The 64-bit fused op handles I64 pointer types; the 32-bit fused op
++    // handles I32. They line up with the target's pointer width.
++    let expected_size = match pointer_bytes {
++        4 => OperandSize::Size32,
++        8 => OperandSize::Size64,
++        _ => return None,
++    };
++    if size != expected_size {
++        return None;
++    }
++
++    // Taken target = continuation block. Its first block param must equal
++    // the brif's first block-call-arg (i.e. value_masked).
++    let taken_call = blocks[0];
++    let continuation = taken_call.block(&dfg.value_lists);
++    let taken_args: smallvec::SmallVec<[ir::BlockArg; 4]> =
++        taken_call.args(&dfg.value_lists).collect();
++    if taken_args.len() < 1 {
++        return None;
++    }
++    let first_arg_val = match taken_args[0] {
++        ir::BlockArg::Value(v) => v,
++        _ => return None,
++    };
++    if first_arg_val != cond {
++        // The brif must pass value_masked as the first block-call-arg.
++        return None;
++    }
++    let cont_params = dfg.block_params(continuation);
++    if cont_params.is_empty() {
++        return None;
++    }
++    let funcref_ptr = cont_params[0];
++
++    // First two instructions in the continuation block must be the two
++    // canonical loads. We tolerate the block-param ordering: load1 is
++    // at offset_code, load2 at offset_vmctx (in either positional order).
++    let (offset_code_expected, offset_vmctx_expected) = vm_func_ref_offsets(pointer_bytes);
++    let mut iter = f.layout.block_insts(continuation);
++    let load1 = iter.next()?;
++    let load2 = iter.next()?;
++    let (load_code_inst, load_vmctx_inst) = classify_funcref_loads(
++        dfg,
++        load1,
++        load2,
++        funcref_ptr,
++        offset_code_expected,
++        offset_vmctx_expected,
++        cond_ty,
++    )?;
++    let code_val = dfg.inst_results(load_code_inst)[0];
++    let vmctx_val = dfg.inst_results(load_vmctx_inst)[0];
++
++    Some(FuncrefDispatchPattern {
++        band_inst,
++        load_code_inst,
++        load_vmctx_inst,
++        v,
++        code_val,
++        vmctx_val,
++        offset_code: offset_code_expected,
++        offset_vmctx: offset_vmctx_expected,
++        size,
++    })
++}
++
++struct FuncrefDispatchPattern {
++    band_inst: ir::Inst,
++    load_code_inst: ir::Inst,
++    load_vmctx_inst: ir::Inst,
++    v: ir::Value,
++    code_val: ir::Value,
++    vmctx_val: ir::Value,
++    offset_code: i8,
++    offset_vmctx: i8,
++    size: OperandSize,
++}
++
++fn classify_funcref_loads(
++    dfg: &ir::DataFlowGraph,
++    a: ir::Inst,
++    b: ir::Inst,
++    funcref_ptr: ir::Value,
++    offset_code: i8,
++    offset_vmctx: i8,
++    pointer_ty: ir::Type,
++) -> Option<(ir::Inst, ir::Inst)> {
++    let (a_off, a_base) = classify_load(dfg, a, pointer_ty)?;
++    let (b_off, b_base) = classify_load(dfg, b, pointer_ty)?;
++    if a_base != funcref_ptr || b_base != funcref_ptr {
++        return None;
++    }
++    if a_off == offset_code && b_off == offset_vmctx {
++        Some((a, b))
++    } else if a_off == offset_vmctx && b_off == offset_code {
++        Some((b, a))
++    } else {
++        None
++    }
++}
++
++fn classify_load(
++    dfg: &ir::DataFlowGraph,
++    inst: ir::Inst,
++    pointer_ty: ir::Type,
++) -> Option<(i8, ir::Value)> {
++    match dfg.insts[inst] {
++        InstructionData::Load {
++            opcode: Opcode::Load,
++            arg,
++            offset,
++            ..
++        } => {
++            let result = *dfg.inst_results(inst).first()?;
++            if dfg.value_type(result) != pointer_ty {
++                return None;
++            }
++            let off_i32: i32 = offset.into();
++            let off_i8 = i8::try_from(off_i32).ok()?;
++            Some((off_i8, arg))
++        }
++        _ => None,
++    }
++}
++
++/// Pulley-specific pre-lowering analysis. Walks every block looking for
++/// the funcref-dispatch fusion shape (see
++/// `match_funcref_dispatch_pattern`), and when it matches, sinks the band
++/// inst and the two continuation-block loads via `sink_pure_inst`. The
++/// brif's lowering (in `try_fuse_funcref_dispatch`) then emits one
++/// `MInst::FuncrefDispatch` whose def vregs replace the absorbed loads'
++/// def vregs.
++fn pre_lower_pulley<P>(ctx: &mut Lower<InstAndKind<P>>, pointer_bytes: u8)
++where
++    P: PulleyTargetKind,
++{
++    // Collect candidates first so we don't hold &ctx.f while calling
++    // sink_pure_inst (which takes &mut ctx).
++    //
++    // We only absorb the two field loads, NOT the band. The band stays
++    // as a separate Pulley `xband_s8` op because `cond` (the band's
++    // result) is the SOURCE vreg consumed by FuncrefDispatch — that
++    // already-masked value gives us the branch test (`src != 0`) with
++    // the same predictor-anchor semantics as the original brif. If we
++    // also absorbed the band, FuncrefDispatch would have nothing
++    // defining `cond`'s vreg, and the predecessor brif's block-call-arg
++    // copy (which passes `cond` to the continuation block param) would
++    // see an undefined vreg.
++    let mut to_sink: smallvec::SmallVec<[(ir::Inst, ir::Inst); 8]> = smallvec::SmallVec::new();
++    {
++        let f = ctx.f;
++        for block in f.layout.blocks() {
++            let Some(term) = f.layout.last_inst(block) else {
++                continue;
++            };
++            if !matches!(f.dfg.insts[term], InstructionData::Brif { .. }) {
++                continue;
++            }
++            if let Some(pat) = match_funcref_dispatch_pattern::<P>(f, term, pointer_bytes) {
++                to_sink.push((pat.load_code_inst, pat.load_vmctx_inst));
++            }
++        }
++    }
++    for (l_code, l_vmctx) in to_sink {
++        ctx.sink_pure_inst(l_code);
++        ctx.sink_pure_inst(l_vmctx);
++    }
++}
++
++/// Phase-2 fusion: emit `MInst::FuncrefDispatch` when the brif matches the
++/// canonical pattern. Relies on the pre-pass having marked the band + two
++/// continuation-block loads as absorbed_pure; this routine just re-derives
++/// the pattern, looks up the relevant vregs, and emits the single fused
++/// MachInst. Returns `true` iff the fusion fired.
++fn try_fuse_funcref_dispatch<P>(
++    ctx: &mut Lower<InstAndKind<P>>,
++    ir_inst: ir::Inst,
++    targets: &[MachLabel],
++) -> bool
++where
++    P: PulleyTargetKind,
++{
++    if targets.len() != 2 {
++        return false;
++    }
++    let pointer_bytes = P::pointer_width().bytes();
++    let Some(pat) = match_funcref_dispatch_pattern::<P>(ctx.f, ir_inst, pointer_bytes) else {
++        return false;
++    };
++
++    // Source vreg: `cond` (the band's result — already-masked funcref
++    // pointer). The band stays as a separate Pulley `xband_s8` op (we
++    // do NOT sink it). Its result feeds both us and the brif's
++    // block-call-arg in continuation, which is what makes the
++    // predecessor brif's block-arg machinery well-defined here.
++    //
++    // Note we look up cond directly via the brif's cond arg — it's the
++    // same value the matching pattern returned as `pat.code_val`'s base
++    // (`funcref_ptr` after block-arg substitution).
++    let InstructionData::Brif { arg: cond, .. } = ctx.f.dfg.insts[ir_inst] else {
++        return false;
++    };
++    let src_reg = ctx
++        .put_value_in_regs(cond)
++        .only_reg()
++        .expect("scalar funcref source");
++    let src = XReg::new(src_reg).expect("funcref source is an x-class register");
++
++    // Destination vregs: the loads' result values' canonical vregs.
++    // pre_lower marked the loads as absorbed_pure, so their standalone
++    // lowering (in the continuation block, processed earlier in reverse
++    // iteration) was skipped — value_regs[code_val] and value_regs[vmctx_val]
++    // are un-aliased, and our FuncrefDispatch's def of them is the sole
++    // def each one has across the function.
++    let dst_code_reg = ctx
++        .put_value_in_regs(pat.code_val)
++        .only_reg()
++        .expect("scalar funcref code result");
++    let dst_vmctx_reg = ctx
++        .put_value_in_regs(pat.vmctx_val)
++        .only_reg()
++        .expect("scalar funcref vmctx result");
++    let dst_code = WritableXReg::try_from(Writable::from_reg(dst_code_reg))
++        .expect("funcref code dst is an x-class register");
++    let dst_vmctx = WritableXReg::try_from(Writable::from_reg(dst_vmctx_reg))
++        .expect("funcref vmctx dst is an x-class register");
++
++    ctx.emit(
++        Inst::FuncrefDispatch {
++            dst_code,
++            dst_vmctx,
++            src,
++            offset_code: pat.offset_code,
++            offset_vmctx: pat.offset_vmctx,
++            size: pat.size,
++            taken: targets[0],
++            not_taken: targets[1],
++        }
++        .into(),
++    );
++
++    true
++}
+diff --git a/tests/disas/pulley-call-indirect-band-brif-fusion.wat b/tests/disas/pulley-call-indirect-band-brif-fusion.wat
+index 3e51c92714..5d0ff495cf 100644
+--- a/tests/disas/pulley-call-indirect-band-brif-fusion.wat
++++ b/tests/disas/pulley-call-indirect-band-brif-fusion.wat
+@@ -3,15 +3,24 @@
+ ;;! objdump = "--funcs all"
+ 
+ ;; Immutable funcref table fully populated by a static elem segment — the
+-;; `is_eagerly_initialized_funcref_table` predicate holds. The Cranelift
+-;; Pulley backend rewrites the call_indirect lazy-init brif to test the
+-;; masked funcref value, then `pulley_shared::lower::try_fuse_band_brif`
+-;; folds the band-imm + brif into one `xband64_s8_br_if_x64` Pulley op.
++;; `is_eagerly_initialized_funcref_table` predicate holds AND sig check
++;; is statically elided. Two-layer fusion fires at the call_indirect
++;; dispatch tail:
+ ;;
+-;; What we pin here: the fused op appears in the disassembly of the
+-;; call_indirect dispatch tail, and the standalone `xband64_s8` that
+-;; would otherwise produce the masked value is gone (absorbed by the
+-;; fused op via `Lower::sink_pure_inst`).
++;;   1. `try_fuse_funcref_dispatch` (phase 2) absorbs the brif + the two
++;;      VMFuncRef field loads (`wasm_call` + `vmctx`) emitted by
++;;      `load_code_and_vmctx`, and emits one `xfuncref_dispatch_not_x64`
++;;      Pulley op. The continuation block's standalone loads are skipped
++;;      via the cross-block sink performed by Pulley's `pre_lower` hook.
++;;
++;;   2. The preceding `xband64_s8 v, -2` stays as a separate op (its
++;;      result is `src` to the fused dispatch). Phase-1's `BandBrIf`
++;;      fusion does NOT fire here because phase 2 absorbs the brif
++;;      first (the recogniser tries phase 2 before phase 1).
++;;
++;; What we pin here: the dispatch tail is exactly
++;; `xband64_s8 ; xfuncref_dispatch_not_x64 ; call_indirect` — three
++;; Pulley dispatches instead of the unfused five.
+ 
+ (module
+   (table 3 3 funcref)
+@@ -44,27 +53,30 @@
+ ;;       ret
+ ;;
+ ;; wasm[0]::function[3]:
+-;;       push_frame_save 16, x25
++;;       push_frame_save 32, x16, x17, x26
+ ;;       xmov x3, x0
+-;;       br_if_xugteq32_u8 x2, 3, 0x54    // target = 0x6d
++;;       br_if_xugteq32_u8 x2, 3, 0x58    // target = 0x71
+ ;;   20: xload64le_o32 x0, x0, 48
+ ;;       zext32 x15, x2
+ ;;       xshl64_u6 x1, x15, 3
+ ;;       xadd64 x0, x0, x1
+ ;;       xload64le_o32 x0, x0, 0
+-;;       xband64_s8_br_if_not_x64 x0, x0, -2, 0x24    // target = 0x5b
+-;;   3f: xmov x25, x3
+-;;       xload64le_o32 x2, x0, 8
+-;;       xload64le_o32 x0, x0, 24
+-;;       xmov x1, x25
+-;;       call_indirect x2
+-;;       pop_frame_restore 16, x25
++;;       xband64_s8 x0, x0, -2
++;;       xfuncref_dispatch_not_x64 x16, x17, x0, 8, 24, 0x1b    // target = 0x56
++;;       xmov x2, x0
++;;       xmov x1, x3
++;;       xmov x0, x17
++;;       call_indirect x16
++;;       pop_frame_restore 32, x16, x17, x26
+ ;;       ret
+-;;   5b: xzero x0
+-;;   5d: xmov x25, x3
+-;;   60: call3 x25, x0, x15, 0x267    // target = 0x2c7
+-;;   68: jump -0x26    // target = 0x42
+-;;   6d: trap
++;;   56: xzero x0
++;;   58: xmov x26, x3
++;;   5b: call3 x26, x0, x15, 0x270    // target = 0x2cb
++;;   63: xmov x2, x0
++;;   66: xmov x0, x17
++;;   69: xmov x1, x26
++;;   6c: jump -0x1e    // target = 0x4e
++;;   71: trap
+ ;;       ╰─╼ trap: TableOutOfBounds
+ ;;
+ ;; wasm[0]::array_to_wasm_trampoline[0]:
+@@ -75,19 +87,19 @@
+ ;;       xstore64le_o32 x13, 72, x14
+ ;;       xmov x14, sp
+ ;;       xstore64le_o32 x13, 64, x14
+-;;       xpcadd x15, 0x2a    // target = 0xc2
++;;       xpcadd x15, 0x2a    // target = 0xc6
+ ;;       xstore64le_o32 x13, 80, x15
+-;;       call -0xa7    // target = 0x0
++;;       call -0xab    // target = 0x0
+ ;;       ├─╼ exception frame offset: SP = FP - 0x90
+-;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0xc2
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0xc6
+ ;;       xload64le_o32 x2, sp, 0
+ ;;       xstore32le_o32 x2, 0, x0
+ ;;       xone x0
+ ;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+ ;;       ret
+-;;   c2: xzero x0
+-;;   c4: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+-;;   c9: ret
++;;   c6: xzero x0
++;;   c8: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;   cd: ret
+ ;;
+ ;; wasm[0]::array_to_wasm_trampoline[1]:
+ ;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+@@ -97,19 +109,19 @@
+ ;;       xstore64le_o32 x13, 72, x14
+ ;;       xmov x14, sp
+ ;;       xstore64le_o32 x13, 64, x14
+-;;       xpcadd x15, 0x2a    // target = 0x11c
++;;       xpcadd x15, 0x2a    // target = 0x120
+ ;;       xstore64le_o32 x13, 80, x15
+-;;       call -0xfc    // target = 0x5
++;;       call -0x100    // target = 0x5
+ ;;       ├─╼ exception frame offset: SP = FP - 0x90
+-;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x11c
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x120
+ ;;       xload64le_o32 x2, sp, 0
+ ;;       xstore32le_o32 x2, 0, x0
+ ;;       xone x0
+ ;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+ ;;       ret
+-;;  11c: xzero x0
+-;;  11e: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+-;;  123: ret
++;;  120: xzero x0
++;;  122: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  127: ret
+ ;;
+ ;; wasm[0]::array_to_wasm_trampoline[2]:
+ ;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+@@ -119,19 +131,19 @@
+ ;;       xstore64le_o32 x13, 72, x14
+ ;;       xmov x14, sp
+ ;;       xstore64le_o32 x13, 64, x14
+-;;       xpcadd x15, 0x2a    // target = 0x176
++;;       xpcadd x15, 0x2a    // target = 0x17a
+ ;;       xstore64le_o32 x13, 80, x15
+-;;       call -0x150    // target = 0xb
++;;       call -0x154    // target = 0xb
+ ;;       ├─╼ exception frame offset: SP = FP - 0x90
+-;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x176
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x17a
+ ;;       xload64le_o32 x2, sp, 0
+ ;;       xstore32le_o32 x2, 0, x0
+ ;;       xone x0
+ ;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+ ;;       ret
+-;;  176: xzero x0
+-;;  178: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+-;;  17d: ret
++;;  17a: xzero x0
++;;  17c: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  181: ret
+ ;;
+ ;; wasm[0]::array_to_wasm_trampoline[3]:
+ ;;       push_frame_save 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+@@ -142,19 +154,19 @@
+ ;;       xstore64le_o32 x15, 72, x2
+ ;;       xmov x2, sp
+ ;;       xstore64le_o32 x15, 64, x2
+-;;       xpcadd x2, 0x2d    // target = 0x1da
++;;       xpcadd x2, 0x2d    // target = 0x1de
+ ;;       xstore64le_o32 x15, 80, x2
+-;;       call3 x0, x1, x14, -0x1ab    // target = 0x11
++;;       call3 x0, x1, x14, -0x1af    // target = 0x11
+ ;;       ├─╼ exception frame offset: SP = FP - 0x90
+-;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x1da
++;;       ╰─╼ exception handler: default handler, no dynamic context, handler=0x1de
+ ;;       xload64le_o32 x2, sp, 0
+ ;;       xstore32le_o32 x2, 0, x0
+ ;;       xone x0
+ ;;       pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+ ;;       ret
+-;;  1da: xzero x0
+-;;  1dc: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
+-;;  1e1: ret
++;;  1de: xzero x0
++;;  1e0: pop_frame_restore 144, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, sp, spilltmp0
++;;  1e5: ret
+ ;;
+ ;; signatures[0]::wasm_to_array_trampoline:
+ ;;       push_frame_save 32, x16, x17
+@@ -173,15 +185,15 @@
+ ;;       xmov x3, x16
+ ;;       call_indirect_host 0
+ ;;       zext8 x15, x0
+-;;       br_if_not32 x15, 0x13    // target = 0x239
+-;;  22c: xload32le_o32 x0, x16, 0
++;;       br_if_not32 x15, 0x13    // target = 0x23d
++;;  230: xload32le_o32 x0, x16, 0
+ ;;       pop_frame_restore 32, x16, x17
+ ;;       ret
+-;;  239: xmov x1, x17
+-;;  23c: xload64le_o32 x0, x1, 16
+-;;  243: xload64le_o32 x0, x0, 408
+-;;  24a: call_indirect_host 52
+-;;  24e: trap
++;;  23d: xmov x1, x17
++;;  240: xload64le_o32 x0, x1, 16
++;;  247: xload64le_o32 x0, x0, 408
++;;  24e: call_indirect_host 52
++;;  252: trap
+ ;;
+ ;; signatures[1]::wasm_to_array_trampoline:
+ ;;       push_frame_save 32, x16, x17
+@@ -201,15 +213,15 @@
+ ;;       xmov x3, x16
+ ;;       call_indirect_host 0
+ ;;       zext8 x0, x0
+-;;       br_if_not32 x0, 0x13    // target = 0x2af
+-;;  2a2: xload32le_o32 x0, x16, 0
++;;       br_if_not32 x0, 0x13    // target = 0x2b3
++;;  2a6: xload32le_o32 x0, x16, 0
+ ;;       pop_frame_restore 32, x16, x17
+ ;;       ret
+-;;  2af: xmov x1, x17
+-;;  2b2: xload64le_o32 x0, x1, 16
+-;;  2b9: xload64le_o32 x0, x0, 408
+-;;  2c0: call_indirect_host 52
+-;;  2c4: trap
++;;  2b3: xmov x1, x17
++;;  2b6: xload64le_o32 x0, x1, 16
++;;  2bd: xload64le_o32 x0, x0, 408
++;;  2c4: call_indirect_host 52
++;;  2c8: trap
+ ;;
+ ;; wasmtime_builtin_table_get_lazy_init_func_ref:
+ ;;       push_frame

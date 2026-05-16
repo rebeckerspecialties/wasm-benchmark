@@ -76,6 +76,35 @@ wasmtime/                gitignored — working clone with active PR
   N=10 cross-platform IC measurement closeout. The IC investigation
   is closed; pulley super-op fusion is the next direction (see
   PR #2's description).
+- **[docs/opcode-fusion-band-brif.md](docs/opcode-fusion-band-brif.md)** —
+  Phase 1 of the opcode-fusion track: `xband_s8 + br_if` fused into
+  one Pulley dispatch at call_indirect lazy-init sites. Measurement
+  closed out 2026-05-14: wallclock flat, Discarded +7.87 % on iPhone
+  12 PMU. **Superseded by phase 2 at the same call site.**
+- **[docs/opcode-fusion-funcref-dispatch.md](docs/opcode-fusion-funcref-dispatch.md)** —
+  Phase 2 of the opcode-fusion track: `brif + xload code + xload vmctx`
+  fused into one `xfuncref_dispatch_*` Pulley dispatch. **Measurement
+  closed out 2026-05-14 — call_indirect wallclock −5.0 % on iPhone 12
+  (the first measurable win past PR #2's c1-7 ceiling); PMU Discarded
+  −1.74 % vs baseline / −8.91 % vs phase 1 (reclaims phase 1's
+  predictor-anchor regression).**
+- **[docs/opcode-fusion-band-funcref-dispatch.md](docs/opcode-fusion-band-funcref-dispatch.md)** —
+  Phase 3 of the opcode-fusion track: `xband + funcref_dispatch` fused
+  into one `xband_funcref_dispatch_*` Pulley dispatch (dispatch tail
+  now 2 ops vs baseline's 5). **Measurement closed out 2026-05-15 —
+  PMU total cycles −4.31 % vs phase 2 / −0.96 % vs baseline; Discarded
+  −7.33 % vs phase 2 / −8.95 % vs baseline. Wallclock matches phase 2
+  within noise. Ship the full 9-commit stack.**
+- **[docs/cross-runtime-pulley-vs-wamr.md](docs/cross-runtime-pulley-vs-wamr.md)** —
+  Pulley (phase 3) vs WAMR fast-interp side-by-side, iPhone 12, N=10
+  medians, steady-state iteration time (module load excluded).
+  **WAMR is 1.37–1.86× faster across call_indirect, xmrsplayer,
+  vtable_*, graphql-validation (AS); Pulley wins only on
+  graphql-validation (Porffor) because WAMR can't load Porffor's
+  wasm-exceptions section in our build.** The fusion track narrowed
+  the gap from baseline but can't close it — WAMR's load-time
+  register-IR rewrite is structurally fewer dispatches per source
+  wasm op.
 - **[docs/archived-ic-branches.md](docs/archived-ic-branches.md)** —
   SHAs for the deleted `pulley-call-indirect-ic*` branches, in case
   a future 2-way-IC or poisoning variant wants that baseline.
