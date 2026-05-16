@@ -18,9 +18,13 @@ Pulley interpreter is the only App-Store-legal runtime in that space.
 Goal: identify and ship dispatch optimizations that move the needle
 on these targets.
 
-**Status** (2026-05-14):
+**Status** (2026-05-15):
 - PR #2 (`table-mutability-tracking` on the wasmtime fork) is the
   predicate-factory branch — 11 commits, 2227 + 16 tests pass.
+- **PR #4** ([`claude/pulley-fusion-xband-brif`](https://github.com/rebeckerspecialties/wasmtime/pull/4))
+  stacks 11 fusion commits (phases 1–4) on top of PR #2's branch tip.
+  Full cross-device measurements: iPhone 12 (A14 Icestorm) + iPhone XS
+  (A12 Tempest) + Apple Watch SE2 (S8) + M4 host E-core.
 - An IC investigation in `pulley-call-indirect-ic*` branches was
   abandoned after PMU evidence on `vtable_dispatch.wasm` showed the
   IC's back-end savings cancel against new front-end / mispredict
@@ -44,19 +48,22 @@ on these targets.
     ms). Dispatch tail at the call_indirect lazy-init site shrinks
     from baseline's 5 Pulley dispatches to **2**.
   - **Phase 4** (`PulleyCallIndirect` + `call_indirect{1,2,3,4}`):
-    measured 2026-05-15 on iPhone 12 + iPhone XS Max. Mirrors
-    `Inst::Call`'s direct-call arg-bundling for `Inst::IndirectCall`:
-    new `PulleyCallIndirect { target, args }` payload + four new
-    Pulley ops that combine `xmov xN, argN` ABI fixups with the
-    indirect call into a single dispatch. iPhone 12 A14 Icestorm
-    wallclock vs phase 3 (N=10, vtable suite): **vtable_poly4 −8.94 %,
-    vtable_bi −6.71 %, vtable_poly6 −3.72 %**. iPhone XS A12 Mistral
-    recovers phase-3's call_indirect regression (−4.77 % vs phase 3,
-    back to baseline parity). Dispatch tail shrinks to **1 fused op
-    + 1 call_indirectN op per call_indirect lazy-init site** (from 5
-    in baseline / 2 in phase 3). See
-    `docs/four-way-baseline-phase3-phase4-wamr.md` for the full
-    cross-device wallclock matrix + per-microarch analysis.
+    measured 2026-05-15 on iPhone 12 + iPhone XS Max + Watch SE2 + M4
+    host. Mirrors `Inst::Call`'s direct-call arg-bundling for
+    `Inst::IndirectCall`: new `PulleyCallIndirect { target, args }`
+    payload + four new Pulley ops that combine `xmov xN, argN` ABI
+    fixups with the indirect call into a single dispatch. iPhone 12
+    A14 Icestorm wallclock vs phase 3 (N=10, vtable suite):
+    **vtable_poly4 −8.94 %, vtable_bi −6.71 %, vtable_poly6 −3.72 %**.
+    iPhone XS A12 Tempest recovers phase-3's call_indirect regression
+    (−4.77 % vs phase 3, back to baseline parity). Watch SE2 S8
+    matches A14 on vtable suite (**vtable_bi −7.68 %, poly4 −4.62 %,
+    poly6 −4.86 %** vs phase 3) — the actual deployment target.
+    Dispatch tail shrinks to **1 fused op + 1 call_indirectN op per
+    call_indirect lazy-init site** (from 5 in baseline / 2 in phase 3).
+    See `docs/four-way-baseline-phase3-phase4-wamr.md` for the full
+    cross-device wallclock matrix + per-microarch analysis + phase-5
+    candidates.
 
   Discarded improves at every phase transition despite adding 4 new
   opcodes each time — the "larger fused ops consolidate predictor
@@ -144,7 +151,13 @@ workloads-rs/            one .rs per workload (cdylib, no_std)
 workloads-rs-cargo/      xmrsplayer-bench (uses cargo for crates.io deps)
 workloads/               pre-built *.wasm (checked in — apps don't
                          need a wasm toolchain at build time)
-scripts/                 build-workloads.sh, build-lib.sh, analyze_pmu.py
+scripts/                 build-workloads.sh, build-lib.sh, build-wamr.sh,
+                         analyze_pmu.py, aggregate_3way.py,
+                         aggregate_4way.py, parse_n10.py,
+                         run_fusion_n10.sh, run_fusion_pmu.sh,
+                         run_per_workload_pmu.sh (iPhone PMU),
+                         run_m4_per_workload_pmu.sh (M4 host PMU),
+                         m4_phase4_bucket_shares.py
 wasmtime/                working clone of bytecodealliance/wasmtime
                          (gitignored; see PR #2's table-mutability-tracking branch)
 out/                     experiment outputs, PMU traces, summaries
@@ -173,6 +186,16 @@ cd apps && xcodebuild -project WasmBenchmark.xcodeproj \
   -destination "generic/platform=iOS" \
   -derivedDataPath build/DerivedData-c12-ios \
   -allowProvisioningUpdates build
+
+# watchOS app (Watch SE2 S8). MUST pass ARCHS=arm64_32 + ONLY_ACTIVE_ARCH=NO
+# since Xcode 26 defaults to arm64 (S9+) but the Rust lib is arm64_32-only.
+xcodebuild -project apps/WasmBenchmark.xcodeproj \
+  -scheme WasmBenchmarkWatch -configuration Release \
+  -destination "generic/platform=watchOS" \
+  -derivedDataPath apps/build/DerivedData-se2-watch \
+  -allowProvisioningUpdates \
+  ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO \
+  build
 ```
 
 ## Workload registration pattern
@@ -214,6 +237,19 @@ To add a workload:
   `devicectl device process launch --console --terminate-existing
   --environment-variables ...` with the workload + iter-budget filter.
   `.utility` QoS pins to E-cores (set in `BenchmarkContentView.swift`).
+- **Apple Watch SE2 (S8)**: same `devicectl` launch flow, bundle ID
+  `com.rebeckerspecialties.wasmbench.watch`. **xcodebuild requires
+  `ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO`** since Xcode 26 defaults to
+  arm64 (S9+) but we only build the Rust lib for arm64_32. The watch
+  app's workload filter is the hardcoded `WATCHOS_WORKLOADS_FILTER`
+  constant in `apps/Shared/BenchmarkContentView.swift` —
+  `devicectl --environment-variables` does **not** propagate to Swift
+  `ProcessInfo` on watchOS (verified empirically), though it does
+  propagate to Rust `std::env::var` (so `BENCH_TARGET_MS=2000` works
+  for the iteration-budget side). Watch BLE tunnel drops mid-session
+  are common; wrap installs in a 5-attempt retry loop with `sleep 3`
+  between attempts. If a measurement run stalls on `Network.NWError`
+  60, wake the watch (touch / charger / side button) and retry.
 - **iOS scheduler stickiness**: at every QoS tier we've tested
   (`.utility`, `.userInitiated`, `.userInteractive`), iPhone 12
   keeps sustained dispatch loops on E-cores. P-core PMU on iPhone 12
@@ -221,8 +257,11 @@ To add a workload:
   `.userInteractive` we see <30 P-core samples per 15 s window.
 - **N=10 batching**: with `BENCH_TARGET_MS=2000`, one rep is one
   full iOS app launch (~30 s wall including spin-up). 20 reps
-  (10 IC OFF + 10 IC ON) is ~10–15 minutes. Use `/tmp/run_n10.sh`
-  as the launcher template (in this session's transcripts).
+  (10 IC OFF + 10 IC ON) is ~10–15 minutes. Use
+  `scripts/run_fusion_n10.sh` as the launcher; it handles the
+  per-rep wait-and-terminate cycle with `EXPECTED_LINES` matching the
+  workload-set × runtime count (default 12 for the 6-workload set;
+  override to 16 for the 8-workload set incl. graphql-validation).
 
 ### PMU / xctrace gotchas (Xcode 26.5)
 
@@ -258,10 +297,20 @@ To add a workload:
 - **Per-platform counter availability**:
   - **A12 Tempest (iPhone XS)**: does NOT expose
     `CounterMetricByThread` schema → PMU bucket analysis
-    unavailable on this platform.
+    unavailable on this platform. Wallclock only.
   - **A14 Icestorm (iPhone 12)**: exposes counters; attach mode
-    works on iOS 26.5.
-  - **M4 Sawtooth E-core**: via `taskpolicy -b`, default device.
+    works on iOS 26.5. Use `scripts/run_per_workload_pmu.sh` for
+    one xctrace capture per (workload, runtime) combo at
+    `BENCH_TARGET_MS=12000` inside a 20 s attach window.
+  - **S8 (Apple Watch SE2)**: does NOT expose `CounterMetricByThread`.
+    Wallclock only. (Same status as A12 Tempest.)
+  - **M4 Sawtooth E-core**: host-side, `xctrace record --launch
+    -- /usr/sbin/taskpolicy -b ./target/release/run_dispatch_workloads`
+    (launch mode works on macOS, unlike iOS attach-only workaround).
+    Use `scripts/run_m4_per_workload_pmu.sh`. Caveat: single-shot
+    absolute cycle counts are noisy due to macOS scheduler
+    contention; **bucket shares are stable** and are the trustworthy
+    PMU signal on M4.
 - **Export quirk**: `xctrace export --xpath '...' > file.xml` may
   silently produce 0-byte output. Use the `--output` flag instead:
   `xctrace export --xpath '...' --output file.xml`.
@@ -270,13 +319,23 @@ To add a workload:
   explicit `[1]/run[1]/data[1]/table[7]` form depends on table index
   which varies between traces.
 
-### Bucket analysis tool
+### Bucket analysis tools
 
-`scripts/analyze_pmu.py LABEL_A path/a.xml LABEL_B path/b.xml`
-aggregates `CounterMetricByThread` rows by core type (P / E) and
-sums the four buckets (Useful / Processing / Delivery / Discarded)
-from the `uint64-array` column. Diff is printed with bucket-share
-shift and absolute-cycle delta.
+- `scripts/analyze_pmu.py LABEL_A a.xml LABEL_B b.xml` — pairwise
+  diff for two captures. Aggregates `CounterMetricByThread` rows by
+  core type (P / E) and sums the four buckets (Useful / Processing /
+  Delivery / Discarded). Bucket-share shift and absolute-cycle delta.
+- `scripts/aggregate_3way.py <root>` — emits the markdown 3-way table
+  (baseline / phase3 / WAMR) used in `docs/three-way-baseline-phase3-
+  wamr.md`. Wallclock from `<root>/n10/iphone12-*-r{1..10}.log`, PMU
+  bucket totals from `<root>/pmu-{baseline,phase3,wamr}/*.xml`.
+- `scripts/aggregate_4way.py <n10dir>` — wallclock-only 4-way table
+  (baseline / phase3 / phase4 / WAMR) per device. Same log-parser
+  signature; PMU is wallclock-only so no XML inputs.
+- `scripts/m4_phase4_bucket_shares.py` — emits the
+  A14-Icestorm-vs-M4-Sawtooth bucket-shares cross-microarch table.
+- `scripts/parse_n10.py <n10dir>` — per-condition median + range
+  summary for a single n10 dir.
 
 ### Bash launcher gotcha — line buffering
 
@@ -313,21 +372,49 @@ submodule). Active branches:
 - **(deleted)** `pulley-call-indirect-ic`,
   `pulley-call-indirect-ic-noseqlock` — IC investigation, closed
   out. SHAs in `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md`.
-- **`claude/pulley-fusion-xband-brif`** — Phase 1 opcode fusion
-  (`xband_s8 + br_if`). Three commits on top of
-  `table-mutability-tracking`. See
-  `docs/opcode-fusion-band-brif.md`.
+- **`claude/pulley-fusion-xband-brif`** — Phases 1–4 opcode fusion
+  stack at the call_indirect lazy-init dispatch tail. **11 commits**
+  on top of `table-mutability-tracking`. Open as
+  [PR #4](https://github.com/rebeckerspecialties/wasmtime/pull/4)
+  on the fork. Per-phase docs: `docs/opcode-fusion-band-brif.md`
+  (phase 1), `docs/opcode-fusion-funcref-dispatch.md` (phase 2),
+  `docs/opcode-fusion-band-funcref-dispatch.md` (phase 3),
+  `docs/four-way-baseline-phase3-phase4-wamr.md` (phase 4 +
+  cross-device + phase-5 candidates).
 
 ## Cross-runtime comparison
 
 The harness builds against **WAMR** (`wasm-micro-runtime/` submodule)
-as a comparison runtime. WAMR's fast-interp consistently beats
-Pulley by 25–40 % on dispatch-heavy workloads
-(`call_indirect.wasm`, `xmrsplayer.wasm`). The gap is **structural,
-not IC-related** — WAMR's register-style fused-op IR has fewer
-match_loop-equivalent dispatches per source-level wasm op. Closing
-this gap is what the next branch's opcode-fusion work targets;
-see PR #2 description's "Next branch — opcode fusion" section.
+as a comparison runtime. The gap is **structural, not IC-related** —
+WAMR's preprocessed register-IR has fewer match_loop-equivalent
+dispatches per source-level wasm op. The PR-#4 phases-1–4 fusion stack
+closes ~10 % of that gap on the iPhone 12 vtable suite (vtable_poly4
+1.73× → 1.58×; vtable_bi 1.78× → 1.65×) without changing the
+structural disadvantage.
+
+**Current phase-4 Pulley/WAMR wallclock ratios (lower = closer)**:
+
+| workload | iPhone 12 A14 | iPhone XS A12 | Watch SE2 S8 |
+|---|---:|---:|---:|
+| xmrsplayer | 1.33× | 1.22× | **1.16×** |
+| graphql-validation (AS) | 1.56× | 1.58× | 1.24× |
+| call_indirect | 1.67× | 1.49× | 1.46× |
+| vtable_bi | 1.65× | 1.48× | 1.48× |
+| vtable_poly4 | 1.58× | 1.42× | 1.36× |
+| vtable_poly6 | 1.61× | 1.48× | 1.42× |
+| vtable_mono | 1.74× | 1.45× | 1.54× |
+
+Watch SE2 has the tightest ratios for the production-shaped workloads
+(xmrsplayer 1.16×, graphql-AS 1.24×) — meaningful because the watch
+is the actual deployment target. See
+`docs/four-way-baseline-phase3-phase4-wamr.md` and the phase-5
+candidates section there for what's next.
+
+**WAMR can't run Porffor** (graphql-validation Porffor variant): WAMR's
+interp build forbids `EXCE_HANDLING + FAST_INTERP` AND `SIMD +
+CLASSIC_INTERP` simultaneously; Porffor's WAT needs both SIMD (v128
+string compare) and wasm-exceptions (JS try/catch lowering).
+Structural N/A, documented inline in `scripts/build-wamr.sh`.
 
 WAMR build: `./scripts/build-wamr.sh` (configures + builds
 `libiwasm.a` for each target). PMU-only traces should filter to a

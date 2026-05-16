@@ -79,7 +79,7 @@ since baseline; phase-4 doesn't recover it.
 goes from WAMR 1.71× faster (baseline) → 1.65× (phase-3) → 1.61×
 (phase-4). `vtable_poly4` from 1.73× → 1.71× → 1.58×.
 
-## Wallclock comparison — iPhone XS Max (A12 Mistral E-core, N=10)
+## Wallclock comparison — iPhone XS Max (A12 Tempest E-core, N=10)
 
 | workload | baseline | phase3 | phase4 | WAMR | base→phase3 % | phase3→phase4 % | base→phase4 % | phase4 vs WAMR |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -94,12 +94,12 @@ goes from WAMR 1.71× faster (baseline) → 1.65× (phase-3) → 1.61×
 
 ### iPhone XS picture: microarchitecture portability story
 
-A12 Mistral E-core responds differently from A14 Icestorm:
+A12 Tempest E-core responds differently from A14 Icestorm:
 
 - **Phase-3 regresses** on XS for the synthetic `call_indirect` (+5.20%)
   and for vtable_mono / vtable_bi / vtable_poly6 (+3–5%). The
   larger fused op family appears to cost more in front-end pressure
-  on Mistral than it saves in back-end dispatch reduction. Mistral's
+  on Tempest than it saves in back-end dispatch reduction. Tempest's
   pattern-history table behaves differently from Icestorm's.
 - **Phase-4 partially recovers** what phase-3 lost on `call_indirect`
   (−4.77% vs phase-3 → back to baseline parity) and on `vtable_mono`,
@@ -142,8 +142,8 @@ empirically) even though watchOS doesn't propagate to Swift `ProcessInfo`.
 
 S8 looks like A14 Icestorm on the polymorphic vtable suite (4–8 %
 phase-4-vs-phase-3 wins on `vtable_bi/poly4/poly6`) but unlike A12
-Mistral. `vtable_mono` is the watch's only mild regression (+1.56 % vs
-phase 3, same direction as Mistral but smaller magnitude). `call_indirect`
+Tempest. `vtable_mono` is the watch's only mild regression (+1.56 % vs
+phase 3, same direction as Tempest but smaller magnitude). `call_indirect`
 and `xmrsplayer` are noise-floor neutral on the watch — the synthetic
 dispatch loop doesn't dominate per-iter time enough at S8 clock speeds
 for the per-call savings to clear N=10 noise.
@@ -172,7 +172,7 @@ wallclock variance.
 
 ## Phase-4 PMU bucket shares — A14 Icestorm vs M4 Sawtooth E-core
 
-A12 Mistral doesn't expose `CounterMetricByThread` so PMU bucket
+A12 Tempest doesn't expose `CounterMetricByThread` so PMU bucket
 analysis covers two of the three microarchs. M4 captures via
 `xctrace record --launch -- /usr/sbin/taskpolicy -b ./target/release/run_dispatch_workloads`;
 iPhone via attach-mode xctrace per `docs/three-way-baseline-phase3-wamr.md`'s
@@ -242,7 +242,7 @@ call_indirect1). To shave further:
 2. **Secondary phase-5 candidate — microarch-aware emission**: let
    `cranelift_pulley_target_cpu` (or a similar hint) gate the
    phase-3+4 fusion on A14+ targets while falling back to baseline
-   on A12 Mistral. Avoids the XS phase-3 regressions while keeping
+   on A12 Tempest. Avoids the XS phase-3 regressions while keeping
    the iPhone 12 + M4 wins. Less invasive than the mega-op; smaller
    absolute upside but addresses the XS regression directly.
 3. **Tertiary phase-5 candidate — interpreter dispatch-loop
