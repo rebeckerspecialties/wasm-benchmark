@@ -31,7 +31,8 @@ on these targets.
   pressure on Apple silicon E-cores. See
   `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md` for recovery info.
 - Opcode fusion in Pulley landed across four layered phases on the
-  `claude/pulley-fusion-xband-brif` wasmtime branch (11 commits):
+  `claude/pulley-fusion-xband-brif` wasmtime branch (12 commits —
+  11 fusion + 1 correctness fix from review):
   - **Phase 1** (`BandBrIf`, `xband_s8 + br_if`): measured 2026-05-14
     — wallclock flat in isolation, Discarded +7.87 %. Superseded by
     phase 2 at the same call site; stays as fallback when phase 2's
@@ -373,8 +374,9 @@ submodule). Active branches:
   `pulley-call-indirect-ic-noseqlock` — IC investigation, closed
   out. SHAs in `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md`.
 - **`claude/pulley-fusion-xband-brif`** — Phases 1–4 opcode fusion
-  stack at the call_indirect lazy-init dispatch tail. **11 commits**
-  on top of `table-mutability-tracking`. Open as
+  stack at the call_indirect lazy-init dispatch tail. **12 commits**
+  on top of `table-mutability-tracking` (11 fusion + 1 trap-on-null
+  correctness fix from PR review, commit `80856b4`). Open as
   [PR #4](https://github.com/rebeckerspecialties/wasmtime/pull/4)
   on the fork. Per-phase docs: `docs/opcode-fusion-band-brif.md`
   (phase 1), `docs/opcode-fusion-funcref-dispatch.md` (phase 2),
