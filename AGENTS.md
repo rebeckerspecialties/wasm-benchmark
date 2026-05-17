@@ -576,6 +576,33 @@ closes ~10 % of that gap on the iPhone 12 vtable suite (vtable_poly4
 1.73× → 1.58×; vtable_bi 1.78× → 1.65×) without changing the
 structural disadvantage.
 
+### Open follow-up — WAMR fast-interp legacy exception handling (full spec)
+
+**Status (2026-05-17)**: throw-only legacy EH landed in [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1) — modules with `throw` ops but no in-function `try`/`catch` (e.g., the original Porffor-graphql-validation wasm with 561 compiler-inserted safety throws) now run on WAMR's fast-interp.
+
+**What's missing**: in-function `try`/`catch`/`catch_all`/`rethrow`/`delegate` dispatch. The wasm reaches the loader cleanly (the tag section parses), but normal flow falling through a `CATCH` opcode currently traps with `"unsupported opcode"`.
+
+**Concrete failing case**: [`workloads/graphql-validation-porf.wasm`](workloads/graphql-validation-porf.wasm), commit [ed38748](https://github.com/rebeckerspecialties/wasm-benchmark/commit/ed38748). The accurate-Porffor JS source ([`workloads/graphql-validation/porffor/index.js`](workloads/graphql-validation/porffor/index.js)) mirrors real graphql-js's exception flow: `GraphQLError extends Error`, `NonErrorThrown extends Error` sibling, `validate()` wraps `visit()` in a `try { ... } catch (e) { if (e !== abortObj) throw e; }`, `ValidationContext.reportError` throws an `__validateAbortObj` sentinel when the 100-error cap is hit. Compiles to wasm with **1 `try`, 1 `catch 0`, 605 throws** (vs the old shape's 0/0/561). Wasmtime / Pulley runs it correctly; WAMR + the throw-only PR doesn't.
+
+**Scope for the spec PR**:
+
+| | LOC | notes |
+|---|---:|---|
+| Loader: per-function exception table (`WASMTryRange[] + WASMTryHandler[]`) | ~200 | record try-body IR range, catch handler IR offset + tag, payload slot offsets |
+| Loader: slot allocation for catch payload (`PUSH_OFFSET_TYPE` in the CATCH case) | ~30 | currently only `PUSH_TYPE` — payload slots aren't allocated, which is why upstream banned EH+FAST_INTERP in the first place |
+| Loader: emit branch-around-catches at end of try-body | ~50 | so normal flow doesn't fall through into CATCH op (which is what causes the current "unsupported opcode" trap) |
+| Runtime: `HANDLE_OP(WASM_OP_THROW)` walks per-function exception table by current IP, finds matching catch | ~100 | write payload values to recorded slot offsets, set `frame_ip` to handler |
+| Runtime: cross-function propagation at call return — caller checks `exception_raised`, walks ITS exception table | ~80 | mirror classic-interp's `LABEL_TYPE_FUNCTION` case in `find_a_catch_handler` |
+| Runtime: `WASM_OP_CATCH_ALL` (always matches) | ~10 | trivial extension once the above is in place |
+| Runtime: `WASM_OP_RETHROW` / `WASM_OP_DELEGATE` | ~50 | Porffor doesn't emit these — lowers `throw e` as fresh `throw 0` — but spec compliance |
+| Tests: gtest unit tests | ~300 | nested try, catch_all fallback, payload binding for i32/i64/f32/f64, throw across function boundaries, throw-with-no-catch escapes |
+| Tests: spec_testsuite/legacy/{throw,try_catch,rethrow,try_delegate}.wast passing | — | wasmtime ships these; ~667 LOC of WAST coverage |
+| **Integration test**: `graphql-validation-porf` returns `result=0` matching Pulley | — | the motivating bug |
+
+**Realistic effort**: 1-3 focused days. The slot-allocator interaction is the design risk — fast-interp doesn't have a runtime control-stack-pointer to walk, so the "transfer to catch handler" step has to be entirely IP-based with pre-computed slot offsets. Classic-interp's [`find_a_catch_handler`](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/core/iwasm/interpreter/wasm_interp_classic.c#L1753) is the design template (470 LOC, mostly mechanical to port; the asymmetry is that fast-interp pre-resolves block boundaries at load time, so `UNWIND_CSP` becomes a static IR transfer).
+
+**Why this PR is worth doing** beyond just our benchmark: WAMR's `unsupported_combination.cmake:67` (`EXCE_HANDLING + FAST_INTERP`) has been a known limitation since the original [EH PR #3096](https://github.com/bytecodealliance/wasm-micro-runtime/pull/3096) (April 2024). Anyone running Porffor / AssemblyScript-with-exceptions / Emscripten C++-exceptions on WAMR fast-interp today hits this wall.
+
 ### Skipped runtimes (App Store / Apple-platform feasibility)
 
 | runtime | reason skipped |
