@@ -1061,6 +1061,59 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Reference results for the standard (workload, arg) pairs. Established by
+// cross-runtime consensus on iPhone 12 + iPhone XS (Pulley + WAMR + wasm3 +
+// WasmEdge-pure-interp + zwasm all agree). The `report_from_checked` wrapper
+// flips a successful row to ERROR when the runtime returns a different value
+// — that's how we caught wasmz silently miscompiling the SIMD matmul and
+// vtable_mono workloads (it returned 12457 vs 48907 and 1048628 vs
+// -318559695 respectively, while finishing in 1/3 the time).
+//
+// Workloads with no entry here intentionally skip the check:
+//   * xmrsplayer — output is a running checksum advanced per iteration,
+//     so the result depends on how many iterations the harness picks.
+//   * sqlite3 speedtest1 — returns 0 on success; other runtimes don't
+//     run it yet so there's no reference besides Pulley.
+//   * graphql-validation (Porffor) — only Pulley wires the host print
+//     stub end-to-end; other runtimes ERROR on the import.
+// -----------------------------------------------------------------------------
+const EXPECTED_FIB_30: i32 = 832040;
+const EXPECTED_FIB_TAIL_100K: i32 = 873876091;
+const EXPECTED_FACTORIAL_20: i32 = -2102132736;
+const EXPECTED_SIEVE_10K: i32 = 1229;
+const EXPECTED_CRC32_C0FFEE: i32 = -1910355869;
+const EXPECTED_MATMUL_SIMD: i32 = 48907;
+const EXPECTED_MATMUL_FMA: i32 = 48907;
+const EXPECTED_CONVOLUTION: i32 = 8190685;
+const EXPECTED_AUDIO_DSP: i32 = 761667740;
+const EXPECTED_BULK_MEMORY: i32 = 8698902;
+const EXPECTED_CALL_INDIRECT: i32 = -9175573;
+const EXPECTED_VTABLE_MONO: i32 = -318559695;
+const EXPECTED_VTABLE_BI: i32 = -208336512;
+const EXPECTED_VTABLE_POLY4: i32 = -126115384;
+const EXPECTED_VTABLE_POLY6: i32 = 579248763;
+const EXPECTED_GRAPHQL_AS: i32 = 5;
+
+/// Variant of `report_from` that also asserts the runtime returned the
+/// cross-runtime-consensus reference. A wrong result is converted into a
+/// `Err(...)` (and therefore an ERR row in the device console) — silent
+/// miscompiles are the worst kind of "benchmark win". Pass `None` for
+/// workloads whose result is iteration-dependent (xmrsplayer) or that
+/// have no reference yet (sqlite3, graphql-validation Porffor).
+fn report_from_checked(r: Result<RunReport>, expected: Option<i32>) -> BenchReport {
+    let r = match (r, expected) {
+        (Ok(rr), Some(exp)) if rr.result != exp => Err(anyhow::anyhow!(
+            "wrong result: got {}, expected {} \
+             (cross-runtime consensus). The runtime is silently miscompiling \
+             this workload — a fast wrong answer is still a wrong answer.",
+            rr.result, exp
+        )),
+        (other, _) => other,
+    };
+    report_from(r)
+}
+
 /// Initialize WAMR. **Must be called on the process's main thread**
 /// (the Swift app's `App` body runs on main, so call from there).
 /// Returns 1 on success, 0 if WAMR is unavailable in this build.
@@ -1075,68 +1128,68 @@ pub extern "C" fn bench_init_wamr() -> u8 {
 // Pulley path (default).
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib(n: i32) -> BenchReport {
-    report_from(run_fib(n))
+    report_from_checked(run_fib(n), if n == 30 { Some(EXPECTED_FIB_30) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_tail(n: i32) -> BenchReport {
-    report_from(run_fib_tail(n))
+    report_from_checked(run_fib_tail(n), if n == 100000 { Some(EXPECTED_FIB_TAIL_100K) } else { None })
 }
 
 // WAMR path. Each function calls into the WAMR fast-interpreter.
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_wamr(n: i32) -> BenchReport {
-    report_from(wamr::run_workload_wamr(FIB_WASM, "fib", n))
+    report_from_checked(wamr::run_workload_wamr(FIB_WASM, "fib", n), if n == 30 { Some(EXPECTED_FIB_30) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_tail_wamr(n: i32) -> BenchReport {
-    report_from(wamr::run_workload_wamr(FIB_TAIL_WASM, "fib_tail", n))
+    report_from_checked(wamr::run_workload_wamr(FIB_TAIL_WASM, "fib_tail", n), if n == 100000 { Some(EXPECTED_FIB_TAIL_100K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_factorial_wamr(n: i32) -> BenchReport {
-    report_from(wamr::run_workload_wamr(FACTORIAL_WASM, "factorial", n))
+    report_from_checked(wamr::run_workload_wamr(FACTORIAL_WASM, "factorial", n), if n == 20 { Some(EXPECTED_FACTORIAL_20) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_wamr(n: i32) -> BenchReport {
-    report_from(wamr::run_workload_wamr(SIEVE_WASM, "sieve", n))
+    report_from_checked(wamr::run_workload_wamr(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(CRC32_WASM, "crc32", 0xC0FFEE))
+    report_from_checked(wamr::run_workload_wamr(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_simd_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+    report_from_checked(wamr::run_workload_wamr(MATMUL_SIMD_WASM, "matmul", 0xBEEF), Some(EXPECTED_MATMUL_SIMD))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_fma_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+    report_from_checked(wamr::run_workload_wamr(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF), Some(EXPECTED_MATMUL_FMA))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_convolution_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(CONVOLUTION_WASM, "convolve", 0xCAFE))
+    report_from_checked(wamr::run_workload_wamr(CONVOLUTION_WASM, "convolve", 0xCAFE), Some(EXPECTED_CONVOLUTION))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_audio_dsp_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+    report_from_checked(wamr::run_workload_wamr(AUDIO_DSP_WASM, "audio_dsp", 0x5C7), Some(EXPECTED_AUDIO_DSP))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_bulk_memory_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+    report_from_checked(wamr::run_workload_wamr(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC), Some(EXPECTED_BULK_MEMORY))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_call_indirect_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+    report_from_checked(wamr::run_workload_wamr(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA), Some(EXPECTED_CALL_INDIRECT))
 }
 
 /// xmrsplayer rendering 15 s of `unreal.s3m` to a null sound driver.
@@ -1152,47 +1205,47 @@ pub extern "C" fn bench_run_xmrsplayer_wamr() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_factorial(n: i32) -> BenchReport {
-    report_from(run_factorial(n))
+    report_from_checked(run_factorial(n), if n == 20 { Some(EXPECTED_FACTORIAL_20) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve(n: i32) -> BenchReport {
-    report_from(run_sieve(n))
+    report_from_checked(run_sieve(n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32() -> BenchReport {
-    report_from(run_crc32(0xC0FFEE))
+    report_from_checked(run_crc32(0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_simd() -> BenchReport {
-    report_from(run_matmul_simd(0xBEEF))
+    report_from_checked(run_matmul_simd(0xBEEF), Some(EXPECTED_MATMUL_SIMD))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_fma() -> BenchReport {
-    report_from(run_matmul_fma(0xBEEF))
+    report_from_checked(run_matmul_fma(0xBEEF), Some(EXPECTED_MATMUL_FMA))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_convolution() -> BenchReport {
-    report_from(run_convolution(0xCAFE))
+    report_from_checked(run_convolution(0xCAFE), Some(EXPECTED_CONVOLUTION))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_audio_dsp() -> BenchReport {
-    report_from(run_audio_dsp(0x5C7))
+    report_from_checked(run_audio_dsp(0x5C7), Some(EXPECTED_AUDIO_DSP))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_bulk_memory() -> BenchReport {
-    report_from(run_bulk_memory(0xB0CC))
+    report_from_checked(run_bulk_memory(0xB0CC), Some(EXPECTED_BULK_MEMORY))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_call_indirect() -> BenchReport {
-    report_from(run_call_indirect(0xC1AA))
+    report_from_checked(run_call_indirect(0xC1AA), Some(EXPECTED_CALL_INDIRECT))
 }
 
 /// xmrsplayer rendering 15 s of `unreal.s3m` to a null sound driver.
@@ -1208,22 +1261,22 @@ pub extern "C" fn bench_run_xmrsplayer() -> BenchReport {
 /// the IC's polymorphism dimension. See `VTABLE_DISPATCH_WASM` doc.
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_mono() -> BenchReport {
-    report_from(run_vtable_mono(0xC1AA))
+    report_from_checked(run_vtable_mono(0xC1AA), Some(EXPECTED_VTABLE_MONO))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_bi() -> BenchReport {
-    report_from(run_vtable_bi(0xC1AA))
+    report_from_checked(run_vtable_bi(0xC1AA), Some(EXPECTED_VTABLE_BI))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly4() -> BenchReport {
-    report_from(run_vtable_poly4(0xC1AA))
+    report_from_checked(run_vtable_poly4(0xC1AA), Some(EXPECTED_VTABLE_POLY4))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly6() -> BenchReport {
-    report_from(run_vtable_poly6(0xC1AA))
+    report_from_checked(run_vtable_poly6(0xC1AA), Some(EXPECTED_VTABLE_POLY6))
 }
 
 // vtable_* WAMR variants — same wasm + same per-shape entry points,
@@ -1235,22 +1288,22 @@ pub extern "C" fn bench_run_vtable_poly6() -> BenchReport {
 // preprocessed-bytecode interpreter, not from specialization.
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_mono_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+    report_from_checked(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA), Some(EXPECTED_VTABLE_MONO))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_bi_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+    report_from_checked(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA), Some(EXPECTED_VTABLE_BI))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly4_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+    report_from_checked(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA), Some(EXPECTED_VTABLE_POLY4))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly6_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+    report_from_checked(wamr::run_workload_wamr(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA), Some(EXPECTED_VTABLE_POLY6))
 }
 
 /// graphql-validation AS port on WAMR. The AS wasm has 0 imports, so
@@ -1260,7 +1313,7 @@ pub extern "C" fn bench_run_vtable_poly6_wamr() -> BenchReport {
 /// per-iter time.
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_as_wamr() -> BenchReport {
-    report_from(wamr::run_workload_wamr(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0))
+    report_from_checked(wamr::run_workload_wamr(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0), Some(EXPECTED_GRAPHQL_AS))
 }
 
 /// graphql-validation Porffor port on WAMR. Porffor compiles JS
@@ -1304,57 +1357,57 @@ pub extern "C" fn bench_init_wasm3() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_wasm3(n: i32) -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(FIB_WASM, "fib", n))
+    report_from_checked(wasm3::run_workload_wasm3(FIB_WASM, "fib", n), if n == 30 { Some(EXPECTED_FIB_30) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_tail_wasm3(n: i32) -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(FIB_TAIL_WASM, "fib_tail", n))
+    report_from_checked(wasm3::run_workload_wasm3(FIB_TAIL_WASM, "fib_tail", n), if n == 100000 { Some(EXPECTED_FIB_TAIL_100K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_factorial_wasm3(n: i32) -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(FACTORIAL_WASM, "factorial", n))
+    report_from_checked(wasm3::run_workload_wasm3(FACTORIAL_WASM, "factorial", n), if n == 20 { Some(EXPECTED_FACTORIAL_20) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_wasm3(n: i32) -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(SIEVE_WASM, "sieve", n))
+    report_from_checked(wasm3::run_workload_wasm3(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(CRC32_WASM, "crc32", 0xC0FFEE))
+    report_from_checked(wasm3::run_workload_wasm3(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_simd_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+    report_from_checked(wasm3::run_workload_wasm3(MATMUL_SIMD_WASM, "matmul", 0xBEEF), Some(EXPECTED_MATMUL_SIMD))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_fma_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+    report_from_checked(wasm3::run_workload_wasm3(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF), Some(EXPECTED_MATMUL_FMA))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_convolution_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(CONVOLUTION_WASM, "convolve", 0xCAFE))
+    report_from_checked(wasm3::run_workload_wasm3(CONVOLUTION_WASM, "convolve", 0xCAFE), Some(EXPECTED_CONVOLUTION))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_audio_dsp_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+    report_from_checked(wasm3::run_workload_wasm3(AUDIO_DSP_WASM, "audio_dsp", 0x5C7), Some(EXPECTED_AUDIO_DSP))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_bulk_memory_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+    report_from_checked(wasm3::run_workload_wasm3(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC), Some(EXPECTED_BULK_MEMORY))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_call_indirect_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+    report_from_checked(wasm3::run_workload_wasm3(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA), Some(EXPECTED_CALL_INDIRECT))
 }
 
 #[unsafe(no_mangle)]
@@ -1364,27 +1417,27 @@ pub extern "C" fn bench_run_xmrsplayer_wasm3() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_mono_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+    report_from_checked(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA), Some(EXPECTED_VTABLE_MONO))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_bi_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+    report_from_checked(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA), Some(EXPECTED_VTABLE_BI))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly4_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+    report_from_checked(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA), Some(EXPECTED_VTABLE_POLY4))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly6_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+    report_from_checked(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA), Some(EXPECTED_VTABLE_POLY6))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_as_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0))
+    report_from_checked(wasm3::run_workload_wasm3(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0), Some(EXPECTED_GRAPHQL_AS))
 }
 
 /// graphql-validation Porffor on wasm3. Porffor compiles JS try/catch
@@ -1421,57 +1474,57 @@ pub extern "C" fn bench_init_wasmedge() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_wasmedge(n: i32) -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(FIB_WASM, "fib", n))
+    report_from_checked(wasmedge::run_workload_wasmedge(FIB_WASM, "fib", n), if n == 30 { Some(EXPECTED_FIB_30) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_tail_wasmedge(n: i32) -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(FIB_TAIL_WASM, "fib_tail", n))
+    report_from_checked(wasmedge::run_workload_wasmedge(FIB_TAIL_WASM, "fib_tail", n), if n == 100000 { Some(EXPECTED_FIB_TAIL_100K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_factorial_wasmedge(n: i32) -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(FACTORIAL_WASM, "factorial", n))
+    report_from_checked(wasmedge::run_workload_wasmedge(FACTORIAL_WASM, "factorial", n), if n == 20 { Some(EXPECTED_FACTORIAL_20) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_wasmedge(n: i32) -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(SIEVE_WASM, "sieve", n))
+    report_from_checked(wasmedge::run_workload_wasmedge(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(CRC32_WASM, "crc32", 0xC0FFEE))
+    report_from_checked(wasmedge::run_workload_wasmedge(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_simd_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+    report_from_checked(wasmedge::run_workload_wasmedge(MATMUL_SIMD_WASM, "matmul", 0xBEEF), Some(EXPECTED_MATMUL_SIMD))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_fma_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+    report_from_checked(wasmedge::run_workload_wasmedge(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF), Some(EXPECTED_MATMUL_FMA))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_convolution_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(CONVOLUTION_WASM, "convolve", 0xCAFE))
+    report_from_checked(wasmedge::run_workload_wasmedge(CONVOLUTION_WASM, "convolve", 0xCAFE), Some(EXPECTED_CONVOLUTION))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_audio_dsp_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+    report_from_checked(wasmedge::run_workload_wasmedge(AUDIO_DSP_WASM, "audio_dsp", 0x5C7), Some(EXPECTED_AUDIO_DSP))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_bulk_memory_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+    report_from_checked(wasmedge::run_workload_wasmedge(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC), Some(EXPECTED_BULK_MEMORY))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_call_indirect_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+    report_from_checked(wasmedge::run_workload_wasmedge(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA), Some(EXPECTED_CALL_INDIRECT))
 }
 
 #[unsafe(no_mangle)]
@@ -1481,31 +1534,31 @@ pub extern "C" fn bench_run_xmrsplayer_wasmedge() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_mono_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+    report_from_checked(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA), Some(EXPECTED_VTABLE_MONO))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_bi_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+    report_from_checked(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA), Some(EXPECTED_VTABLE_BI))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly4_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+    report_from_checked(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA), Some(EXPECTED_VTABLE_POLY4))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly6_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+    report_from_checked(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA), Some(EXPECTED_VTABLE_POLY6))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_as_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(
+    report_from_checked(wasmedge::run_workload_wasmedge(
         GRAPHQL_VALIDATION_AS_WASM,
         "validate_once",
         0,
-    ))
+    ), Some(EXPECTED_GRAPHQL_AS))
 }
 
 /// graphql-validation Porffor on WasmEdge. Unlike WAMR, WasmEdge's
@@ -1539,57 +1592,57 @@ pub extern "C" fn bench_init_zwasm() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_zwasm(n: i32) -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(FIB_WASM, "fib", n))
+    report_from_checked(zwasm::run_workload_zwasm(FIB_WASM, "fib", n), if n == 30 { Some(EXPECTED_FIB_30) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_tail_zwasm(n: i32) -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(FIB_TAIL_WASM, "fib_tail", n))
+    report_from_checked(zwasm::run_workload_zwasm(FIB_TAIL_WASM, "fib_tail", n), if n == 100000 { Some(EXPECTED_FIB_TAIL_100K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_factorial_zwasm(n: i32) -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(FACTORIAL_WASM, "factorial", n))
+    report_from_checked(zwasm::run_workload_zwasm(FACTORIAL_WASM, "factorial", n), if n == 20 { Some(EXPECTED_FACTORIAL_20) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_zwasm(n: i32) -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(SIEVE_WASM, "sieve", n))
+    report_from_checked(zwasm::run_workload_zwasm(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(CRC32_WASM, "crc32", 0xC0FFEE))
+    report_from_checked(zwasm::run_workload_zwasm(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_simd_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+    report_from_checked(zwasm::run_workload_zwasm(MATMUL_SIMD_WASM, "matmul", 0xBEEF), Some(EXPECTED_MATMUL_SIMD))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_fma_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+    report_from_checked(zwasm::run_workload_zwasm(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF), Some(EXPECTED_MATMUL_FMA))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_convolution_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(CONVOLUTION_WASM, "convolve", 0xCAFE))
+    report_from_checked(zwasm::run_workload_zwasm(CONVOLUTION_WASM, "convolve", 0xCAFE), Some(EXPECTED_CONVOLUTION))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_audio_dsp_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+    report_from_checked(zwasm::run_workload_zwasm(AUDIO_DSP_WASM, "audio_dsp", 0x5C7), Some(EXPECTED_AUDIO_DSP))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_bulk_memory_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+    report_from_checked(zwasm::run_workload_zwasm(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC), Some(EXPECTED_BULK_MEMORY))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_call_indirect_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+    report_from_checked(zwasm::run_workload_zwasm(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA), Some(EXPECTED_CALL_INDIRECT))
 }
 
 #[unsafe(no_mangle)]
@@ -1599,31 +1652,31 @@ pub extern "C" fn bench_run_xmrsplayer_zwasm() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_mono_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+    report_from_checked(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA), Some(EXPECTED_VTABLE_MONO))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_bi_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+    report_from_checked(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA), Some(EXPECTED_VTABLE_BI))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly4_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+    report_from_checked(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA), Some(EXPECTED_VTABLE_POLY4))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly6_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+    report_from_checked(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA), Some(EXPECTED_VTABLE_POLY6))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_as_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(
+    report_from_checked(zwasm::run_workload_zwasm(
         GRAPHQL_VALIDATION_AS_WASM,
         "validate_once",
         0,
-    ))
+    ), Some(EXPECTED_GRAPHQL_AS))
 }
 
 #[unsafe(no_mangle)]
@@ -1649,57 +1702,57 @@ pub extern "C" fn bench_init_wasmz() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_wasmz(n: i32) -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(FIB_WASM, "fib", n))
+    report_from_checked(wasmz::run_workload_wasmz(FIB_WASM, "fib", n), if n == 30 { Some(EXPECTED_FIB_30) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_fib_tail_wasmz(n: i32) -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(FIB_TAIL_WASM, "fib_tail", n))
+    report_from_checked(wasmz::run_workload_wasmz(FIB_TAIL_WASM, "fib_tail", n), if n == 100000 { Some(EXPECTED_FIB_TAIL_100K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_factorial_wasmz(n: i32) -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(FACTORIAL_WASM, "factorial", n))
+    report_from_checked(wasmz::run_workload_wasmz(FACTORIAL_WASM, "factorial", n), if n == 20 { Some(EXPECTED_FACTORIAL_20) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_wasmz(n: i32) -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(SIEVE_WASM, "sieve", n))
+    report_from_checked(wasmz::run_workload_wasmz(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(CRC32_WASM, "crc32", 0xC0FFEE))
+    report_from_checked(wasmz::run_workload_wasmz(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_simd_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+    report_from_checked(wasmz::run_workload_wasmz(MATMUL_SIMD_WASM, "matmul", 0xBEEF), Some(EXPECTED_MATMUL_SIMD))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_matmul_fma_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+    report_from_checked(wasmz::run_workload_wasmz(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF), Some(EXPECTED_MATMUL_FMA))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_convolution_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(CONVOLUTION_WASM, "convolve", 0xCAFE))
+    report_from_checked(wasmz::run_workload_wasmz(CONVOLUTION_WASM, "convolve", 0xCAFE), Some(EXPECTED_CONVOLUTION))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_audio_dsp_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+    report_from_checked(wasmz::run_workload_wasmz(AUDIO_DSP_WASM, "audio_dsp", 0x5C7), Some(EXPECTED_AUDIO_DSP))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_bulk_memory_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+    report_from_checked(wasmz::run_workload_wasmz(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC), Some(EXPECTED_BULK_MEMORY))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_call_indirect_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+    report_from_checked(wasmz::run_workload_wasmz(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA), Some(EXPECTED_CALL_INDIRECT))
 }
 
 #[unsafe(no_mangle)]
@@ -1709,31 +1762,31 @@ pub extern "C" fn bench_run_xmrsplayer_wasmz() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_mono_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+    report_from_checked(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA), Some(EXPECTED_VTABLE_MONO))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_bi_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+    report_from_checked(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA), Some(EXPECTED_VTABLE_BI))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly4_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+    report_from_checked(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA), Some(EXPECTED_VTABLE_POLY4))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_vtable_poly6_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+    report_from_checked(wasmz::run_workload_wasmz(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA), Some(EXPECTED_VTABLE_POLY6))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_as_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(
+    report_from_checked(wasmz::run_workload_wasmz(
         GRAPHQL_VALIDATION_AS_WASM,
         "validate_once",
         0,
-    ))
+    ), Some(EXPECTED_GRAPHQL_AS))
 }
 
 #[unsafe(no_mangle)]
@@ -1745,9 +1798,9 @@ pub extern "C" fn bench_run_graphql_validation_porf_wasmz() -> BenchReport {
 /// 13 `call_indirect`s — the optimizer-friendly comparison baseline.
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_as() -> BenchReport {
-    report_from(graphql_validation::run_graphql_validation_as(
+    report_from_checked(graphql_validation::run_graphql_validation_as(
         GRAPHQL_VALIDATION_AS_WASM,
-    ))
+    ), Some(EXPECTED_GRAPHQL_AS))
 }
 
 /// Hand-written graphql-js validation-shape benchmark, Porffor port.
