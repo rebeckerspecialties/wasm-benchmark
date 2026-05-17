@@ -201,15 +201,29 @@ struct BenchmarkContentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz")
                     .font(.title3.bold())
-                Text("workload set • \(WORKLOADS.count) cases")
-                    .font(.caption)
-                if running {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("running \(currentLabel)…")
+                // Status line — when the run is in progress, shows
+                // "running <workload>". When the run completes,
+                // flips to a winner summary computed from per-workload
+                // medians (see `winnerSummary(_:)` below). This is the
+                // at-a-glance answer users tune in for; before this we
+                // shipped the data as a ~120-row scrollable dump and
+                // expected viewers to import to a spreadsheet to see
+                // who actually won.
+                Group {
+                    if running {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("running \(currentLabel)…")
+                        }
+                    } else if !results.isEmpty {
+                        Text(winnerSummary(results))
+                            .font(.caption.bold())
+                            .foregroundColor(.green)
+                    } else {
+                        Text("workload set • \(WORKLOADS.count) cases")
                     }
-                    .font(.caption)
                 }
+                .font(.caption)
                 Button(running ? "Running…" : "Run all") { runAll() }
                     .disabled(running)
                 ForEach(results) { r in
@@ -365,6 +379,13 @@ struct BenchmarkContentView: View {
             DispatchQueue.main.async {
                 running = false
                 currentLabel = ""
+                // Also emit the winner string to stderr so headless
+                // launches via devicectl --console see the verdict
+                // even when we can't take a screenshot of the
+                // top-of-view status text.
+                FileHandle.standardError.write(
+                    Data((winnerSummary(results) + "\n").utf8)
+                )
             }
         }
     }
@@ -405,7 +426,7 @@ struct WorkloadRow: View {
     let result: WorkloadResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let row = VStack(alignment: .leading, spacing: 2) {
             Text(result.label)
                 .font(.caption.bold())
             Text(detail)
@@ -413,6 +434,21 @@ struct WorkloadRow: View {
                 .foregroundColor(result.report.ok == 1 ? .primary : .red)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // tvOS-specific: SwiftUI ScrollView on tvOS doesn't scroll via
+        // the Siri Remote unless something inside it is focusable, so
+        // each row is marked `.focusable()`. The remote's up/down
+        // 5-way clicks (and swipe-up / swipe-down on the touch
+        // surface) then move focus row-by-row, and the ScrollView
+        // auto-scrolls to keep the focused row visible — same UX as
+        // iOS/watchOS dragging the list. Highlight the focused row
+        // so the user can see where they are. No-op on iOS / watchOS
+        // / macOS, where ScrollView scrolls naturally via touch /
+        // mouse / Digital Crown.
+        #if os(tvOS)
+        return row.focusable(true)
+        #else
+        return row
+        #endif
     }
 
     private var detail: String {
@@ -427,5 +463,104 @@ struct WorkloadRow: View {
             result.report.result, result.report.iterations,
             medMs, p99Ms, rssKB
         )
+    }
+}
+
+// =====================================================================
+// Winner summary
+// =====================================================================
+//
+// Walks the per-(runtime, workload) result list and tallies how many
+// workloads each runtime wins (lowest median time). Returns a one-
+// line summary suitable for the status line at the top of the view.
+//
+// Semantics:
+//   * A row is a "candidate" only if it completed with `ok == 1` AND
+//     has at least one peer (same workload, different runtime) that
+//     also completed — otherwise the workload isn't a comparison.
+//   * Within each comparable workload, the winner is the runtime
+//     with the smallest `run_ns_median`. Ties (medians within 1 % of
+//     each other) count as half-wins for each tied runtime.
+//   * The runtime-with-the-most-wins is the "overall winner". If the
+//     gap between #1 and #2 is ≤ 1 workload, we call it a tie
+//     between the two; the user almost-certainly wants to read the
+//     individual rows in that case.
+//
+// Workload-label format (set by the entries in `WORKLOADS`):
+//   "[Pulley] fib(30)"          → runtime="pulley",  workload="fib(30)"
+//   "[ WAMR ] fib(30)"          → runtime="wamr",    workload="fib(30)"
+//   "[wasm3 ] fib(30)"          → runtime="wasm3",   workload="fib(30)"
+//   "[WE    ] fib(30)"          → runtime="wasmedge", workload="fib(30)"
+//   "[zwasm ] fib(30)"          → runtime="zwasm",   workload="fib(30)"
+//   "[wasmz ] fib(30)"          → runtime="wasmz",   workload="fib(30)"
+// =====================================================================
+
+fileprivate func runtimeAndWorkload(from label: String) -> (runtime: String, workload: String)? {
+    // Expect leading `[<rt>] <workload>` where `<rt>` is padded.
+    guard label.hasPrefix("["), let closeBracket = label.firstIndex(of: "]") else {
+        return nil
+    }
+    let rtRaw = label[label.index(after: label.startIndex)..<closeBracket]
+        .trimmingCharacters(in: .whitespaces)
+        .lowercased()
+    // Normalise the "WE" abbreviation to "wasmedge" so the summary
+    // matches the same runtime names we use in the rest of the harness
+    // (lib.rs, the bench logs, the cross-runtime table in AGENTS.md).
+    let rt = rtRaw == "we" ? "wasmedge" : rtRaw
+    // Skip the closing bracket + the space after it.
+    let wlStart = label.index(closeBracket, offsetBy: 2, limitedBy: label.endIndex)
+        ?? label.endIndex
+    let workload = String(label[wlStart...])
+    return (rt, workload)
+}
+
+fileprivate func winnerSummary(_ results: [WorkloadResult]) -> String {
+    // (workload → [runtime: median_ns]) for ok rows only.
+    var byWorkload: [String: [String: UInt64]] = [:]
+    for r in results where r.report.ok == 1 {
+        guard let parsed = runtimeAndWorkload(from: r.label) else { continue }
+        byWorkload[parsed.workload, default: [:]][parsed.runtime] = r.report.run_ns_median
+    }
+    // For each workload with ≥2 ok runtimes, award a win (or half-win
+    // on a near-tie) to the runtime with the smallest median.
+    var wins: [String: Double] = [:]
+    var comparableWorkloads = 0
+    for (_, medians) in byWorkload where medians.count >= 2 {
+        comparableWorkloads += 1
+        // Find the smallest median + any other runtimes within 1 %.
+        let minMed = medians.values.min()!
+        let tieThreshold = Double(minMed) * 1.01
+        let topRuntimes = medians.filter { Double($0.value) <= tieThreshold }
+        let share = 1.0 / Double(topRuntimes.count)
+        for rt in topRuntimes.keys {
+            wins[rt, default: 0.0] += share
+        }
+    }
+    guard comparableWorkloads > 0 else {
+        return "No comparable workloads yet (need at least one workload completed on ≥2 runtimes)."
+    }
+    // Sort by wins descending.
+    let ranked = wins.sorted { $0.value > $1.value }
+    guard let first = ranked.first else {
+        return "No comparable workloads yet."
+    }
+    let second = ranked.count >= 2 ? ranked[1] : nil
+    // Outright winner if the lead over #2 is > 1 workload.
+    let isOutright: Bool
+    if let s = second {
+        isOutright = (first.value - s.value) > 1.0
+    } else {
+        isOutright = true
+    }
+    func fmt(_ x: Double) -> String {
+        // Drop the fraction when it's an integer (a clean win).
+        x == x.rounded() ? String(Int(x)) : String(format: "%.1f", x)
+    }
+    if isOutright {
+        return "🏆 \(first.key) wins \(fmt(first.value)) / \(comparableWorkloads) workloads"
+    } else if let s = second {
+        return "🤝 tie: \(first.key) & \(s.key) both ≈ \(fmt(max(first.value, s.value))) / \(comparableWorkloads) workloads"
+    } else {
+        return "🏆 \(first.key) wins \(fmt(first.value)) / \(comparableWorkloads) workloads"
     }
 }
