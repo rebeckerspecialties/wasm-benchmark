@@ -25,7 +25,28 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WAMR="${ROOT}/wasm-micro-runtime"
+PATCH_DIR="${ROOT}/patches/wasm-micro-runtime"
 WHICH="${1:-macos}"
+
+# Reset to pinned submodule HEAD then apply our patch series.
+# Idempotent — re-runs detect already-applied patches via reverse-check.
+# Same pattern as build-wasm3.sh / build-wasmz.sh / build-zwasm.sh.
+#
+# Currently applies:
+#   0001-feat-interpreter-legacy-exception-handling-throw-only-
+#     for-fast-interp.patch
+#     — lifts the EXCE_HANDLING + FAST_INTERP cmake ban for the
+#       throw-only subset of legacy wasm-eh; throw propagates via
+#       the existing got_exception path. Enables Porffor-compiled
+#       wasm to load on WAMR's fast-interp. Open as
+#       rebeckerspecialties/wasm-micro-runtime#1 against the
+#       fork; intended for upstream once same-function try/catch
+#       lowering lands (see AGENTS.md → Open follow-up).
+( cd "${WAMR}" && git reset --hard HEAD --quiet \
+  && git clean -fdq -e 'product-mini' )
+if [[ -d "${PATCH_DIR}" ]]; then
+  "${ROOT}/scripts/apply_patch_series.sh" "${WAMR}" "${PATCH_DIR}"
+fi
 
 COMMON_DEFS=(
   -DBUILD_SHARED_LIBS=OFF
