@@ -226,9 +226,39 @@ struct BenchmarkContentView: View {
                 .font(.caption)
                 Button(running ? "Running…" : "Run all") { runAll() }
                     .disabled(running)
+                // tvOS-specific: rows must be intrinsically focusable
+                // AND siblings of a properly-sized scroll container so
+                // the Siri Remote's 5-way clicks + swipe-up/swipe-down
+                // gestures both navigate the list. The canonical
+                // pattern is `Button { } label: { ... }` because
+                // Buttons are well-tested focus stops with the focus
+                // engine's auto-scroll. A bare `.focusable(true)` on
+                // a VStack passes the focus check but breaks
+                // auto-scroll: after the first move, the focused row
+                // ends up off-screen and the engine reports "no
+                // focusable target" with a beep on every subsequent
+                // direction press. The cardless `.buttonStyle(.plain)`
+                // (where it exists) preserves the current VStack
+                // layout; otherwise the standard tvOS button
+                // highlight takes over (still readable).
+                //
+                // On non-tvOS targets the bare WorkloadRow is fine —
+                // touch / mouse / Digital Crown drives scroll without
+                // a focus engine in the way.
+                #if os(tvOS)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(results) { r in
+                        Button(action: {}) {
+                            WorkloadRow(result: r)
+                        }
+                        .buttonStyle(.card)
+                    }
+                }
+                #else
                 ForEach(results) { r in
                     WorkloadRow(result: r)
                 }
+                #endif
             }
             .padding()
         }
@@ -426,7 +456,7 @@ struct WorkloadRow: View {
     let result: WorkloadResult
 
     var body: some View {
-        let row = VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(result.label)
                 .font(.caption.bold())
             Text(detail)
@@ -434,21 +464,10 @@ struct WorkloadRow: View {
                 .foregroundColor(result.report.ok == 1 ? .primary : .red)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // tvOS-specific: SwiftUI ScrollView on tvOS doesn't scroll via
-        // the Siri Remote unless something inside it is focusable, so
-        // each row is marked `.focusable()`. The remote's up/down
-        // 5-way clicks (and swipe-up / swipe-down on the touch
-        // surface) then move focus row-by-row, and the ScrollView
-        // auto-scrolls to keep the focused row visible — same UX as
-        // iOS/watchOS dragging the list. Highlight the focused row
-        // so the user can see where they are. No-op on iOS / watchOS
-        // / macOS, where ScrollView scrolls naturally via touch /
-        // mouse / Digital Crown.
-        #if os(tvOS)
-        return row.focusable(true)
-        #else
-        return row
-        #endif
+        // Note: focus-engine integration on tvOS is handled at the
+        // call site by wrapping each row in `Button { } label: { ... }`
+        // with `.buttonStyle(.card)`. That gives auto-scroll behaviour
+        // the Siri Remote expects. See `BenchmarkContentView.body`.
     }
 
     private var detail: String {
