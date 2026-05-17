@@ -25,11 +25,29 @@ for src in "${SRC}"/*.rs; do
   name=$(basename "${src}" .rs)
   out="${OUT}/${name}.wasm"
   echo "==> ${name}.wasm"
-  # `+simd128` enables vanilla wasm SIMD (v128). `+relaxed-simd` enables
-  # the relaxed-simd proposal — gives us access to `f32x4_relaxed_madd`
-  # etc., which Pulley lowers to its `Vfma32x4`/`Vfma64x2` bytecodes.
-  # Existing workloads call only explicit simd128 intrinsics, so adding
-  # `+relaxed-simd` doesn't auto-rewrite them; new workloads can opt in.
+
+  # SIMD policy:
+  #  - matmul_simd / matmul_fma INTENTIONALLY use v128 intrinsics
+  #    (`v128_load`, `f32x4_*`, `f32x4_relaxed_madd`, ...) — keep
+  #    `+simd128,+relaxed-simd` for them.
+  #  - Every other workload uses only scalar math, BUT with `+simd128`
+  #    the Rust compiler's auto-vectorizer freely emits v128 LOCAL
+  #    slots even when no v128 value is ever read. wasm3 0.5.1 rejects
+  #    these modules at parse time ("unknown value_type"), and wasmz
+  #    silently fails the call without surfacing a trap (leaves the
+  #    runtime in a state that SIGBUSes the next call on iOS — verified
+  #    on iPhone 12 A14, 2026-05-16). Compile non-SIMD workloads with
+  #    `-simd128 -relaxed-simd` so the auto-vectorizer can't emit
+  #    v128 slots and both interpreters can run them cleanly.
+  case "${name}" in
+    matmul_simd|matmul_fma)
+      SIMD_FEATS="+simd128,+relaxed-simd"
+      ;;
+    *)
+      SIMD_FEATS="-simd128,-relaxed-simd"
+      ;;
+  esac
+
   # `-C panic=abort` avoids the unwinding personality function.
   rustc \
     --target wasm32-unknown-unknown \
@@ -39,7 +57,7 @@ for src in "${SRC}"/*.rs; do
     -C opt-level=3 \
     -C lto=fat \
     -C panic=abort \
-    -C target-feature=+simd128,+relaxed-simd,+tail-call,+bulk-memory,+multivalue,+reference-types \
+    -C target-feature="${SIMD_FEATS},+tail-call,+bulk-memory,+multivalue,+reference-types" \
     "${src}" \
     -o "${out}"
   size=$(wc -c < "${out}" | tr -d ' ')
