@@ -6,10 +6,14 @@
 //! etc. cross-compile the static lib straight out of the box. See
 //! `scripts/build-zwasm.sh`.
 //!
-//! arm64_32-apple-watchos is **not** supported by Zig 0.16 (no
-//! target) and zwasm assumes 64-bit pointers anyway, so the
-//! watchOS-device build is skipped — see the watchos arm in
-//! `scripts/build-zwasm.sh`.
+//! arm64_32-apple-watchos is supported via
+//! `patches/zwasm/0001-arm64_32-apple-watchos-support.patch`. Zig 0.16
+//! spells the triple `aarch64-watchos-ilp32`; the legacy `arm64_32`
+//! arch was removed in ziglang/zig PR #20820. The patch flips
+//! `single_threaded = true` for the static lib, adds a
+//! self-contained `panic`/`logFn`, and adds ILP32 narrowing fixes
+//! (4 / 8 GiB constants gated on @sizeOf(usize) >= 8;
+//! @intCast on u64 → usize for memory indexing).
 //!
 //! C ABI: zwasm.h documents the surface — all values are passed
 //! through `uint64_t` arrays with the raw Wasm encoding (i32 is

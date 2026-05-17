@@ -112,23 +112,23 @@ fn main() {
     // -- wasmz static lib ----------------------------------------------
     // Per-target trees written by scripts/build-wasmz.sh via Zig 0.16
     // `zig build static-lib -Doptimize=ReleaseFast`. Patched (see
-    // patches/wasmz/0001-zig-0.16-stdlib-port.patch) so the sources
-    // build with 0.16 instead of the upstream-required 0.15.2 (Zig
-    // 0.15's build runner segfaults on macOS 26 Tahoe). wasmz uses
-    // 64-bit pointers; arm64_32-apple-watchos is not built (Zig 0.16
-    // has no arm64_32 target anyway).
+    // patches/wasmz/0001-zig-0.16-stdlib-port.patch + 0002-arm64_32-
+    // apple-watchos-support.patch) so the sources build with 0.16
+    // instead of the upstream-required 0.15.2 (Zig 0.15's build runner
+    // segfaults on macOS 26 Tahoe). arm64_32-apple-watchos is enabled
+    // via patch 0002 (single_threaded + self-contained panic/logFn);
+    // Zig 0.16 spells the triple `aarch64-watchos-ilp32`.
     let wasmz_root = manifest.join("../../wasmz");
     let wasmz_subdir =
         apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
     let wasmz_dir: PathBuf = wasmz_root.join(&wasmz_subdir);
     let libwasmz_a = wasmz_dir.join("libwasmz.a");
     println!("cargo:rerun-if-changed={}", libwasmz_a.display());
-    let is_arm64_32_watchos = target == "arm64_32-apple-watchos";
-    if libwasmz_a.exists() && !is_arm64_32_watchos {
+    if libwasmz_a.exists() {
         println!("cargo:rustc-link-search=native={}", wasmz_dir.display());
         println!("cargo:rustc-link-lib=static=wasmz");
         println!("cargo:rustc-cfg=have_wasmz");
-    } else if !is_arm64_32_watchos {
+    } else {
         println!(
             "cargo:warning=libwasmz.a not found at {} — wasmz runtime unavailable for this target",
             libwasmz_a.display()
@@ -138,20 +138,21 @@ fn main() {
     // -- zwasm static lib ----------------------------------------------
     // Per-target trees written by scripts/build-zwasm.sh via Zig 0.16
     // `zig build static-lib -Djit=false`. macOS uses bare `build/`,
-    // cross targets use `build-<triple>`. zwasm assumes 64-bit
-    // pointers; arm64_32-apple-watchos is not built (Zig 0.16 has no
-    // arm64_32 target anyway).
+    // cross targets use `build-<triple>`. arm64_32-apple-watchos is
+    // enabled via patches/zwasm/0001-arm64_32-apple-watchos-support
+    // (single_threaded + ILP32 narrowing fixes + self-contained
+    // panic/logFn); Zig 0.16 spells the triple `aarch64-watchos-ilp32`.
     let zwasm_root = manifest.join("../../zwasm");
     let zwasm_subdir =
         apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
     let zwasm_dir: PathBuf = zwasm_root.join(&zwasm_subdir);
     let libzwasm_a = zwasm_dir.join("libzwasm.a");
     println!("cargo:rerun-if-changed={}", libzwasm_a.display());
-    if libzwasm_a.exists() && !is_arm64_32_watchos {
+    if libzwasm_a.exists() {
         println!("cargo:rustc-link-search=native={}", zwasm_dir.display());
         println!("cargo:rustc-link-lib=static=zwasm");
         println!("cargo:rustc-cfg=have_zwasm");
-    } else if !is_arm64_32_watchos {
+    } else {
         println!(
             "cargo:warning=libzwasm.a not found at {} — zwasm runtime unavailable for this target",
             libzwasm_a.display()

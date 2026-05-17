@@ -1,0 +1,305 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Sat, 16 May 2026 21:45:00 -0700
+Subject: [PATCH] Enable arm64_32-apple-watchos (aarch64-watchos-ilp32) build
+
+The Zig 0.16 spelling for arm64_32-apple-watchos is
+`aarch64-watchos-ilp32` (the legacy `arm64_32` triple was removed in
+ziglang/zig PR #20820). This patch makes the `static-lib` step build
+cleanly for that target so wasm-benchmark can link zwasm into an
+Apple-Watch WatchKit app for the Series 4 / SE / SE2 / S8 device class
+(ILP32 ABI: 32-bit pointers, aarch64 instructions).
+
+Five changes, all gated on `@sizeOf(usize) < 8` or applied to code
+that's harmless on 64-bit targets:
+
+  * build.zig: pass `.single_threaded = true` to the static-lib
+    module. This eliminates the wasm-threads paths that pull
+    `std.Thread` / `std.Io.Threaded` into the call graph.
+    `std.Io.Threaded` itself doesn't compile under ILP32 (u64 → usize
+    narrowing in dirReadDarwin / pwrite). Embedders that need
+    multithreaded WASM execution can still build the dynamic
+    `shared-lib` variant.
+
+  * src/c_api.zig: provide a self-contained `panic` namespace + a
+    no-op `std_options.logFn`. Even with single_threaded, explicit
+    calls to `std.debug.simple_panic` would still pull `lockStderr →
+    debug_io → Threaded.io()` into the call graph, and any
+    `std.log.err` from the codebase does the same via
+    `log.defaultLog`. zwasm already surfaces all errors through the
+    C-ABI `zwasm_last_error_message()` channel, so losing pretty
+    panic messages on this target costs nothing the C consumer ever
+    saw.
+
+  * src/guard.zig: gate GUARD_SIZE and TOTAL_RESERVATION (4 GiB and
+    8 GiB) on `@sizeOf(usize) >= 8`. On 32-bit usize these constants
+    overflow at comptime; they're only used by the GuardedMem path
+    which is gated on `jitSupported()` (false for watchos), so the
+    placeholder zero values are unreachable at runtime.
+
+  * src/memory.zig + src/vm.zig: cast `effective` (u64 from
+    @addWithOverflow) to `usize` before using it as an array index.
+    After the preceding bounds check `effective` is known to fit in
+    `usize` because `len`/`items.len` is `usize`. The explicit
+    @intCast is required on ILP32 where `usize` is 32-bit.
+
+  * src/types.zig: skip the auto-init of `std.Io.Threaded` on 32-bit
+    targets. The caller must supply `config.io` if they want WASI
+    host directories on ILP32 — which they won't, because WatchKit
+    apps don't get filesystem access. Non-WASI workloads (the case
+    for wasm-benchmark) never dereference the io vtable, so leaving
+    it default-init'd on watchos is OK.
+
+No-op on all non-ILP32 targets — the runtime branches in guard.zig
+and types.zig short-circuit at comptime, and the memory/vm @intCasts
+are no-ops on 64-bit `usize`.
+---
+ build.zig       |   9 +++
+ src/c_api.zig   | 105 ++++++++++++++++++++++++++++++++++++++++++++++++
+ src/guard.zig   |   9 ++-
+ src/memory.zig  |   9 +++-
+ src/types.zig   |  12 ++++++
+ src/vm.zig      |   6 ++-
+ 6 files changed, 145 insertions(+), 5 deletions(-)
+
+diff --git a/build.zig b/build.zig
+index c0699d59..5b6bd88f 100644
+--- a/build.zig
++++ b/build.zig
+@@ -194,11 +194,20 @@ pub fn build(b: *std.Build) void {
+     lib_shared.installHeader(b.path("include/zwasm.h"), "zwasm.h");
+
+     // Static library (libzwasm.a)
++    //
++    // single_threaded = true eliminates the wasm-threads atomic.wait/notify
++    // paths that pull in std.Thread / std.Io.Threaded. The static lib is
++    // intended for App-Store-eligible iOS / watchOS / tvOS apps (no JIT,
++    // no shared memory, single-threaded wasm execution), so dropping the
++    // threading paths costs no functionality. Required for the
++    // arm64_32-apple-watchos build because std.Io.Threaded does not
++    // compile under ILP32 (u64 → usize narrowing errors).
+     const lib_static_mod = b.createModule(.{
+         .root_source_file = b.path("src/c_api.zig"),
+         .target = target,
+         .optimize = if (lib_optimize) optimize else if (optimize == .Debug) .ReleaseSafe else optimize,
+         .link_libc = true,
++        .single_threaded = true,
+         .pic = if (enable_pic) true else null,
+     });
+     lib_static_mod.addOptions("build_options", options);
+diff --git a/src/c_api.zig b/src/c_api.zig
+index 1c0df74f..2bb4e78e 100644
+--- a/src/c_api.zig
++++ b/src/c_api.zig
+@@ -18,6 +18,111 @@ const types = @import("types.zig");
+ const WasmModule = types.WasmModule;
+ const WasiOptions = types.WasiOptions;
+
++// On arm64_32-apple-watchos (32-bit-pointer aarch64) Zig 0.16's default
++// panic / std.debug machinery hits `u64 → usize` narrowing errors in
++// std.Io.Threaded.dirReadDarwin et al. Even `std.debug.simple_panic`
++// still routes through `lockStderr → std_options.debug_io →
++// debug_threaded_io.io()` which pulls in the whole std.Io.Threaded
++// module. Same applies to std.log.defaultLog. We override `panic` and
++// `std_options.logFn` so the static-lib build for watchos compiles
++// without any Zig-stdlib patches. Harmless on other targets — zwasm
++// surfaces all errors through the C-ABI `zwasm_last_error_message()`
++// channel, never via stderr.
++fn traping_panic(_: []const u8, _: ?usize) noreturn {
++    @trap();
++}
++pub const panic = struct {
++    pub const call = traping_panic;
++    pub fn sentinelMismatch(_: anytype, _: anytype) noreturn {
++        @trap();
++    }
++    pub fn unwrapError(_: anyerror) noreturn {
++        @trap();
++    }
++    pub fn outOfBounds(_: usize, _: usize) noreturn {
++        @trap();
++    }
++    pub fn startGreaterThanEnd(_: usize, _: usize) noreturn {
++        @trap();
++    }
++    pub fn inactiveUnionField(_: anytype, _: anytype) noreturn {
++        @trap();
++    }
++    pub fn sliceCastLenRemainder(_: usize) noreturn {
++        @trap();
++    }
++    pub fn reachedUnreachable() noreturn {
++        @trap();
++    }
++    pub fn unwrapNull() noreturn {
++        @trap();
++    }
++    pub fn castToNull() noreturn {
++        @trap();
++    }
++    pub fn incorrectAlignment() noreturn {
++        @trap();
++    }
++    pub fn invalidErrorCode() noreturn {
++        @trap();
++    }
++    pub fn integerOutOfBounds() noreturn {
++        @trap();
++    }
++    pub fn integerOverflow() noreturn {
++        @trap();
++    }
++    pub fn shlOverflow() noreturn {
++        @trap();
++    }
++    pub fn shrOverflow() noreturn {
++        @trap();
++    }
++    pub fn divideByZero() noreturn {
++        @trap();
++    }
++    pub fn exactDivisionRemainder() noreturn {
++        @trap();
++    }
++    pub fn integerPartOutOfBounds() noreturn {
++        @trap();
++    }
++    pub fn corruptSwitch() noreturn {
++        @trap();
++    }
++    pub fn shiftRhsTooBig() noreturn {
++        @trap();
++    }
++    pub fn invalidEnumValue() noreturn {
++        @trap();
++    }
++    pub fn forLenMismatch() noreturn {
++        @trap();
++    }
++    pub fn copyLenMismatch() noreturn {
++        @trap();
++    }
++    pub fn memcpyAlias() noreturn {
++        @trap();
++    }
++    pub fn noreturnReturned() noreturn {
++        @trap();
++    }
++};
++
++fn noopLog(
++    comptime _: std.log.Level,
++    comptime _: @EnumLiteral(),
++    comptime _: []const u8,
++    _: anytype,
++) void {}
++
++pub const std_options: std.Options = .{
++    .allow_stack_tracing = false,
++    .networking = false,
++    .logFn = noopLog,
++};
++
+ /// Convert isize (C intptr_t) to platform File.Handle.
+ fn isizeToHandle(v: isize) std.Io.File.Handle {
+     if (builtin.os.tag == .windows) {
+diff --git a/src/guard.zig b/src/guard.zig
+index a9bce6fb..f4431402 100644
+--- a/src/guard.zig
++++ b/src/guard.zig
+@@ -117,11 +117,18 @@ const Ucontext = switch (builtin.os.tag) {
+ /// Guard region size: 4 GiB + 64 KiB.
+ /// This ensures any 32-bit index (0..0xFFFFFFFF) + small offset (up to 64 KiB)
+ /// falls within the mapped region (data + guard).
+-pub const GUARD_SIZE: usize = 4 * 1024 * 1024 * 1024 + 64 * 1024;
++///
++/// On ILP32 targets (arm64_32-apple-watchos) `usize` is 32-bit and these
++/// values overflow comptime. Guard memory is only used when `jitSupported()`
++/// returns true, which is false for watchos — so on 32-bit targets we set
++/// the constants to zero placeholders to satisfy the type checker. Any
++/// runtime call into the GuardedMem path on a 32-bit platform would be a
++/// bug: `addMemory` in src/store.zig predicates on `jitSupported()`.
++pub const GUARD_SIZE: usize = if (@sizeOf(usize) >= 8) 4 * 1024 * 1024 * 1024 + 64 * 1024 else 0;
+
+ /// Total virtual reservation: data capacity + guard.
+ /// Data capacity matches Wasm max 4 GiB. Guard provides PROT_NONE safety zone.
+-pub const TOTAL_RESERVATION: usize = 8 * 1024 * 1024 * 1024 + 64 * 1024;
++pub const TOTAL_RESERVATION: usize = if (@sizeOf(usize) >= 8) 8 * 1024 * 1024 * 1024 + 64 * 1024 else 0;
+
+ /// Recovery information for signal handler.
+ /// Set before calling JIT code, cleared after.
+diff --git a/src/memory.zig b/src/memory.zig
+index 4bff7c45..2813e1eb 100644
+--- a/src/memory.zig
++++ b/src/memory.zig
+@@ -176,7 +176,12 @@ pub const Memory = struct {
+         const len = self.data.items.len;
+         if (overflow != 0 or len < @sizeOf(T) or effective > len - @sizeOf(T)) return error.OutOfBoundsMemoryAccess;
+
+-        const ptr: *const [@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective]);
++        // After the bounds check, `effective` fits in usize because `len`
++        // is usize. The explicit @intCast is needed on ILP32 targets
++        // (arm64_32-apple-watchos) where usize is 32-bit but `effective`
++        // is u64.
++        const effective_usize: usize = @intCast(effective);
++        const ptr: *const [@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective_usize]);
+         return switch (T) {
+             u8, u16, u32, u64, i8, i16, i32, i64 => mem.readInt(T, ptr, .little),
+             u128 => mem.readInt(u128, ptr, .little),
+@@ -193,7 +198,9 @@ pub const Memory = struct {
+         const len = self.data.items.len;
+         if (overflow != 0 or len < @sizeOf(T) or effective > len - @sizeOf(T)) return error.OutOfBoundsMemoryAccess;
+
+-        const ptr: *[@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective]);
++        // See Memory.read above for why this cast is required on ILP32.
++        const effective_usize: usize = @intCast(effective);
++        const ptr: *[@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective_usize]);
+         switch (T) {
+             u8, u16, u32, u64, i8, i16, i32, i64 => mem.writeInt(T, ptr, value, .little),
+             u128 => mem.writeInt(u128, ptr, value, .little),
+diff --git a/src/types.zig b/src/types.zig
+index f257ad8e..a7288135 100644
+--- a/src/types.zig
++++ b/src/types.zig
+@@ -468,8 +468,20 @@ pub const WasmModule = struct {
+         // stand up a private `std.Io.Threaded` owned by this module.
+         // Acquired early — applyWasiOptions's addPreopenPath needs io to open
+         // host directories cross-platform (Zig 0.16's `std.Io.Dir.openDir`).
++        //
++        // On ILP32 targets (arm64_32-apple-watchos) `std.Io.Threaded` itself
++        // doesn't compile (u64 syscall returns vs 32-bit usize), so we only
++        // expose the auto-init path on 64-bit targets. On 32-bit watchos the
++        // caller MUST supply `config.io` if they want WASI host directories
++        // — which they won't, because WatchKit apps don't get filesystem
++        // access. Workloads without WASI (the case for wasm-benchmark) never
++        // dereference the io vtable, so leaving it default-init'd is OK.
+         const io: std.Io = blk: {
+             if (config.io) |io_val| break :blk io_val;
++            if (@sizeOf(usize) < 8) {
++                self.owned_io = null;
++                break :blk @as(std.Io, undefined);
++            }
+             const threaded = try allocator.create(std.Io.Threaded);
+             errdefer allocator.destroy(threaded);
+             threaded.* = std.Io.Threaded.init(allocator, .{});
+diff --git a/src/vm.zig b/src/vm.zig
+index 1100ab0d..cc190757 100644
+--- a/src/vm.zig
++++ b/src/vm.zig
+@@ -4008,9 +4008,13 @@ pub const Vm = struct {
+         const byte_count = N * @sizeOf(NarrowT);
+         const effective, const ov = @addWithOverflow(ma.offset, base);
+         if (ov != 0 or m.data.items.len < byte_count or effective > m.data.items.len - byte_count) return error.OutOfBoundsMemoryAccess;
++        // After the bounds check `effective` fits in usize because
++        // `m.data.items.len` is usize. Explicit cast needed on ILP32
++        // targets (arm64_32-apple-watchos).
++        const effective_usize: usize = @intCast(effective);
+         var narrow: [N]NarrowT = undefined;
+         for (&narrow, 0..) |*n, i| {
+-            const ptr: *const [@sizeOf(NarrowT)]u8 = @ptrCast(&m.data.items[effective + i * @sizeOf(NarrowT)]);
++            const ptr: *const [@sizeOf(NarrowT)]u8 = @ptrCast(&m.data.items[effective_usize + i * @sizeOf(NarrowT)]);
+             n.* = std.mem.readInt(NarrowT, ptr, .little);
+         }
+         // Extend to wide
+--
+2.51.0

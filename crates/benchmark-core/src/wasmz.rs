@@ -7,10 +7,14 @@
 //! `patches/wasmz/0001-zig-0.16-stdlib-port.patch`. See
 //! `scripts/build-wasmz.sh` for the build wiring.
 //!
-//! arm64_32-apple-watchos is **not** supported by Zig 0.16 (no
-//! target) and wasmz assumes 64-bit pointers anyway, so the
-//! watchOS-device build is skipped — see the watchos arm in
-//! `scripts/build-wasmz.sh`.
+//! arm64_32-apple-watchos is supported via
+//! `patches/wasmz/0002-arm64_32-apple-watchos-support.patch`. Zig 0.16
+//! spells the triple `aarch64-watchos-ilp32`; the legacy `arm64_32`
+//! arch was removed in ziglang/zig PR #20820. The patch flips
+//! `single_threaded = true` for the static lib and adds a
+//! self-contained `panic`/`logFn` to avoid pulling
+//! `std.Io.Threaded` (which doesn't compile under ILP32 — u64 →
+//! usize narrowing in dirReadDarwin / pwrite).
 //!
 //! C ABI: `include/wasmz.h` documents the surface. Values are passed
 //! via the `wasmz_val_t` tagged-union struct (kind + 16-byte payload);

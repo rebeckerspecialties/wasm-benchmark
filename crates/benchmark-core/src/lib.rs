@@ -1522,10 +1522,11 @@ pub extern "C" fn bench_run_graphql_validation_porf_wasmedge() -> BenchReport {
 
 // ---------------------------------------------------------------------
 // zwasm (clojurewasm/zwasm) — Zig pure-interpreter mode, built with
-// `-Djit=false`. arm64_32-apple-watchos device builds are not
-// supported (zwasm assumes 64-bit pointers; Zig 0.16 has no arm64_32
-// target); the rows will report ERROR on watchOS device, which is
-// what we want — the data point is "zwasm doesn't run on this target."
+// `-Djit=false`. arm64_32-apple-watchos is supported via
+// `patches/zwasm/0001-arm64_32-apple-watchos-support.patch` — see
+// the patch header for the full rationale (Zig 0.16 spelling is
+// `aarch64-watchos-ilp32`; single_threaded static lib + self-contained
+// panic/logFn + ILP32 narrowing fixes).
 // ---------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
@@ -1632,9 +1633,10 @@ pub extern "C" fn bench_run_graphql_validation_porf_zwasm() -> BenchReport {
 
 // ---------------------------------------------------------------------
 // wasmz (Ray-D-Song/wasmz) — Zig pure-interpreter, ported to Zig 0.16.
-// Same arm64_32-apple-watchos caveat as zwasm: wasmz assumes 64-bit
-// pointers and Zig 0.16 has no arm64_32 target, so watchOS device
-// rows report ERROR.
+// arm64_32-apple-watchos is supported via
+// `patches/wasmz/0002-arm64_32-apple-watchos-support.patch` (Zig 0.16
+// spelling `aarch64-watchos-ilp32`; same approach as zwasm —
+// single_threaded static lib + self-contained panic/logFn).
 // ---------------------------------------------------------------------
 
 #[unsafe(no_mangle)]

@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Sat, 16 May 2026 21:30:00 -0700
+Subject: [PATCH] Enable arm64_32-apple-watchos (aarch64-watchos-ilp32) build
+
+The static-lib target compiles for `aarch64-watchos-ilp32` (the Zig 0.16
+spelling for arm64_32-apple-watchos — the legacy `arm64_32` triple was
+removed in ziglang/zig PR #20820) so wasm-benchmark can link wasmz into
+an Apple-Watch WatchKit app for the Series 4 / SE / SE2 / S8 device
+class (ILP32 ABI: 32-bit pointers, aarch64 instructions).
+
+Two changes:
+
+  * build.zig: pass `.single_threaded = true` to the static-lib module.
+    This eliminates the `if (!builtin.single_threaded) { ... }` branch
+    in src/vm/handlers/memory.zig that calls `std.debug.print`, which
+    is what pulls in `std.Io.Threaded` (via std.debug.lockStderr →
+    std.Options.debug_io). std.Io.Threaded itself doesn't compile on
+    arm64_32-watchos — three errors in dirReadDarwin / pwrite paths
+    where Zig stdlib casts u64 syscall returns to a 32-bit usize.
+    Embedders that need wasm-threads can still build the dynamic
+    `clib` variant which keeps the multithreaded code paths.
+
+  * src/capi.zig: override `panic` and `std_options.logFn` to a
+    self-contained "@trap()" / no-op pair. Even with single_threaded,
+    explicit calls to `std.debug.simple_panic` would still pull
+    `lockStderr` → `debug_io` → `Threaded.io()` into the call graph,
+    and `std.log.defaultLog` does the same from `std.log.err` calls
+    inside src/wasmz/instance.zig. wasmz already surfaces all errors
+    through the C-ABI `wasmz_error_t` channel, so losing pretty panic
+    messages on this target costs nothing the C consumer ever saw.
+
+The patch is a no-op on all non-arm64_32 targets — single_threaded for
+the static lib is fine on iOS/tvOS/macOS, and the overridden panic
+namespace just produces a smaller stripped binary.
+---
+ build.zig     |   7 +++
+ src/capi.zig  | 109 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 116 insertions(+)
+
+diff --git a/build.zig b/build.zig
+index befb75a..2b5bff1 100644
+--- a/build.zig
++++ b/build.zig
+@@ -290,6 +290,12 @@ pub fn build(b: *std.Build) void {
+     // Mirrors the wasm-benchmark project convention (`zwasm` exposes the
+     // same `static-lib` step) so `scripts/build-wasmz.sh` can call it
+     // without a special case.
++    //
++    // single_threaded = true eliminates the `if (!builtin.single_threaded)`
++    // branch in vm/handlers/memory.zig that pulls in std.debug.print →
++    // std.Io.Threaded (which doesn't compile on arm64_32-watchos due to
++    // u64→usize narrowing errors). Embedders that need threads can build
++    // the dynamic `clib` variant instead.
+     const clib_static = b.addLibrary(.{
+         .name = "wasmz",
+         .linkage = .static,
+@@ -297,6 +303,7 @@ pub fn build(b: *std.Build) void {
+             .root_source_file = b.path("src/capi.zig"),
+             .target = target,
+             .optimize = optimize,
++            .single_threaded = true,
+             .imports = &.{
+                 .{ .name = "wasmz", .module = mod },
+             },
+diff --git a/src/capi.zig b/src/capi.zig
+index 982c2f0..325835a 100644
+--- a/src/capi.zig
++++ b/src/capi.zig
+@@ -13,6 +13,115 @@
+ const std = @import("std");
+ const wasmz = @import("wasmz");
+
++// On arm64_32-apple-watchos (32-bit-pointer aarch64) Zig 0.16's
++// default panic / std.debug machinery hits `u64 → usize` narrowing
++// errors in std.Io.Threaded.dirReadDarwin et al. Even
++// `std.debug.simple_panic` still routes through `lockStderr →
++// std_options.debug_io → debug_threaded_io.io()` which pulls in the
++// whole std.Io.Threaded module. Same applies to std.log.defaultLog,
++// which is what wasmz/instance.zig:813 ends up calling via std.log.err.
++// We override BOTH `panic` and `std_options.logFn` to trap/no-op so
++// arm64_32-apple-watchos finally compiles without a single Zig-stdlib
++// patch.
++//
++// Harmless on other targets — they just lose pretty panic messages
++// and runtime log output (wasmz already routes errors through C-ABI
++// wasmz_error_t, not stderr, so the C consumer never sees the loss).
++fn traping_panic(_: []const u8, _: ?usize) noreturn {
++    @trap();
++}
++pub const panic = struct {
++    pub const call = traping_panic;
++    pub fn sentinelMismatch(_: anytype, _: anytype) noreturn {
++        @trap();
++    }
++    pub fn unwrapError(_: anyerror) noreturn {
++        @trap();
++    }
++    pub fn outOfBounds(_: usize, _: usize) noreturn {
++        @trap();
++    }
++    pub fn startGreaterThanEnd(_: usize, _: usize) noreturn {
++        @trap();
++    }
++    pub fn inactiveUnionField(_: anytype, _: anytype) noreturn {
++        @trap();
++    }
++    pub fn sliceCastLenRemainder(_: usize) noreturn {
++        @trap();
++    }
++    pub fn reachedUnreachable() noreturn {
++        @trap();
++    }
++    pub fn unwrapNull() noreturn {
++        @trap();
++    }
++    pub fn castToNull() noreturn {
++        @trap();
++    }
++    pub fn incorrectAlignment() noreturn {
++        @trap();
++    }
++    pub fn invalidErrorCode() noreturn {
++        @trap();
++    }
++    pub fn integerOutOfBounds() noreturn {
++        @trap();
++    }
++    pub fn integerOverflow() noreturn {
++        @trap();
++    }
++    pub fn shlOverflow() noreturn {
++        @trap();
++    }
++    pub fn shrOverflow() noreturn {
++        @trap();
++    }
++    pub fn divideByZero() noreturn {
++        @trap();
++    }
++    pub fn exactDivisionRemainder() noreturn {
++        @trap();
++    }
++    pub fn integerPartOutOfBounds() noreturn {
++        @trap();
++    }
++    pub fn corruptSwitch() noreturn {
++        @trap();
++    }
++    pub fn shiftRhsTooBig() noreturn {
++        @trap();
++    }
++    pub fn invalidEnumValue() noreturn {
++        @trap();
++    }
++    pub fn forLenMismatch() noreturn {
++        @trap();
++    }
++    pub fn copyLenMismatch() noreturn {
++        @trap();
++    }
++    pub fn memcpyAlias() noreturn {
++        @trap();
++    }
++    pub fn noreturnReturned() noreturn {
++        @trap();
++    }
++};
++
++fn noopLog(
++    comptime _: std.log.Level,
++    comptime _: @EnumLiteral(),
++    comptime _: []const u8,
++    _: anytype,
++) void {}
++
++pub const std_options: std.Options = .{
++    .allow_stack_tracing = false,
++    .networking = false,
++    .logFn = noopLog,
++};
++
+ const Engine = wasmz.Engine;
+ const Config = wasmz.Config;
+ const Module = wasmz.Module;
+--
+2.51.0

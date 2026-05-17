@@ -17,6 +17,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ZW="${ROOT}/zwasm"
+PATCH_DIR="${ROOT}/patches/zwasm"
 WHICH="${1:-macos}"
 
 # Pinned Zig version. zwasm's build.zig.zon declares
@@ -24,6 +25,13 @@ WHICH="${1:-macos}"
 # the canonical homebrew install path; override with ZWASM_ZIG to
 # point at a specific binary.
 ZIG="${ZWASM_ZIG:-/opt/homebrew/bin/zig}"
+
+# Reset to pinned HEAD then apply the zwasm patch series. Same
+# pattern as build-wasm3.sh / build-wasmz.sh.
+( cd "${ZW}" && git reset --hard HEAD --quiet && git clean -fdq -e 'build*' )
+if [[ -d "${PATCH_DIR}" ]]; then
+  "${ROOT}/scripts/apply_patch_series.sh" "${ZW}" "${PATCH_DIR}"
+fi
 
 # $1 = output dir (e.g. build-aarch64-apple-ios)
 # $2 = zig -Dtarget value (e.g. aarch64-ios)
@@ -39,7 +47,21 @@ build_target() {
       -Dtarget="${ZIG_TARGET}" \
       ${EXTRA} )
   mkdir -p "${DIR}"
-  cp "${ZW}/zig-out/lib/libzwasm.a" "${DIR}/libzwasm.a"
+  # Zig 0.16's static-lib step is broken on aarch64-watchos-ilp32 — it
+  # generates the .o but doesn't pack it into the .a, leaving an empty
+  # archive (88 bytes, only the SYMDEF). Re-pack from the cache if that
+  # happens. Harmless on targets where the .a is already populated.
+  local ZIG_A="${ZW}/zig-out/lib/libzwasm.a"
+  if [[ $(wc -c < "${ZIG_A}") -lt 1024 ]]; then
+    local ZCU_O
+    ZCU_O=$(find "${ZW}/.zig-cache/o" -name "libzwasm_zcu.o" -print -quit)
+    if [[ -z "${ZCU_O}" ]]; then
+      echo "zwasm: empty .a but no libzwasm_zcu.o in cache" >&2
+      exit 1
+    fi
+    /usr/bin/ar rcs "${ZIG_A}" "${ZCU_O}"
+  fi
+  cp "${ZIG_A}" "${DIR}/libzwasm.a"
   ls -la "${DIR}/libzwasm.a"
 }
 
@@ -49,9 +71,14 @@ build_target() {
 build_macos()       { build_target "build"                            aarch64-macos; }
 build_ios()         { build_target "build-aarch64-apple-ios"          aarch64-ios; }
 build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"      aarch64-ios-simulator; }
-# zwasm uses 64-bit pointers throughout; arm64_32-apple-watchos is
-# ILP32 and Zig 0.16 has no arm64_32 target, so watchOS device builds
-# are not supported. watchOS sim (aarch64) still works for parity.
+# arm64_32-apple-watchos is ILP32; the Zig 0.16 spelling is
+# `aarch64-watchos-ilp32` (the older `arm64_32-` triple was removed in
+# ziglang/zig PR #20820). Built via patches/zwasm/0001 + a
+# single_threaded static-lib mode + ILP32 narrowing fixes in
+# guard.zig / memory.zig / vm.zig / types.zig + self-contained panic
+# overrides in c_api.zig — see the patch header for the full
+# rationale.
+build_watchos()     { build_target "build-arm64_32-apple-watchos"     aarch64-watchos-ilp32; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim"  aarch64-watchos-simulator; }
 build_tvos()        { build_target "build-aarch64-apple-tvos"         aarch64-tvos; }
 build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     aarch64-tvos-simulator; }
@@ -60,13 +87,10 @@ case "${WHICH}" in
   macos)        build_macos ;;
   ios)          build_ios ;;
   ios-sim)      build_ios_sim ;;
-  watchos)
-    echo "zwasm: watchOS arm64_32 unsupported (zwasm assumes 64-bit ptrs; Zig 0.16 has no arm64_32 target)" >&2
-    exit 0
-    ;;
+  watchos)      build_watchos ;;
   watchos-sim)  build_watchos_sim ;;
   tvos)         build_tvos ;;
   tvos-sim)     build_tvos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos_sim && build_tvos && build_tvos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim && build_tvos && build_tvos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac
