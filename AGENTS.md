@@ -432,28 +432,76 @@ dispatch QoS:
 Set via `devicectl --environment-variables '{"BENCH_QOS":"user-
 initiated","WORKLOADS":"vtable","BENCH_TARGET_MS":"2000"}' ...`.
 
-## wasmtime working clone
+## wasmtime submodule
 
-`./wasmtime/` is gitignored (it's a 47 GB working clone, not a
-submodule). Active branches:
+`./wasmtime/` is a proper git submodule pointing at
+`rebeckerspecialties/wasmtime` at the
+`accurate-graphql-needs-legacy-exceptions` branch. The pinned SHA is
+maintained via standard `git submodule update --init --recursive` and
+`scripts/setup.sh`. Only `wasmtime/target/` is gitignored (~70 GB
+build artifacts on a populated workspace; the source tree itself is
+~169 MB).
 
+Active branches on the fork (pinned-by-SHA at the bottom of this
+stack):
+
+- **`unwinder-arm64_32-asm-format`** — upstream PR #13259, merged.
 - **`table-mutability-tracking`** — PR #2's branch. 11 commits ahead
-  of upstream `origin/main` (excluding mach2 bumps + unwinder dep
-  underneath). 2227 disas + 16 integration tests pass.
-- **`unwinder-arm64_32-asm-format`** — upstream PR #13259 dependency.
-- **(deleted)** `pulley-call-indirect-ic`,
-  `pulley-call-indirect-ic-noseqlock` — IC investigation, closed
-  out. SHAs in `out/exp-c-device/ic/ARCHIVED-BRANCH-SHAS.md`.
+  of upstream `origin/main`. 2227 disas + 16 integration tests pass.
 - **`claude/pulley-fusion-xband-brif`** — Phases 1–4 opcode fusion
   stack at the call_indirect lazy-init dispatch tail. **12 commits**
   on top of `table-mutability-tracking` (11 fusion + 1 trap-on-null
-  correctness fix from PR review, commit `80856b4`). Open as
-  [PR #4](https://github.com/rebeckerspecialties/wasmtime/pull/4)
-  on the fork. Per-phase docs: `docs/opcode-fusion-band-brif.md`
+  correctness fix). Per-phase docs: `docs/opcode-fusion-band-brif.md`
   (phase 1), `docs/opcode-fusion-funcref-dispatch.md` (phase 2),
   `docs/opcode-fusion-band-funcref-dispatch.md` (phase 3),
-  `docs/four-way-baseline-phase3-phase4-wamr.md` (phase 4 +
-  cross-device + phase-5 candidates).
+  `docs/four-way-baseline-phase3-phase4-wamr.md` (phase 4).
+- **`accurate-graphql-needs-legacy-exceptions`** — one commit on top
+  of fusion stack. Adds `LEGACY_EXCEPTIONS` to wasmtime's
+  `features_known_to_wasmtime` mask so the public
+  `Config::wasm_legacy_exceptions(true)` API actually works through
+  `Config::validate` instead of bailing with "feature not supported
+  on this compiler configuration." Required so the accurate-graphql
+  Porffor benchmark CAN LOAD on Pulley — though Pulley still can't
+  RUN it (codegen-side: "Unsupported feature: operator Try"); that's
+  the integration test for the next-session WAMR fast-interp EH PR.
+
+### Patch-stack discipline across all runtime submodules
+
+Every runtime submodule pins an UPSTREAM SHA in `.gitmodules`
+(target-lexicon + mach2 + wasmtime are the only ones pointing at our
+forks, and those are intentional because the patches in question are
+either already-merged upstream or not yet upstreamed). Local fixes
+we want to carry without bumping the submodule pin live as
+`.patch` files in `patches/<runtime>/`, applied at build time by
+each `scripts/build-<runtime>.sh` via
+`scripts/apply_patch_series.sh`. The apply step is idempotent —
+`git reset --hard HEAD` first, then forward-apply each patch in the
+series, skipping any that are already applied (reverse-apply check).
+
+Current patch series under `patches/`:
+
+  * `wasm-micro-runtime/0001-feat-interpreter-legacy-exception-
+    handling-throw-only-for-fast-interp.patch` — applied by
+    `scripts/build-wamr.sh`. Carries the throw-only legacy-EH
+    enablement (PR #1 in our WAMR fork).
+  * `wasm3/0001-wasm3-accept-v128-as-opaque-slot.patch` — applied
+    by `scripts/build-wasm3.sh`. Lets wasm3 parse Rust-vectorized
+    modules with v128 LOCAL declarations (upstreamed as wasm3#559).
+  * `wasmedge/0001-0028-*.patch` (27 patches) — applied by
+    `scripts/build-wasmedge.sh`. Apple-mobile guarded-memory
+    fallbacks + interpreter super-instructions + arm64_32 size_t
+    fixes. Partially upstreamed (#4802 in flight).
+  * `wasmz/0001-zig-0.16-stdlib-port.patch` + `0002-arm64_32-apple-
+    watchos-support.patch` — applied by `scripts/build-wasmz.sh`.
+    Zig 0.15.2 → 0.16 port + arm64_32 device support (upstreamed
+    as wasmz#3).
+  * `zwasm/0001-arm64_32-apple-watchos-support.patch` — applied by
+    `scripts/build-zwasm.sh`. arm64_32 device support (upstreamed
+    as zwasm#97).
+
+CI (`.github/workflows/build.yml`) reproduces a clean checkout +
+submodule init + every patch series + cross-target builds for
+macOS / iOS / iOS-sim / arm64_32-apple-watchos on every PR.
 
 ## Cross-runtime comparison
 
