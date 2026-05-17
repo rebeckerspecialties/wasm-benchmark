@@ -1,0 +1,288 @@
+diff --git a/include/api/wasmedge/wasmedge_basic.h b/include/api/wasmedge/wasmedge_basic.h
+index 12e13f4cfa7b7bf5ea8020bbf7d14f0d07a4683d..21c69e193f4aaecbe552b2526e94ab29ddeefaea 100644
+--- a/include/api/wasmedge/wasmedge_basic.h
++++ b/include/api/wasmedge/wasmedge_basic.h
+@@ -321,6 +321,9 @@ WasmEdge_ResultGetCategory(const WasmEdge_Result Res) WASMEDGE_CAPI_NOEXCEPT;
+ /// The returned string must __NOT__ be destroyed.
+ /// If the error category of the result is __NOT__ `WasmEdge_ErrCategory_WASM`,
+ /// the message will always be "user defined error code".
++/// When a C API call on the same thread emitted additional error log lines,
++/// the returned string may also include those detail lines after the base
++/// message, separated by newlines.
+ ///
+ /// \param Res the WasmEdge_Result struct.
+ ///
+diff --git a/include/common/spdlog.h b/include/common/spdlog.h
+index bf22c252c8fa204855cdd3ea3c4c87ed308d1d41..0417f65f86cd5ae52e101a68896d422fdab4fa73 100644
+--- a/include/common/spdlog.h
++++ b/include/common/spdlog.h
+@@ -43,6 +43,12 @@ bool setLoggingLevelFromString(std::string_view Level);
+ void setLoggingCallback(
+     std::function<void(const spdlog::details::log_msg &)> Callback);
+ 
++void setThreadLocalErrorCaptureEnabled(bool Enabled);
++
++void clearThreadLocalErrorMessages();
++
++std::string takeThreadLocalErrorMessages();
++
+ } // namespace Log
+ } // namespace WasmEdge
+ 
+diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
+index c8ea89c8c0e668f7a020c73df9445d094dc8ae82..4c733d569cce0f7f903b4e51fb1eff42200d00b0 100644
+--- a/lib/api/wasmedge.cpp
++++ b/lib/api/wasmedge.cpp
+@@ -139,6 +139,38 @@ namespace {
+ 
+ using namespace WasmEdge;
+ 
++thread_local std::string LastResultDetailMessage;
++thread_local std::string LastResultComposedMessage;
++
++void clearLastResultDetailMessage() noexcept {
++  LastResultDetailMessage.clear();
++  LastResultComposedMessage.clear();
++}
++
++void setLastResultDetailMessage(std::string Message) noexcept {
++  LastResultDetailMessage = std::move(Message);
++  LastResultComposedMessage.clear();
++}
++
++struct ScopedResultDetailCapture {
++  ScopedResultDetailCapture() noexcept {
++    clearLastResultDetailMessage();
++    Log::clearThreadLocalErrorMessages();
++    Log::setThreadLocalErrorCaptureEnabled(true);
++  }
++
++  ~ScopedResultDetailCapture() { Log::setThreadLocalErrorCaptureEnabled(false); }
++
++  void commitCapturedMessages() noexcept {
++    setLastResultDetailMessage(Log::takeThreadLocalErrorMessages());
++  }
++
++  void clear() noexcept {
++    clearLastResultDetailMessage();
++    Log::clearThreadLocalErrorMessages();
++  }
++};
++
+ // Helper function for returning a WasmEdge_Result by error code.
+ inline constexpr WasmEdge_Result
+ genWasmEdge_Result(const ErrCode::Value &Code) noexcept {
+@@ -298,10 +330,14 @@ inline WasmEdge_Result handleCAPIError() noexcept {
+   try {
+     throw;
+   } catch (const std::bad_alloc &) {
++    setLastResultDetailMessage(
++        std::string("C API failed: memory allocation failure"));
+     spdlog::error("C API failed: memory allocation failure"sv);
+   } catch (const std::exception &E) {
++    setLastResultDetailMessage(std::string("C API failed: ") + E.what());
+     spdlog::error("C API failed: {}"sv, E.what());
+   } catch (...) {
++    setLastResultDetailMessage(std::string("C API failed: unknown exception"));
+     spdlog::error("C API failed: unknown exception"sv);
+   }
+   return genWasmEdge_Result(ErrCode::Value::RuntimeError);
+@@ -309,12 +345,15 @@ inline WasmEdge_Result handleCAPIError() noexcept {
+ 
+ template <typename T, typename U, typename... CxtT>
+ inline WasmEdge_Result wrap(T &&Proc, U &&Then, CxtT *...Cxts) noexcept {
++  ScopedResultDetailCapture DetailCapture;
+   if (isContext(Cxts...)) {
+     try {
+       if (auto Res = Proc()) {
++        DetailCapture.clear();
+         Then(Res);
+         return genWasmEdge_Result(ErrCode::Value::Success);
+       } else {
++        DetailCapture.commitCapturedMessages();
+         return genWasmEdge_Result(Res.error());
+       }
+     } catch (...) {
+@@ -880,12 +919,26 @@ WasmEdge_ResultGetCategory(const WasmEdge_Result Res) noexcept {
+ 
+ WASMEDGE_CAPI_EXPORT const char *
+ WasmEdge_ResultGetMessage(const WasmEdge_Result Res) noexcept {
++  const char *BaseMessage = nullptr;
+   if (WasmEdge_ResultGetCategory(Res) != WasmEdge_ErrCategory_WASM) {
+-    return WasmEdge::ErrCodeStr[WasmEdge::ErrCode::Value::UserDefError].data();
+-  }
+-  return WasmEdge::ErrCodeStr[static_cast<WasmEdge::ErrCode::Value>(
+-                                  WasmEdge_ResultGetCode(Res))]
+-      .data();
++    BaseMessage =
++        WasmEdge::ErrCodeStr[WasmEdge::ErrCode::Value::UserDefError].data();
++  } else {
++    BaseMessage =
++        WasmEdge::ErrCodeStr[static_cast<WasmEdge::ErrCode::Value>(
++            WasmEdge_ResultGetCode(Res))]
++            .data();
++  }
++  if (LastResultDetailMessage.empty()) {
++    return BaseMessage;
++  }
++  LastResultComposedMessage.clear();
++  LastResultComposedMessage.reserve(
++      std::strlen(BaseMessage) + 1 + LastResultDetailMessage.size());
++  LastResultComposedMessage += BaseMessage;
++  LastResultComposedMessage.push_back('\n');
++  LastResultComposedMessage += LastResultDetailMessage;
++  return LastResultComposedMessage.c_str();
+ }
+ 
+ // <<<<<<<< WasmEdge result functions <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+diff --git a/lib/common/spdlog.cpp b/lib/common/spdlog.cpp
+index c37a88ee89157ca3203b387cef24c3daa8226caa..45f3966896dbaf540625056afe044c95932149b3 100644
+--- a/lib/common/spdlog.cpp
++++ b/lib/common/spdlog.cpp
+@@ -20,25 +20,90 @@ using color_sink_t = spdlog::sinks::wincolor_stdout_sink_mt;
+ #include <spdlog/sinks/ansicolor_sink.h>
+ using color_sink_t = spdlog::sinks::ansicolor_stdout_sink_mt;
+ #endif
++#include <mutex>
++#include <string>
++#include <vector>
+ 
+ using namespace std::literals;
+ 
+ namespace WasmEdge {
+ namespace Log {
+ 
+-void setLogOff() { spdlog::set_level(spdlog::level::off); }
++namespace {
+ 
+-void setTraceLoggingLevel() { spdlog::set_level(spdlog::level::trace); }
++using CallbackType = std::function<void(const spdlog::details::log_msg &)>;
+ 
+-void setDebugLoggingLevel() { spdlog::set_level(spdlog::level::debug); }
++std::mutex LoggerMutex;
++CallbackType UserLoggingCallback;
++thread_local bool ThreadLocalErrorCaptureEnabled = false;
++thread_local std::vector<std::string> ThreadLocalErrorMessages;
+ 
+-void setInfoLoggingLevel() { spdlog::set_level(spdlog::level::info); }
++void dispatchLogMessage(const spdlog::details::log_msg &Msg) {
++  if (ThreadLocalErrorCaptureEnabled && Msg.level >= spdlog::level::err) {
++    ThreadLocalErrorMessages.emplace_back(Msg.payload.data(), Msg.payload.size());
++  }
++  if (UserLoggingCallback) {
++    UserLoggingCallback(Msg);
++  }
++}
++
++void installDefaultLoggerLocked() {
++  std::vector<spdlog::sink_ptr> Sinks;
++  Sinks.reserve(2);
++  Sinks.push_back(std::make_shared<color_sink_t>());
++  Sinks.push_back(
++      std::make_shared<spdlog::sinks::callback_sink_mt>(dispatchLogMessage));
++
++  auto Logger =
++      std::make_shared<spdlog::logger>("WasmEdge"s, Sinks.begin(), Sinks.end());
++  const auto Level = spdlog::default_logger_raw() != nullptr
++                         ? spdlog::default_logger()->level()
++                         : spdlog::level::info;
++  Logger->set_level(Level);
++  spdlog::set_default_logger(Logger);
++}
++
++void ensureDefaultLoggerInstalled() {
++  std::lock_guard<std::mutex> Guard(LoggerMutex);
++  installDefaultLoggerLocked();
++}
++
++} // namespace
++
++void setLogOff() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::off);
++}
++
++void setTraceLoggingLevel() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::trace);
++}
++
++void setDebugLoggingLevel() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::debug);
++}
+ 
+-void setWarnLoggingLevel() { spdlog::set_level(spdlog::level::warn); }
++void setInfoLoggingLevel() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::info);
++}
+ 
+-void setErrorLoggingLevel() { spdlog::set_level(spdlog::level::err); }
++void setWarnLoggingLevel() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::warn);
++}
+ 
+-void setCriticalLoggingLevel() { spdlog::set_level(spdlog::level::critical); }
++void setErrorLoggingLevel() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::err);
++}
++
++void setCriticalLoggingLevel() {
++  ensureDefaultLoggerInstalled();
++  spdlog::set_level(spdlog::level::critical);
++}
+ 
+ bool setLoggingLevelFromString(std::string_view Level) {
+   if (Level == "off"sv) {
+@@ -74,15 +139,40 @@ bool setLoggingLevelFromString(std::string_view Level) {
+ 
+ void setLoggingCallback(
+     std::function<void(const spdlog::details::log_msg &)> Callback) {
+-  if (Callback) {
+-    auto Callback_sink =
+-        std::make_shared<spdlog::sinks::callback_sink_mt>(Callback);
+-    spdlog::set_default_logger(
+-        std::make_shared<spdlog::logger>("WasmEdge"s, Callback_sink));
+-  } else {
+-    spdlog::set_default_logger(std::make_shared<spdlog::logger>(
+-        ""s, std::make_shared<color_sink_t>()));
++  std::lock_guard<std::mutex> Guard(LoggerMutex);
++  UserLoggingCallback = std::move(Callback);
++  installDefaultLoggerLocked();
++}
++
++void setThreadLocalErrorCaptureEnabled(bool Enabled) {
++  ensureDefaultLoggerInstalled();
++  ThreadLocalErrorCaptureEnabled = Enabled;
++  if (!Enabled) {
++    ThreadLocalErrorMessages.clear();
++  }
++}
++
++void clearThreadLocalErrorMessages() { ThreadLocalErrorMessages.clear(); }
++
++std::string takeThreadLocalErrorMessages() {
++  if (ThreadLocalErrorMessages.empty()) {
++    return {};
++  }
++  std::string Message;
++  size_t TotalSize = 0;
++  for (const std::string &Line : ThreadLocalErrorMessages) {
++    TotalSize += Line.size();
++  }
++  TotalSize += ThreadLocalErrorMessages.size() - 1;
++  Message.reserve(TotalSize);
++  for (size_t Index = 0; Index < ThreadLocalErrorMessages.size(); ++Index) {
++    if (Index != 0) {
++      Message.push_back('\n');
++    }
++    Message += ThreadLocalErrorMessages[Index];
+   }
++  ThreadLocalErrorMessages.clear();
++  return Message;
+ }
+ 
+ } // namespace Log

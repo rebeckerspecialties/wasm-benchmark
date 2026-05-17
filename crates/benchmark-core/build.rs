@@ -80,6 +80,35 @@ fn main() {
         );
     }
 
+    // -- WasmEdge static lib -------------------------------------------
+    // Per-target trees written by scripts/build-wasmedge.sh, mirroring
+    // the WAMR / wasm3 layout. Built with WASMEDGE_USE_LLVM=OFF (pure
+    // interp) + the 27-patch Apple-mobile patch series in
+    // patches/wasmedge/. Output is `libwasmedge.a` per target.
+    let wasmedge_root = manifest.join("../../WasmEdge");
+    let wasmedge_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let wasmedge_dir: PathBuf = wasmedge_root.join(&wasmedge_subdir);
+    let libwasmedge_a = wasmedge_dir.join("libwasmedge.a");
+    println!("cargo:rerun-if-changed={}", libwasmedge_a.display());
+    if libwasmedge_a.exists() {
+        println!("cargo:rustc-link-search=native={}", wasmedge_dir.display());
+        // The patched build emits a single archive (libwasmedge.a)
+        // assembled from libwasmedgeVM.a + libwasmedgeCAPI.a + ... +
+        // libfmt.a + libspdlog.a (see lib/api/CMakeLists.txt). We link
+        // it whole — no need to enumerate sub-libs.
+        println!("cargo:rustc-link-lib=static=wasmedge");
+        // C++ runtime — WasmEdge is C++17. Apple's libc++ ships with
+        // the OS, no extra search path needed.
+        println!("cargo:rustc-link-lib=c++");
+        println!("cargo:rustc-cfg=have_wasmedge");
+    } else {
+        println!(
+            "cargo:warning=libwasmedge.a not found at {} — WasmEdge runtime unavailable for this target",
+            libwasmedge_a.display()
+        );
+    }
+
     // -- wasm3 static lib ----------------------------------------------
     // Per-target trees written by scripts/build-wasm3.sh. Same naming
     // convention as WAMR: `wasm3/build` for the host, `wasm3/build-<triple>`

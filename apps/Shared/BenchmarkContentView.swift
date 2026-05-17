@@ -110,6 +110,32 @@ let WORKLOADS: [Workload] = [
     Workload(id: 52, label: "[wasm3 ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasm3() }),
     Workload(id: 53, label: "[wasm3 ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasm3() }),
     Workload(id: 54, label: "[wasm3 ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasm3() }),
+    // WasmEdge variants. WasmEdge is the incumbent production runtime
+    // (the WatchOS audio app ships it). Built with
+    // WASMEDGE_USE_LLVM=OFF + the 27-patch Apple-mobile enablement
+    // stack — pure-interpreter, App-Store-eligible. SIMD + wasm-
+    // exceptions are both enabled in the same build (WAMR can't do
+    // this), so graphql-validation Porffor loads successfully on this
+    // path (it traps at run-time on the missing host import — same
+    // shape as Pulley would without the host stub).
+    Workload(id: 55, label: "[WE    ] fib(30)",                        run: { bench_run_fib_wasmedge(30) }),
+    Workload(id: 56, label: "[WE    ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_wasmedge(100000) }),
+    Workload(id: 57, label: "[WE    ] factorial(20)",                  run: { bench_run_factorial_wasmedge(20) }),
+    Workload(id: 58, label: "[WE    ] sieve(10000)",                   run: { bench_run_sieve_wasmedge(10000) }),
+    Workload(id: 59, label: "[WE    ] crc32(64KB)",                    run: { bench_run_crc32_wasmedge() }),
+    Workload(id: 60, label: "[WE    ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wasmedge() }),
+    Workload(id: 61, label: "[WE    ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wasmedge() }),
+    Workload(id: 62, label: "[WE    ] convolution 256×256",            run: { bench_run_convolution_wasmedge() }),
+    Workload(id: 63, label: "[WE    ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_wasmedge() }),
+    Workload(id: 64, label: "[WE    ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_wasmedge() }),
+    Workload(id: 65, label: "[WE    ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_wasmedge() }),
+    Workload(id: 66, label: "[WE    ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_wasmedge() }),
+    Workload(id: 67, label: "[WE    ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_wasmedge() }),
+    Workload(id: 68, label: "[WE    ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_wasmedge() }),
+    Workload(id: 69, label: "[WE    ] vtable_mono (200K)",             run: { bench_run_vtable_mono_wasmedge() }),
+    Workload(id: 70, label: "[WE    ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmedge() }),
+    Workload(id: 71, label: "[WE    ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmedge() }),
+    Workload(id: 72, label: "[WE    ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmedge() }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -127,7 +153,7 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR vs wasm3")
+                Text("Pulley vs WAMR vs wasm3 vs WasmEdge")
                     .font(.title3.bold())
                 Text("workload set • \(WORKLOADS.count) cases")
                     .font(.caption)
@@ -164,6 +190,11 @@ struct BenchmarkContentView: View {
         // up-front in the same line shape.
         let wasm3Ok = bench_init_wasm3() == 1
         FileHandle.standardError.write(Data("wasm3 init: \(wasm3Ok ? "ok" : "unavailable")\n".utf8))
+        // WasmEdge — same shape; reports "unavailable" if libwasmedge.a
+        // wasn't linked in (e.g. host-only build before
+        // scripts/build-wasmedge.sh has run for this target).
+        let wasmedgeOk = bench_init_wasmedge() == 1
+        FileHandle.standardError.write(Data("wasmedge init: \(wasmedgeOk ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -232,6 +263,8 @@ struct BenchmarkContentView: View {
                             return lc.contains("[ wamr ]")
                         case "wasm3", "m3":
                             return lc.contains("[wasm3 ]")
+                        case "wasmedge", "we":
+                            return lc.contains("[we    ]")
                         default:
                             return false
                         }

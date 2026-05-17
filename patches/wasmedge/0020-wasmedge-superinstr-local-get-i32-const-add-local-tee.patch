@@ -1,0 +1,128 @@
+diff --git a/include/common/enum_ast.hpp b/include/common/enum_ast.hpp
+index 3f870c0..696bdb5 100644
+--- a/include/common/enum_ast.hpp
++++ b/include/common/enum_ast.hpp
+@@ -64,6 +64,7 @@ enum class OpCode : uint32_t {
+ #undef Line_FE
+ #undef UseOpCode
+   Internal__LocalGetI32ConstAdd,
++  Internal__LocalGetI32ConstAddLocalTee,
+   Internal__LocalGetI32Load,
+   Internal__LocalGetI32LoadLocalTee,
+   Internal__LocalGetLocalGetI32Store,
+@@ -88,6 +89,8 @@ static inline constexpr const auto OpCodeStr = []() constexpr {
+ #undef UseOpCode
+     {OpCode::Internal__LocalGetI32ConstAdd,
+      "internal.local.get.i32.const.add"},
++    {OpCode::Internal__LocalGetI32ConstAddLocalTee,
++     "internal.local.get.i32.const.add.local.tee"},
+     {OpCode::Internal__LocalGetI32Load, "internal.local.get.i32.load"},
+     {OpCode::Internal__LocalGetI32LoadLocalTee,
+      "internal.local.get.i32.load.local.tee"},
+diff --git a/include/executor/executor.h b/include/executor/executor.h
+index 9615344..3da35ca 100644
+--- a/include/executor/executor.h
++++ b/include/executor/executor.h
+@@ -601,6 +601,9 @@ private:
+                                     const AST::Instruction &Instr,
+                                     AST::InstrView::iterator &PC) const
+       noexcept;
++  Expect<void> runLocalGetI32ConstAddLocalTeeOp(
++      Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
++      AST::InstrView::iterator &PC) const noexcept;
+   Expect<void> runLocalGetI32LoadLocalTeeOp(
+       Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
+       AST::InstrView::iterator &PC) const noexcept;
+diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
+index e9695e1..065951f 100644
+--- a/lib/executor/engine/engine.cpp
++++ b/lib/executor/engine/engine.cpp
+@@ -22,6 +22,8 @@ uint32_t getInstructionCountUnits(OpCode Code) noexcept {
+   switch (Code) {
+   case OpCode::Internal__LocalGetI32ConstAdd:
+     return 3U;
++  case OpCode::Internal__LocalGetI32ConstAddLocalTee:
++    return 4U;
+   case OpCode::Internal__LocalGetI32Load:
+     return 2U;
+   case OpCode::Internal__LocalGetI32LoadLocalTee:
+@@ -41,6 +43,11 @@ uint64_t getInstructionCost(const Statistics::Statistics &Stat,
+     return CostTable[uint16_t(OpCode::Local__get)] +
+            CostTable[uint16_t(OpCode::I32__const)] +
+            CostTable[uint16_t(OpCode::I32__add)];
++  case OpCode::Internal__LocalGetI32ConstAddLocalTee:
++    return CostTable[uint16_t(OpCode::Local__get)] +
++           CostTable[uint16_t(OpCode::I32__const)] +
++           CostTable[uint16_t(OpCode::I32__add)] +
++           CostTable[uint16_t(OpCode::Local__tee)];
+   case OpCode::Internal__LocalGetI32Load:
+     return CostTable[uint16_t(OpCode::Local__get)] +
+            CostTable[uint16_t(OpCode::I32__load)];
+@@ -316,6 +323,8 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
+     // Variable Instructions
+     case OpCode::Internal__LocalGetI32ConstAdd:
+       return runLocalGetI32ConstAddOp(StackMgr, Instr, PC);
++    case OpCode::Internal__LocalGetI32ConstAddLocalTee:
++      return runLocalGetI32ConstAddLocalTeeOp(StackMgr, Instr, PC);
+     case OpCode::Internal__LocalGetI32Load:
+       return runLocalGetI32LoadOp(StackMgr, Instr, PC);
+     case OpCode::Internal__LocalGetI32LoadLocalTee:
+diff --git a/lib/executor/engine/variableInstr.cpp b/lib/executor/engine/variableInstr.cpp
+index da44a8c..7ad2d2a 100644
+--- a/lib/executor/engine/variableInstr.cpp
++++ b/lib/executor/engine/variableInstr.cpp
+@@ -35,6 +35,21 @@ Expect<void> Executor::runLocalGetI32ConstAddOp(
+   return {};
+ }
+ 
++Expect<void> Executor::runLocalGetI32ConstAddLocalTeeOp(
++    Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
++    AST::InstrView::iterator &PC) const noexcept {
++  const uint32_t PackedOffsets = Instr.getInternalArgument1();
++  const uint32_t BaseStackOffset = unpackLowStackOffset(PackedOffsets);
++  const uint32_t TeeStackOffset = unpackHighStackOffset(PackedOffsets);
++  const uint32_t Result =
++      StackMgr.getTopN(BaseStackOffset).get<uint32_t>() +
++      Instr.getInternalArgument0();
++  StackMgr.push(Result);
++  StackMgr.getTopN(TeeStackOffset) = StackMgr.getTop();
++  PC += 3;
++  return {};
++}
++
+ Expect<void> Executor::runLocalGetI32LoadOp(
+     Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
+     AST::InstrView::iterator &PC) const noexcept {
+diff --git a/lib/executor/superinstr.cpp b/lib/executor/superinstr.cpp
+index f77bdd0..8155aaf 100644
+--- a/lib/executor/superinstr.cpp
++++ b/lib/executor/superinstr.cpp
+@@ -31,6 +31,28 @@ void FunctionInstance::fuseSuperInstructions(AST::InstrVec &Instrs) noexcept {
+       continue;
+     }
+ 
++    if (I + 3 < Instrs.size() &&
++        Instrs[I + 1].getOpCode() == OpCode::I32__const &&
++        Instrs[I + 2].getOpCode() == OpCode::I32__add &&
++        Instrs[I + 3].getOpCode() == OpCode::Local__tee &&
++        canPackStackOffsets(Instrs[I].getStackOffset(),
++                            Instrs[I + 3].getStackOffset())) {
++      AST::Instruction Fused(OpCode::Internal__LocalGetI32ConstAddLocalTee,
++                             Instrs[I].getOffset());
++      Fused.getInternalArgument0() = Instrs[I + 1].getNum().get<uint32_t>();
++      Fused.getInternalArgument1() = packStackOffsets(
++          Instrs[I].getStackOffset(), Instrs[I + 3].getStackOffset());
++      Instrs[I] = std::move(Fused);
++      Instrs[I + 1] =
++          AST::Instruction(OpCode::Nop, Instrs[I + 1].getOffset());
++      Instrs[I + 2] =
++          AST::Instruction(OpCode::Nop, Instrs[I + 2].getOffset());
++      Instrs[I + 3] =
++          AST::Instruction(OpCode::Nop, Instrs[I + 3].getOffset());
++      I += 3;
++      continue;
++    }
++
+     if (I + 2 < Instrs.size() &&
+         Instrs[I + 1].getOpCode() == OpCode::I32__const &&
+         Instrs[I + 2].getOpCode() == OpCode::I32__add) {

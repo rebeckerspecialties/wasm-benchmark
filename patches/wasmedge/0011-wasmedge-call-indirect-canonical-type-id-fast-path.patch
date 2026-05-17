@@ -1,0 +1,352 @@
+diff --git a/include/executor/executor.h b/include/executor/executor.h
+index d62586fc2947f64635257c89c99116c5201acbe0..f672ed05768453ec7bab9ee668a514645548bab9 100644
+--- a/include/executor/executor.h
++++ b/include/executor/executor.h
+@@ -533,6 +533,12 @@ private:
+   std::vector<ValVariant>
+   packVals(const ValType &Type, std::vector<ValVariant> &&Vals) const noexcept;
+ 
++  /// Helper function for matching call_indirect targets with a canonical
++  /// function signature fast path before falling back to structural matching.
++  bool matchCallIndirectType(
++      const Runtime::Instance::ModuleInstance &ModInst, uint32_t TypeIdx,
++      const Runtime::Instance::FunctionInstance &FuncInst) const noexcept;
++
+   /// Helper function for unpacking ValVariant for packed type.
+   ValVariant unpackVal(const ValType &Type, const ValVariant &Val,
+                        bool IsSigned = false) const noexcept;
+diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
+index 81473b58de5585cf1595b2c9f1dd2587b05872ce..3493d4f1bb57a01c0702aee3617088d00f940e12 100644
+--- a/include/runtime/instance/function.h
++++ b/include/runtime/instance/function.h
+@@ -18,9 +18,15 @@
+ #include "runtime/hostfunc.h"
+ #include "runtime/instance/composite.h"
+ 
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
+ #include <memory>
++#include <mutex>
+ #include <numeric>
++#include <shared_mutex>
+ #include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ namespace WasmEdge {
+@@ -32,11 +38,13 @@ class ModuleInstance;
+ class FunctionInstance : public CompositeBase {
+ public:
+   using CompiledFunction = void;
++  static inline constexpr uint32_t NoCanonicalFuncTypeId = 0U;
+ 
+   FunctionInstance() = delete;
+   /// Move constructor.
+   FunctionInstance(FunctionInstance &&Inst) noexcept
+       : CompositeBase(Inst.ModInst, Inst.TypeIdx), FuncType(Inst.FuncType),
++        CanonicalFuncTypeId(Inst.CanonicalFuncTypeId),
+         Data(std::move(Inst.Data)) {
+     assuming(ModInst);
+   }
+@@ -46,6 +54,7 @@ public:
+                    Span<const std::pair<uint32_t, ValType>> Locs,
+                    AST::InstrView Expr) noexcept
+       : CompositeBase(Mod, TIdx), FuncType(Type),
++        CanonicalFuncTypeId(canonicalizeFuncTypeId(Type)),
+         Data(std::in_place_type_t<WasmFunction>(), Locs, Expr) {
+     assuming(ModInst);
+   }
+@@ -54,6 +63,7 @@ public:
+                    const AST::FunctionType &Type,
+                    Symbol<CompiledFunction> S) noexcept
+       : CompositeBase(Mod, TIdx), FuncType(Type),
++        CanonicalFuncTypeId(canonicalizeFuncTypeId(Type)),
+         Data(std::in_place_type_t<Symbol<CompiledFunction>>(), std::move(S)) {
+     assuming(ModInst);
+   }
+@@ -61,12 +71,14 @@ public:
+   FunctionInstance(const ModuleInstance *Mod, const uint32_t TIdx,
+                    std::unique_ptr<HostFunctionBase> &&Func) noexcept
+       : CompositeBase(Mod, TIdx), FuncType(Func->getFuncType()),
++        CanonicalFuncTypeId(canonicalizeFuncTypeId(Func->getFuncType())),
+         Data(std::in_place_type_t<std::unique_ptr<HostFunctionBase>>(),
+              std::move(Func)) {
+     assuming(ModInst);
+   }
+   FunctionInstance(std::unique_ptr<HostFunctionBase> &&Func) noexcept
+       : CompositeBase(), FuncType(Func->getFuncType()),
++        CanonicalFuncTypeId(canonicalizeFuncTypeId(Func->getFuncType())),
+         Data(std::in_place_type_t<std::unique_ptr<HostFunctionBase>>(),
+              std::move(Func)) {}
+ 
+@@ -88,6 +100,9 @@ public:
+   /// Getter of function type.
+   const AST::FunctionType &getFuncType() const noexcept { return FuncType; }
+ 
++  /// Getter of canonical function type ID used by hot call_indirect paths.
++  uint32_t getCanonicalFuncTypeId() const noexcept { return CanonicalFuncTypeId; }
++
+   /// Getter of function local variables.
+   Span<const std::pair<uint32_t, ValType>> getLocals() const noexcept {
+     return std::get_if<WasmFunction>(&Data)->Locals;
+@@ -117,6 +132,79 @@ public:
+     return *std::get_if<std::unique_ptr<HostFunctionBase>>(&Data)->get();
+   }
+ 
++  static uint32_t canonicalizeFuncTypeId(const AST::FunctionType &Type) noexcept {
++    struct FuncTypeKey {
++      std::vector<uint64_t> Words;
++
++      bool operator==(const FuncTypeKey &Other) const noexcept {
++        return Words == Other.Words;
++      }
++    };
++
++    struct FuncTypeKeyHash {
++      size_t operator()(const FuncTypeKey &Key) const noexcept {
++        size_t Hash = 1469598103934665603ULL;
++        for (const auto Word : Key.Words) {
++          Hash ^= static_cast<size_t>(Word);
++          Hash *= 1099511628211ULL;
++        }
++        return Hash;
++      }
++    };
++
++    auto appendValType = [](FuncTypeKey &Key, const ValType &VT) noexcept {
++      if (VT.isRefType() && VT.getHeapTypeCode() == TypeCode::TypeIndex) {
++        return false;
++      }
++      uint64_t Bits = static_cast<uint64_t>(
++          static_cast<std::underlying_type_t<TypeCode>>(VT.getCode()));
++      Bits |= static_cast<uint64_t>(
++                  static_cast<std::underlying_type_t<TypeCode>>(
++                      VT.getHeapTypeCode()))
++              << 8U;
++      Bits |= static_cast<uint64_t>(VT.getTypeIndex()) << 16U;
++      Key.Words.push_back(Bits);
++      return true;
++    };
++
++    FuncTypeKey Key;
++    const auto &Params = Type.getParamTypes();
++    const auto &Rets = Type.getReturnTypes();
++    Key.Words.reserve(Params.size() + Rets.size() + 2U);
++    Key.Words.push_back(static_cast<uint64_t>(Params.size()));
++    Key.Words.push_back(static_cast<uint64_t>(Rets.size()));
++    for (const auto &VT : Params) {
++      if (!appendValType(Key, VT)) {
++        return NoCanonicalFuncTypeId;
++      }
++    }
++    for (const auto &VT : Rets) {
++      if (!appendValType(Key, VT)) {
++        return NoCanonicalFuncTypeId;
++      }
++    }
++
++    static std::shared_mutex MapMutex;
++    static std::unordered_map<FuncTypeKey, uint32_t, FuncTypeKeyHash> TypeIds;
++    static std::atomic<uint32_t> NextId{1U};
++
++    {
++      std::shared_lock Lock(MapMutex);
++      if (const auto Iter = TypeIds.find(Key); Iter != TypeIds.cend()) {
++        return Iter->second;
++      }
++    }
++
++    std::unique_lock Lock(MapMutex);
++    if (const auto Iter = TypeIds.find(Key); Iter != TypeIds.cend()) {
++      return Iter->second;
++    }
++    const uint32_t NewId = NextId.fetch_add(1U, std::memory_order_relaxed);
++    const auto [Iter, Inserted] = TypeIds.emplace(std::move(Key), NewId);
++    static_cast<void>(Inserted);
++    return Iter->second;
++  }
++
+ private:
+   struct WasmFunction {
+     const std::vector<std::pair<uint32_t, ValType>> Locals;
+@@ -140,6 +228,7 @@ private:
+   /// @{
+ 
+   const AST::FunctionType &FuncType;
++  uint32_t CanonicalFuncTypeId;
+   std::variant<WasmFunction, Symbol<CompiledFunction>,
+                std::unique_ptr<HostFunctionBase>>
+       Data;
+diff --git a/include/runtime/instance/module.h b/include/runtime/instance/module.h
+index f89a71b898608f70e9390b100fa1e6ca42e84fc7..11dd3ef41d92fc345bbdd4ec752dc60b927ea9f3 100644
+--- a/include/runtime/instance/module.h
++++ b/include/runtime/instance/module.h
+@@ -238,6 +238,7 @@ protected:
+     std::unique_lock Lock(Mutex);
+     OwnedTypes.push_back(std::make_unique<AST::SubType>(SType));
+     Types.push_back(OwnedTypes.back().get());
++    CanonicalFuncTypeIds.push_back(unsafeResolveCanonicalFuncTypeId(SType));
+   }
+ 
+   /// Create and add instances into this module instance.
+@@ -330,6 +331,10 @@ protected:
+ 
+   /// Get defined type list.
+   Span<const AST::SubType *const> getTypeList() const noexcept { return Types; }
++  uint32_t getCanonicalFuncTypeId(uint32_t Idx) const noexcept {
++    assuming(Idx < CanonicalFuncTypeIds.size());
++    return CanonicalFuncTypeIds[Idx];
++  }
+ 
+   /// Get instance pointer by index.
+   Expect<const AST::SubType *> getType(uint32_t Idx) const noexcept {
+@@ -464,10 +469,20 @@ protected:
+   /// Unsafe import defined type from host function into this module.
+   void unsafeImportDefinedType(const AST::SubType &SType) {
+     Types.push_back(&SType);
++    CanonicalFuncTypeIds.push_back(unsafeResolveCanonicalFuncTypeId(SType));
+     const_cast<AST::SubType *>(Types.back())
+         ->setTypeIndex(static_cast<uint32_t>(Types.size()) - 1);
+   }
+ 
++  static uint32_t unsafeResolveCanonicalFuncTypeId(
++      const AST::SubType &SType) noexcept {
++    if (!SType.getCompositeType().isFunc()) {
++      return FunctionInstance::NoCanonicalFuncTypeId;
++    }
++    return FunctionInstance::canonicalizeFuncTypeId(
++        SType.getCompositeType().getFuncType());
++  }
++
+   /// Unsafe create and add the instance into this module.
+   template <typename T, typename... Args>
+   std::enable_if_t<IsInstanceV<T>, void>
+@@ -539,6 +554,7 @@ protected:
+   /// Defined types.
+   std::vector<const AST::SubType *> Types;
+   std::vector<std::unique_ptr<const AST::SubType>> OwnedTypes;
++  std::vector<uint32_t> CanonicalFuncTypeIds;
+ 
+   /// Owned instances in this module.
+   std::vector<std::unique_ptr<FunctionInstance>> OwnedFuncInsts;
+diff --git a/lib/executor/engine/controlInstr.cpp b/lib/executor/engine/controlInstr.cpp
+index 117361d777bd98ddd2b691842e5b1be12e17e0fb..9158ec59cf0c9b9eff2213aa773b42098130230a 100644
+--- a/lib/executor/engine/controlInstr.cpp
++++ b/lib/executor/engine/controlInstr.cpp
+@@ -8,6 +8,35 @@
+ namespace WasmEdge {
+ namespace Executor {
+ 
++bool Executor::matchCallIndirectType(
++    const Runtime::Instance::ModuleInstance &ModInst, uint32_t TypeIdx,
++    const Runtime::Instance::FunctionInstance &FuncInst) const noexcept {
++  const uint32_t ExpTypeId = ModInst.getCanonicalFuncTypeId(TypeIdx);
++  const uint32_t GotTypeId = FuncInst.getCanonicalFuncTypeId();
++  if (likely(ExpTypeId != Runtime::Instance::FunctionInstance::
++                              NoCanonicalFuncTypeId &&
++             GotTypeId != Runtime::Instance::FunctionInstance::
++                              NoCanonicalFuncTypeId &&
++             ExpTypeId == GotTypeId)) {
++    return true;
++  }
++
++  const auto *ExpDefType = ModInst.unsafeGetType(TypeIdx);
++  assuming(ExpDefType);
++  if (FuncInst.getModule()) {
++    return AST::TypeMatcher::matchType(ModInst.getTypeList(),
++                                       *ExpDefType->getTypeIndex(),
++                                       FuncInst.getModule()->getTypeList(),
++                                       FuncInst.getTypeIndex());
++  }
++
++  // Independent host module instance case. Matching the composite type
++  // directly.
++  return AST::TypeMatcher::matchType(
++      ModInst.getTypeList(), ExpDefType->getCompositeType(),
++      FuncInst.getHostFunc().getDefinedType().getCompositeType());
++}
++
+ Expect<void> Executor::runIfElseOp(Runtime::StackManager &StackMgr,
+                                    const AST::Instruction &Instr,
+                                    AST::InstrView::iterator &PC) noexcept {
+@@ -193,7 +222,8 @@ Expect<void> Executor::runCallIndirectOp(Runtime::StackManager &StackMgr,
+ 
+   // Get function type at index x.
+   const auto *ModInst = StackMgr.getModule();
+-  const auto &ExpDefType = **ModInst->getType(Instr.getTargetIndex());
++  const uint32_t TypeIdx = Instr.getTargetIndex();
++  const auto &ExpDefType = *ModInst->unsafeGetType(TypeIdx);
+ 
+   // Pop the value of index from the Stack.
+   const auto AddrType = TabInst->getTableType().getLimit().getAddrType();
+@@ -220,18 +250,7 @@ Expect<void> Executor::runCallIndirectOp(Runtime::StackManager &StackMgr,
+ 
+   // Check function type.
+   const auto *FuncInst = retrieveFuncRef(Ref);
+-  bool IsMatch = false;
+-  if (FuncInst->getModule()) {
+-    IsMatch = AST::TypeMatcher::matchType(
+-        ModInst->getTypeList(), *ExpDefType.getTypeIndex(),
+-        FuncInst->getModule()->getTypeList(), FuncInst->getTypeIndex());
+-  } else {
+-    // Independent host module instance case. Matching the composite type
+-    // directly.
+-    IsMatch = AST::TypeMatcher::matchType(
+-        ModInst->getTypeList(), ExpDefType.getCompositeType(),
+-        FuncInst->getHostFunc().getDefinedType().getCompositeType());
+-  }
++  const bool IsMatch = matchCallIndirectType(*ModInst, TypeIdx, *FuncInst);
+   if (!IsMatch) {
+     auto &ExpFuncType = ExpDefType.getCompositeType().getFuncType();
+     auto &GotFuncType = FuncInst->getFuncType();
+diff --git a/lib/executor/engine/proxy.cpp b/lib/executor/engine/proxy.cpp
+index 58e0f176ceb3b95dd06ca9eaca8436fce2ab3084..2b5840191123d3e2facc7b67eb9211617ea7c737 100644
+--- a/lib/executor/engine/proxy.cpp
++++ b/lib/executor/engine/proxy.cpp
+@@ -164,21 +164,9 @@ Expect<void> Executor::proxyCallIndirect(Runtime::StackManager &StackMgr,
+ 
+   const auto *ModInst = StackMgr.getModule();
+   assuming(ModInst);
+-  const auto &ExpDefType = **ModInst->getType(FuncTypeIdx);
+   const auto *FuncInst = retrieveFuncRef(*Ref);
+   assuming(FuncInst);
+-  bool IsMatch = false;
+-  if (FuncInst->getModule()) {
+-    IsMatch = AST::TypeMatcher::matchType(
+-        ModInst->getTypeList(), *ExpDefType.getTypeIndex(),
+-        FuncInst->getModule()->getTypeList(), FuncInst->getTypeIndex());
+-  } else {
+-    // Independent host module instance case. Matching the composite type
+-    // directly.
+-    IsMatch = AST::TypeMatcher::matchType(
+-        ModInst->getTypeList(), ExpDefType.getCompositeType(),
+-        FuncInst->getHostFunc().getDefinedType().getCompositeType());
+-  }
++  const bool IsMatch = matchCallIndirectType(*ModInst, FuncTypeIdx, *FuncInst);
+   if (!IsMatch) {
+     return Unexpect(ErrCode::Value::IndirectCallTypeMismatch);
+   }
+@@ -621,21 +609,9 @@ Expect<void *> Executor::proxyTableGetFuncSymbol(
+ 
+   const auto *ModInst = StackMgr.getModule();
+   assuming(ModInst);
+-  const auto &ExpDefType = **ModInst->getType(FuncTypeIdx);
+   const auto *FuncInst = retrieveFuncRef(*Ref);
+   assuming(FuncInst);
+-  bool IsMatch = false;
+-  if (FuncInst->getModule()) {
+-    IsMatch = AST::TypeMatcher::matchType(
+-        ModInst->getTypeList(), *ExpDefType.getTypeIndex(),
+-        FuncInst->getModule()->getTypeList(), FuncInst->getTypeIndex());
+-  } else {
+-    // Independent host module instance case. Matching the composite type
+-    // directly.
+-    IsMatch = AST::TypeMatcher::matchType(
+-        ModInst->getTypeList(), ExpDefType.getCompositeType(),
+-        FuncInst->getHostFunc().getDefinedType().getCompositeType());
+-  }
++  const bool IsMatch = matchCallIndirectType(*ModInst, FuncTypeIdx, *FuncInst);
+   if (!IsMatch) {
+     return Unexpect(ErrCode::Value::IndirectCallTypeMismatch);
+   }

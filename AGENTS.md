@@ -5,9 +5,11 @@ deployment platforms (App-Store-eligible: no JIT, no MAP_JIT, no
 copy-and-patch) — primarily arm64_32-apple-watchos, aarch64-apple-ios,
 aarch64-apple-tvos, and aarch64-apple-darwin. The harness compares
 **Pulley** (wasmtime's interpreter), **WAMR** (WebAssembly Micro
-Runtime fast-interp), and **wasm3** (the m3 pure C interpreter), and
-was set up to drive a per-table-mutability optimization stack upstream
-(see [PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
+Runtime fast-interp), **wasm3** (the m3 pure C interpreter), and
+**WasmEdge** (`WASMEDGE_USE_LLVM=OFF` with a 27-patch Apple-mobile
+enablement stack), and was set up to drive a per-table-mutability
+optimization stack upstream (see
+[PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
 
 ## Project goal & current state
 
@@ -149,15 +151,17 @@ linker-plugin-lto since Apple's macOS `ld` doesn't accept the
 
 ```
 apps/                    iOS / watchOS / tvOS / macOS SwiftUI app
-crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 adapters,
-                         workload registration, PMU-aware harness
+crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 +
+                         WasmEdge adapters, workload registration,
+                         PMU-aware harness
 crates/test-programs/    (vendored from wasmtime)
 workloads-rs/            one .rs per workload (cdylib, no_std)
 workloads-rs-cargo/      xmrsplayer-bench (uses cargo for crates.io deps)
 workloads/               pre-built *.wasm (checked in — apps don't
                          need a wasm toolchain at build time)
 scripts/                 build-workloads.sh, build-lib.sh, build-wamr.sh,
-                         build-wasm3.sh,
+                         build-wasm3.sh, build-wasmedge.sh,
+                         apply_patch_series.sh,
                          analyze_pmu.py, aggregate_3way.py,
                          aggregate_4way.py, parse_n10.py,
                          run_fusion_n10.sh, run_fusion_pmu.sh,
@@ -170,6 +174,17 @@ wasm3/                   wasm3 submodule (m3 pure-C interp). Built into
                          libm3.a via scripts/build-wasm3.sh; per-target
                          output dirs (build / build-aarch64-apple-ios / ...)
                          mirror the WAMR layout.
+WasmEdge/                WasmEdge submodule pinned at 3ad922d6 (the
+                         same pin webgpu-caps ships against). Built via
+                         scripts/build-wasmedge.sh after applying the
+                         27 patches in patches/wasmedge/. Per-target
+                         output dirs same convention as wasm3 / WAMR.
+patches/                 Out-of-tree patch series. Currently
+                         patches/wasmedge/0001-0027 — Apple-mobile
+                         memory-guard fallbacks + interpreter
+                         super-instruction fast-paths + arm64_32 size_t
+                         + NSInteger fixes for watchOS device. Applied
+                         in series by apply_patch_series.sh; idempotent.
 out/                     experiment outputs, PMU traces, summaries
 docs/                    project docs
 ```
@@ -191,9 +206,13 @@ docs/                    project docs
 
 # Cross-runtime libs. Each script writes a per-target output dir under
 # its submodule (build/, build-aarch64-apple-ios, ...). build-lib.sh
-# picks them up via the cargo `have_wamr` / `have_wasm3` cfgs.
+# picks them up via the cargo `have_wamr` / `have_wasm3` /
+# `have_wasmedge` cfgs.
 ./scripts/build-wamr.sh all         # WAMR libiwasm.a per platform
 ./scripts/build-wasm3.sh all        # wasm3 libm3.a per platform
+./scripts/build-wasmedge.sh all     # WasmEdge libwasmedge.a per platform
+                                    # (applies patches/wasmedge/*.patch in
+                                    #  series via scripts/apply_patch_series.sh)
 
 # M4 host runner (used for E-core PMU + taskpolicy -b)
 cargo build --release --bin run_dispatch_workloads
@@ -420,7 +439,7 @@ submodule). Active branches:
 
 ## Cross-runtime comparison
 
-The harness builds against two comparison runtimes alongside Pulley:
+The harness builds against three comparison runtimes alongside Pulley:
 
 1. **WAMR** (`wasm-micro-runtime/` submodule, `libiwasm.a`) — fast
    preprocessed-bytecode interpreter; SIMD + bulk-memory + tail-call +
@@ -434,6 +453,14 @@ The harness builds against two comparison runtimes alongside Pulley:
    fail at load and surface as ERROR rows (treat as data, not a
    regression). xmrsplayer uses `return_call`, which wasm3 implements,
    so it should run subject to the 256 KiB wasm3 stack budget.
+3. **WasmEdge** (`WasmEdge/` submodule, `libwasmedge.a`) — the incumbent
+   production runtime. Pure interpreter via `WASMEDGE_USE_LLVM=OFF` plus
+   the 27-patch series in `patches/wasmedge/` (24 ported from
+   `webgpu-caps`, plus 0026 for arm64_32 size_t narrowing in
+   `FuncTypeKeyHash` + memory span, and 0027 for arm64_32-watchOS
+   `NSInteger` sign-comparison narrowing in `lib/host/wasi/macos.mm`).
+   SIMD + wasm-exceptions are both enabled, so the Porffor variant of
+   graphql-validation actually *loads* (vs WAMR refusing it).
 
 The Pulley-vs-WAMR gap is **structural, not IC-related** —
 WAMR's preprocessed register-IR has fewer match_loop-equivalent

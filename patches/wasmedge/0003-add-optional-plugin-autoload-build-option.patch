@@ -1,0 +1,102 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 86581743f9caf3e87909cec2c7025fe0ec54e081..15de0390764670a2de32c81f4e859da7f5833372 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -66,6 +66,7 @@ option(WASMEDGE_BUILD_PLUGINS "Generate plugins." ON)
+ option(WASMEDGE_BUILD_EXAMPLE "Generate examples." OFF)
+ option(WASMEDGE_BUILD_WASI_NN_RPC "Generate WASI-NN RPC." OFF)
+ option(WASMEDGE_ENABLE_WASI_NN_AUTOLOAD "Enable built-in WASI-NN VM autoloading and C API helper integration." ON)
++option(WASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD "Enable built-in optional plug-in VM autoloading and mock fallback integration." ON)
+ option(WASMEDGE_USE_LLVM "Enable WasmEdge LLVM-based compilation runtime." ON)
+ if(WASMEDGE_BUILD_AOT_RUNTIME)
+   message(WARNING "WASMEDGE_BUILD_AOT_RUNTIME option was renamed to WASMEDGE_USE_LLVM.")
+diff --git a/lib/vm/CMakeLists.txt b/lib/vm/CMakeLists.txt
+index 2c3e96f5687a89b5f320f4727c87814b651a5baa..346c905cfe3f3ad86ec48d71ea5500a6d830cd86 100644
+--- a/lib/vm/CMakeLists.txt
++++ b/lib/vm/CMakeLists.txt
+@@ -12,6 +12,13 @@ if(WASMEDGE_ENABLE_WASI_NN_AUTOLOAD)
+   )
+ endif()
+ 
++if(WASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD)
++  target_compile_definitions(wasmedgeVM
++    PRIVATE
++    -DWASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD
++  )
++endif()
++
+ target_link_libraries(wasmedgeVM
+   PUBLIC
+   wasmedgeCommon
+diff --git a/lib/vm/vm.cpp b/lib/vm/vm.cpp
+index 05254057049fe1cf6974648b65d0e14853821892..6df9602c37a8e58e7e481801ad119ce90b014f17 100644
+--- a/lib/vm/vm.cpp
++++ b/lib/vm/vm.cpp
+@@ -12,15 +12,19 @@
+ #include "llvm/jit.h"
+ 
+ #include "host/mock/wasi_crypto_module.h"
++#ifdef WASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD
+ #include "host/mock/wasi_logging_module.h"
++#endif
+ #ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
+ #include "host/mock/wasi_nn_module.h"
+ #endif
++#ifdef WASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD
+ #include "host/mock/wasmedge_image_module.h"
+ #include "host/mock/wasmedge_process_module.h"
+ #include "host/mock/wasmedge_stablediffusion_module.h"
+ #include "host/mock/wasmedge_tensorflow_module.h"
+ #include "host/mock/wasmedge_tensorflowlite_module.h"
++#endif
+ #include "validator/validator.h"
+ #include <memory>
+ #include <variant>
+@@ -120,6 +124,7 @@ void VM::unsafeLoadPlugInHosts() {
+   PlugInModInsts.push_back(
+       createPluginModule<Host::WasiCryptoSymmetricModuleMock>(
+           "wasi_crypto"sv, "wasi_crypto_symmetric"sv));
++#ifdef WASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD
+   PlugInModInsts.push_back(createPluginModule<Host::WasmEdgeProcessModuleMock>(
+       "wasmedge_process"sv, "wasmedge_process"sv));
+   PlugInModInsts.push_back(createPluginModule<Host::WasiLoggingModuleMock>(
+@@ -135,16 +140,24 @@ void VM::unsafeLoadPlugInHosts() {
+   PlugInModInsts.push_back(
+       createPluginModule<Host::WasmEdgeStableDiffusionModuleMock>(
+           "wasmedge_stablediffusion"sv, "wasmedge_stablediffusion"sv));
++#endif
+ 
+   // Load the other non-official plugins.
+   for (const auto &Plugin : Plugin::Plugin::plugins()) {
+     if (Conf.isForbiddenPlugins(Plugin.name())) {
+       continue;
+     }
+-    // Skip wasi_crypto, wasi_nn, wasi_logging, WasmEdge_Process,
+-    // WasmEdge_Tensorflow, WasmEdge_TensorflowLite, and WasmEdge_Image.
+-    if (Plugin.name() == "wasi_crypto"sv ||
+-        Plugin.name() == "wasi_logging"sv ||
++    // Skip wasi_crypto and the built-in mock-autoload modules when enabled.
++    if (Plugin.name() == "wasi_crypto"sv) {
++      continue;
++    }
++#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
++    if (Plugin.name() == "wasi_nn"sv) {
++      continue;
++    }
++#endif
++#ifdef WASMEDGE_ENABLE_OPTIONAL_PLUGIN_AUTOLOAD
++    if (Plugin.name() == "wasi_logging"sv ||
+         Plugin.name() == "wasmedge_process"sv ||
+         Plugin.name() == "wasmedge_tensorflow"sv ||
+         Plugin.name() == "wasmedge_tensorflowlite"sv ||
+@@ -152,10 +165,6 @@ void VM::unsafeLoadPlugInHosts() {
+         Plugin.name() == "wasmedge_stablediffusion"sv) {
+       continue;
+     }
+-#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
+-    if (Plugin.name() == "wasi_nn"sv) {
+-      continue;
+-    }
+ #endif
+     for (const auto &Module : Plugin.modules()) {
+       PlugInModInsts.push_back(Module.create());

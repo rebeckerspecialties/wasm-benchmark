@@ -1,0 +1,26 @@
+diff --git a/lib/common/spdlog.cpp b/lib/common/spdlog.cpp
+--- a/lib/common/spdlog.cpp
++++ b/lib/common/spdlog.cpp
+@@ -35,6 +35,7 @@
+ 
+ std::mutex LoggerMutex;
+ CallbackType UserLoggingCallback;
++bool DefaultLoggerInstalled = false;
+ thread_local bool ThreadLocalErrorCaptureEnabled = false;
+ thread_local std::vector<std::string> ThreadLocalErrorMessages;
+ 
+@@ -61,10 +62,14 @@
+                          : spdlog::level::info;
+   Logger->set_level(Level);
+   spdlog::set_default_logger(Logger);
++  DefaultLoggerInstalled = true;
+ }
+ 
+ void ensureDefaultLoggerInstalled() {
+   std::lock_guard<std::mutex> Guard(LoggerMutex);
++  if (DefaultLoggerInstalled) {
++    return;
++  }
+   installDefaultLoggerLocked();
+ }
+ 

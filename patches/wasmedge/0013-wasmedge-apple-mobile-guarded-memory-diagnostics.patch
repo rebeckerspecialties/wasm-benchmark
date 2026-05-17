@@ -1,0 +1,63 @@
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index 25a8a33f0061e45313e4159f4943af749abac699..2cde328adbde60924a94d8f8cfab0d51fe070473 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -23,6 +23,7 @@
+ 
+ #include <algorithm>
+ #include <condition_variable>
++#include <cstdio>
+ #include <cstdint>
+ #include <cstring>
+ #include <fstream>
+@@ -90,6 +91,18 @@ public:
+         MemType.getLimit().getMin(), ReservationPageCount,
+         MemType.getLimit().is32(), RequestedGuardPageBytes,
+         &GuardPageBoundsCheck, &GuardedReservationBytes);
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++    std::fprintf(
++        stderr,
++        "Warning: Memory Instance: Apple-mobile allocation result "
++        "(initial_pages=%llu, reserve_pages=%llu, requested_guard_bytes=%llu, "
++        "guarded=%s, reserved_bytes=%llu).\n",
++        static_cast<unsigned long long>(MemType.getLimit().getMin()),
++        static_cast<unsigned long long>(ReservationPageCount),
++        static_cast<unsigned long long>(RequestedGuardPageBytes),
++        GuardPageBoundsCheck ? "yes" : "no",
++        static_cast<unsigned long long>(GuardedReservationBytes));
++#endif
+     if (DataPtr == nullptr) {
+       spdlog::error("Memory Instance: Unable to find usable memory address."sv);
+       MemType.getLimit().setMin(0U);
+diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
+index 47ff171942324859422e8fd111a77a0dd1c9fc42..2d3afe0cf61b3e17402e6b41beddf913dd0d8f6c 100644
+--- a/lib/system/allocator.cpp
++++ b/lib/system/allocator.cpp
+@@ -8,6 +8,7 @@
+ #include "common/errcode.h"
+ 
+ #include <algorithm>
++#include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+ #include <limits>
+@@ -185,6 +186,19 @@ Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,
+     Result = allocateFallback(PageCount);
+     UsedGuardPageBoundsCheck = false;
+   }
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++  std::fprintf(stderr,
++               "Warning: Allocator: Apple-mobile memory request "
++               "(page_count=%llu, reserved_page_count=%llu, "
++               "guard_page_bytes=%llu, guarded=%s, reserved_bytes=%llu).\n",
++               static_cast<unsigned long long>(PageCount),
++               static_cast<unsigned long long>(ReservedPageCount),
++               static_cast<unsigned long long>(GuardPageBytes),
++               UsedGuardPageBoundsCheck ? "yes" : "no",
++               static_cast<unsigned long long>(UsedGuardPageBoundsCheck
++                                                   ? ReservedBytes
++                                                   : 0U));
++#endif
+   if (GuardPageBoundsCheck != nullptr) {
+     *GuardPageBoundsCheck = UsedGuardPageBoundsCheck;
+   }

@@ -1,0 +1,416 @@
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index c0b6a3325699f0d77277fa846086be5be6545cf8..463e0001480b4d1258e7d6d8560d7aa995fd76c5 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -47,8 +47,10 @@ public:
+   MemoryInstance() = delete;
+   MemoryInstance(MemoryInstance &&Inst) noexcept
+       : MemType(Inst.MemType), DataPtr(Inst.DataPtr),
+-        PageLimit(Inst.PageLimit) {
++        PageLimit(Inst.PageLimit),
++        GuardPageBoundsCheck(Inst.GuardPageBoundsCheck) {
+     Inst.DataPtr = nullptr;
++    Inst.GuardPageBoundsCheck = false;
+   }
+   MemoryInstance(const AST::MemoryType &MType,
+                  uint64_t PageLim = kPageLimit64) noexcept
+@@ -69,7 +71,9 @@ public:
+                     PageLimit);
+       MemType.getLimit().setMin(PageLimit);
+     }
+-    DataPtr = Allocator::allocate(MemType.getLimit().getMin());
++    DataPtr = Allocator::allocate(MemType.getLimit().getMin(),
++                                  MemType.getLimit().is32(),
++                                  &GuardPageBoundsCheck);
+     if (DataPtr == nullptr) {
+       spdlog::error("Memory Instance: Unable to find usable memory address."sv);
+       MemType.getLimit().setMin(0U);
+@@ -77,7 +81,8 @@ public:
+     }
+   }
+   ~MemoryInstance() noexcept {
+-    Allocator::release(DataPtr, MemType.getLimit().getMin());
++    Allocator::release(DataPtr, MemType.getLimit().getMin(),
++                       GuardPageBoundsCheck);
+   }
+ 
+   bool isShared() const noexcept { return MemType.getLimit().isShared(); }
+@@ -98,11 +103,7 @@ public:
+   const AST::MemoryType &getMemoryType() const noexcept { return MemType; }
+ 
+   bool canUseGuardPageBoundsCheck() const noexcept {
+-#if WASMEDGE_ALLOCATOR_IS_STABLE
+-    return MemType.getLimit().is32();
+-#else
+-    return false;
+-#endif
++    return GuardPageBoundsCheck;
+   }
+ 
+   /// Check access size is valid.
+@@ -139,7 +140,8 @@ public:
+                     PageLimit);
+       return false;
+     }
+-    if (auto NewPtr = Allocator::resize(DataPtr, Min, Min + Count);
++    if (auto NewPtr =
++            Allocator::resize(DataPtr, Min, Min + Count, GuardPageBoundsCheck);
+         NewPtr == nullptr) {
+       return false;
+     } else {
+@@ -458,6 +460,7 @@ private:
+   AST::MemoryType MemType;
+   uint8_t *DataPtr = nullptr;
+   uint64_t PageLimit;
++  bool GuardPageBoundsCheck = false;
+   std::mutex WaiterMapMutex;
+   std::unordered_multimap<uint64_t, Waiter> WaiterMap;
+   /// @}
+diff --git a/include/system/allocator.h b/include/system/allocator.h
+index d77cf343d537b87e25010b77c294efe9b1687a09..0c6555db1493f51ff5958f063995ced13a7ca2a8 100644
+--- a/include/system/allocator.h
++++ b/include/system/allocator.h
+@@ -14,27 +14,46 @@
+ #pragma once
+ 
+ #include "common/defines.h"
++
++#if defined(__APPLE__) && __has_include(<TargetConditionals.h>)
++#include <TargetConditionals.h>
++#endif
++
+ #include <cstdint>
+ 
+ namespace WasmEdge {
+ 
+ class Allocator {
+ public:
+-#if WASMEDGE_OS_WINDOWS || defined(HAVE_MMAP) && defined(__x86_64__) ||        \
+-    defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
++#if defined(__APPLE__) && defined(TARGET_OS_OSX)
++#define WASMEDGE_APPLE_MOBILE_VM (!TARGET_OS_OSX)
++#else
++#define WASMEDGE_APPLE_MOBILE_VM 0
++#endif
++
++#if WASMEDGE_OS_WINDOWS ||                                                      \
++    (defined(HAVE_MMAP) &&                                                      \
++     (defined(__x86_64__) ||                                                    \
++      ((defined(__aarch64__) ||                                                 \
++        (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__)) &&     \
++       !WASMEDGE_APPLE_MOBILE_VM)))
+ #define WASMEDGE_ALLOCATOR_IS_STABLE 1
+ #else
+ #define WASMEDGE_ALLOCATOR_IS_STABLE 0
+ #endif
+ 
+-  WASMEDGE_EXPORT static uint8_t *allocate(uint64_t PageCount) noexcept;
++  WASMEDGE_EXPORT static uint8_t *
++  allocate(uint64_t PageCount, bool AllowGuardPageBoundsCheck,
++           bool *GuardPageBoundsCheck = nullptr) noexcept;
+ 
+   WASMEDGE_EXPORT static uint8_t *resize(uint8_t *Pointer,
+                                          uint64_t OldPageCount,
+-                                         uint64_t NewPageCount) noexcept;
++                                         uint64_t NewPageCount,
++                                         bool GuardPageBoundsCheck) noexcept;
+ 
+   WASMEDGE_EXPORT static void release(uint8_t *Pointer,
+-                                      uint64_t PageCount) noexcept;
++                                      uint64_t PageCount,
++                                      bool GuardPageBoundsCheck) noexcept;
+ 
+   static uint8_t *allocate_chunk(uint64_t Size) noexcept;
+   static void release_chunk(uint8_t *Pointer, uint64_t Size) noexcept;
+diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
+index fe6877de5281dcdbdba8609c182bba5edb22616b..783106eba1e4ab7046854ece5e0d06611b296da8 100644
+--- a/lib/executor/engine/engine.cpp
++++ b/lib/executor/engine/engine.cpp
+@@ -2086,7 +2086,7 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
+     }
+   };
+ 
+-#if WASMEDGE_ALLOCATOR_IS_STABLE
++#if defined(SA_SIGINFO) || WASMEDGE_OS_WINDOWS
+   Fault FaultHandler;
+   uint32_t FaultCode = PREPARE_FAULT(FaultHandler);
+   if (unlikely(FaultCode != 0)) {
+diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
+index 91ec09ebe1ce5039cbc4b25cbe0f791e77626e3b..40fba9fabc3843d4e19bf9ddbdd1f99297f3eea8 100644
+--- a/lib/system/allocator.cpp
++++ b/lib/system/allocator.cpp
+@@ -7,121 +7,211 @@
+ #include "common/defines.h"
+ #include "common/errcode.h"
+ 
++#include <algorithm>
++#include <cstdlib>
++#include <cstring>
++
+ #if WASMEDGE_OS_WINDOWS
+ #include "system/winapi.h"
+-#elif defined(HAVE_MMAP) && defined(__x86_64__) || defined(__aarch64__) ||     \
+-    defined(__arm__) || (defined(__riscv) && __riscv_xlen == 64) ||            \
+-    defined(__s390x__)
++#elif defined(HAVE_MMAP)
+ #include <sys/mman.h>
+-#else
+-#include <cctype>
+-#include <cstdlib>
+-#include <cstring>
+ #endif
+ 
+ namespace WasmEdge {
+ 
+ namespace {
+ static inline constexpr const uint64_t kPageSize = UINT64_C(65536);
+-
+-#if WASMEDGE_OS_WINDOWS || defined(HAVE_MMAP) && defined(__x86_64__) ||        \
+-    defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64) ||        \
+-    defined(__s390x__)
+-// Only define these two constants on the supported platform to avoid
+-// -Wunused-const-variable error when applying -Werror.
++#if WASMEDGE_OS_WINDOWS ||                                                      \
++    (defined(HAVE_MMAP) &&                                                      \
++     (defined(__x86_64__) ||                                                    \
++      (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__) ||        \
++      (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM)))
+ static inline constexpr const uint64_t k4G = UINT64_C(0x100000000);
+ static inline constexpr const uint64_t k12G = UINT64_C(0x300000000);
+ #endif
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++static inline constexpr const uint64_t k8G = UINT64_C(0x200000000);
++#endif
+ 
+-} // namespace
++inline uint64_t allocateBytes(uint64_t PageCount) noexcept {
++  return PageCount == 0 ? 1U : kPageSize * PageCount;
++}
++
++uint8_t *allocateFallback(uint64_t PageCount) noexcept {
++  auto *Result =
++      reinterpret_cast<uint8_t *>(std::malloc(allocateBytes(PageCount)));
++  if (Result == nullptr) {
++    return nullptr;
++  }
++  if (PageCount != 0) {
++    std::memset(Result, 0, kPageSize * PageCount);
++  }
++  return Result;
++}
++
++uint8_t *resizeFallback(uint8_t *Pointer, uint64_t OldPageCount,
++                        uint64_t NewPageCount) noexcept {
++  auto *Result = reinterpret_cast<uint8_t *>(
++      std::realloc(Pointer, allocateBytes(NewPageCount)));
++  if (Result == nullptr) {
++    return nullptr;
++  }
++  if (NewPageCount > OldPageCount) {
++    std::memset(Result + OldPageCount * kPageSize, 0,
++                (NewPageCount - OldPageCount) * kPageSize);
++  }
++  return Result;
++}
+ 
+-WASMEDGE_EXPORT uint8_t *Allocator::allocate(uint64_t PageCount) noexcept {
+ #if WASMEDGE_OS_WINDOWS
+-  auto Reserved = reinterpret_cast<uint8_t *>(winapi::VirtualAlloc(
++uint8_t *allocateGuardedStable(uint64_t PageCount) noexcept {
++  auto *Reserved = reinterpret_cast<uint8_t *>(winapi::VirtualAlloc(
+       nullptr, k12G, winapi::MEM_RESERVE_, winapi::PAGE_NOACCESS_));
+   if (Reserved == nullptr) {
+     return nullptr;
+   }
++  auto *Pointer = Reserved + k4G;
+   if (PageCount == 0) {
+-    return Reserved + k4G;
++    return Pointer;
+   }
+-  auto Pointer = resize(Reserved + k4G, 0, PageCount);
+-  if (Pointer == nullptr) {
++  if (winapi::VirtualAlloc(Pointer, PageCount * kPageSize,
++                           winapi::MEM_COMMIT_,
++                           winapi::PAGE_READWRITE_) == nullptr) {
++    winapi::VirtualFree(Reserved, 0, winapi::MEM_RELEASE_);
+     return nullptr;
+   }
+   return Pointer;
+-#elif defined(HAVE_MMAP) && defined(__x86_64__) || defined(__aarch64__) ||     \
+-    (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__)
+-  auto Reserved = reinterpret_cast<uint8_t *>(
++}
++#elif defined(HAVE_MMAP) &&                                                     \
++    (defined(__x86_64__) ||                                                     \
++     (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__) ||         \
++     (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM))
++uint8_t *allocateGuardedStable(uint64_t PageCount) noexcept {
++  auto *Reserved = reinterpret_cast<uint8_t *>(
+       mmap(nullptr, k12G, PROT_NONE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0));
+   if (Reserved == MAP_FAILED) {
+     return nullptr;
+   }
++  auto *Pointer = Reserved + k4G;
+   if (PageCount == 0) {
+-    return Reserved + k4G;
++    return Pointer;
+   }
+-  auto Pointer = resize(Reserved + k4G, 0, PageCount);
+-  if (Pointer == nullptr) {
++  if (mmap(Pointer, PageCount * kPageSize, PROT_READ | PROT_WRITE,
++           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1,
++           0) == MAP_FAILED) {
++    munmap(Reserved, k12G);
+     return nullptr;
+   }
+   return Pointer;
+-#else
+-  auto Result = reinterpret_cast<uint8_t *>(std::malloc(kPageSize * PageCount));
+-  if (Result == nullptr) {
++}
++#endif
++
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++uint8_t *allocateGuardedAppleMobile(uint64_t PageCount) noexcept {
++  auto *Reserved = reinterpret_cast<uint8_t *>(
++      mmap(nullptr, k8G, PROT_NONE,
++           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0));
++  if (Reserved == MAP_FAILED) {
+     return nullptr;
+   }
+-  std::memset(Result, 0, kPageSize * PageCount);
+-  return Result;
++  if (PageCount == 0) {
++    return Reserved;
++  }
++  if (mmap(Reserved, PageCount * kPageSize, PROT_READ | PROT_WRITE,
++           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1,
++           0) == MAP_FAILED) {
++    munmap(Reserved, k8G);
++    return nullptr;
++  }
++  return Reserved;
++}
+ #endif
++
++} // namespace
++
++WASMEDGE_EXPORT uint8_t *
++Allocator::allocate(uint64_t PageCount, bool AllowGuardPageBoundsCheck,
++                    bool *GuardPageBoundsCheck) noexcept {
++  bool UsedGuardPageBoundsCheck = false;
++  uint8_t *Result = nullptr;
++
++  if (AllowGuardPageBoundsCheck) {
++#if WASMEDGE_OS_WINDOWS
++    Result = allocateGuardedStable(PageCount);
++    UsedGuardPageBoundsCheck = Result != nullptr;
++#elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++    Result = allocateGuardedAppleMobile(PageCount);
++    UsedGuardPageBoundsCheck = Result != nullptr;
++#elif defined(HAVE_MMAP) &&                                                     \
++    (defined(__x86_64__) ||                                                     \
++     (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__) ||         \
++     (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM))
++    Result = allocateGuardedStable(PageCount);
++    UsedGuardPageBoundsCheck = Result != nullptr;
++#endif
++  }
++
++  if (Result == nullptr) {
++    Result = allocateFallback(PageCount);
++    UsedGuardPageBoundsCheck = false;
++  }
++  if (GuardPageBoundsCheck != nullptr) {
++    *GuardPageBoundsCheck = UsedGuardPageBoundsCheck;
++  }
++  return Result;
+ }
+ 
+ WASMEDGE_EXPORT uint8_t *Allocator::resize(uint8_t *Pointer,
+                                            uint64_t OldPageCount,
+-                                           uint64_t NewPageCount) noexcept {
++                                           uint64_t NewPageCount,
++                                           bool GuardPageBoundsCheck) noexcept {
+   assuming(NewPageCount > OldPageCount);
++  if (GuardPageBoundsCheck) {
+ #if WASMEDGE_OS_WINDOWS
+-  if (winapi::VirtualAlloc(Pointer + OldPageCount * kPageSize,
+-                           (NewPageCount - OldPageCount) * kPageSize,
+-                           winapi::MEM_COMMIT_,
+-                           winapi::PAGE_READWRITE_) == nullptr) {
+-    return nullptr;
+-  }
+-  return Pointer;
+-#elif defined(HAVE_MMAP) && (defined(__x86_64__) || defined(__aarch64__) ||    \
+-                             (defined(__riscv) && __riscv_xlen == 64)) ||      \
+-    defined(__s390x__)
+-  if (mmap(Pointer + OldPageCount * kPageSize,
+-           (NewPageCount - OldPageCount) * kPageSize, PROT_READ | PROT_WRITE,
+-           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) {
+-    return nullptr;
+-  }
+-  return Pointer;
++    if (winapi::VirtualAlloc(Pointer + OldPageCount * kPageSize,
++                             (NewPageCount - OldPageCount) * kPageSize,
++                             winapi::MEM_COMMIT_,
++                             winapi::PAGE_READWRITE_) == nullptr) {
++      return nullptr;
++    }
++    return Pointer;
++#elif defined(HAVE_MMAP) &&                                                     \
++    ((defined(__x86_64__) || defined(__aarch64__) ||                            \
++      (defined(__riscv) && __riscv_xlen == 64)) || defined(__s390x__))
++    if (mmap(Pointer + OldPageCount * kPageSize,
++             (NewPageCount - OldPageCount) * kPageSize, PROT_READ | PROT_WRITE,
++             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) {
++      return nullptr;
++    }
++    return Pointer;
+ #else
+-  auto Result = reinterpret_cast<uint8_t *>(
+-      std::realloc(Pointer, NewPageCount * kPageSize));
+-  if (Result == nullptr) {
+     return nullptr;
+-  }
+-  std::memset(Result + OldPageCount * kPageSize, 0,
+-              (NewPageCount - OldPageCount) * kPageSize);
+-  return Result;
+ #endif
++  }
++  return resizeFallback(Pointer, OldPageCount, NewPageCount);
+ }
+ 
+-WASMEDGE_EXPORT void Allocator::release(uint8_t *Pointer, uint64_t) noexcept {
+-#if WASMEDGE_OS_WINDOWS
+-  winapi::VirtualFree(Pointer - k4G, 0, winapi::MEM_RELEASE_);
+-#elif defined(HAVE_MMAP) && (defined(__x86_64__) || defined(__aarch64__) ||    \
+-                             (defined(__riscv) && __riscv_xlen == 64)) ||      \
+-    defined(__s390x__)
++WASMEDGE_EXPORT void Allocator::release(uint8_t *Pointer, uint64_t,
++                                        bool GuardPageBoundsCheck) noexcept {
+   if (Pointer == nullptr) {
+     return;
+   }
+-  munmap(Pointer - k4G, k12G);
+-#else
+-  return std::free(Pointer);
++  if (GuardPageBoundsCheck) {
++#if WASMEDGE_OS_WINDOWS
++    winapi::VirtualFree(Pointer - k4G, 0, winapi::MEM_RELEASE_);
++    return;
++#elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++    munmap(Pointer, k8G);
++    return;
++#elif defined(HAVE_MMAP) &&                                                     \
++    ((defined(__x86_64__) || defined(__aarch64__) ||                            \
++      (defined(__riscv) && __riscv_xlen == 64)) || defined(__s390x__))
++    munmap(Pointer - k4G, k12G);
++    return;
+ #endif
++  }
++  std::free(Pointer);
+ }
+ 
+ uint8_t *Allocator::allocate_chunk(uint64_t Size) noexcept {

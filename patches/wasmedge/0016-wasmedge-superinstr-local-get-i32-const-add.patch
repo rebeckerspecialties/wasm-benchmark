@@ -1,0 +1,211 @@
+diff --git a/include/common/enum_ast.hpp b/include/common/enum_ast.hpp
+index a0036fe..ce22666 100644
+--- a/include/common/enum_ast.hpp
++++ b/include/common/enum_ast.hpp
+@@ -63,6 +63,7 @@ enum class OpCode : uint32_t {
+ #undef Line_FD
+ #undef Line_FE
+ #undef UseOpCode
++  Internal__LocalGetI32ConstAdd,
+ };
+ 
+ /// Instruction opcode enumeration string mapping.
+@@ -82,6 +83,8 @@ static inline constexpr const auto OpCodeStr = []() constexpr {
+ #undef Line_FD
+ #undef Line_FE
+ #undef UseOpCode
++    {OpCode::Internal__LocalGetI32ConstAdd,
++     "internal.local.get.i32.const.add"},
+   };
+   return SpareEnumMap(Array);
+ }();
+diff --git a/include/ast/instruction.h b/include/ast/instruction.h
+index 38646f6..48599fb 100644
+--- a/include/ast/instruction.h
++++ b/include/ast/instruction.h
+@@ -196,6 +196,17 @@ public:
+   uint32_t getStackOffset() const noexcept { return Data.Indices.StackOffset; }
+   uint32_t &getStackOffset() noexcept { return Data.Indices.StackOffset; }
+ 
++  /// Getter and setter of packed internal arguments for interpreter-only
++  /// superinstructions.
++  uint32_t getInternalArgument0() const noexcept { return Data.Indices.TargetIdx; }
++  uint32_t &getInternalArgument0() noexcept { return Data.Indices.TargetIdx; }
++  uint32_t getInternalArgument1() const noexcept { return Data.Indices.SourceIdx; }
++  uint32_t &getInternalArgument1() noexcept { return Data.Indices.SourceIdx; }
++  uint32_t getInternalArgument2() const noexcept {
++    return Data.Indices.StackOffset;
++  }
++  uint32_t &getInternalArgument2() noexcept { return Data.Indices.StackOffset; }
++
+   /// Getter and setter of memory alignment.
+   uint32_t getMemoryAlign() const noexcept { return Data.Memories.MemAlign; }
+   uint32_t &getMemoryAlign() noexcept { return Data.Memories.MemAlign; }
+diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
+index 69e7b78..e30ae71 100644
+--- a/include/runtime/instance/function.h
++++ b/include/runtime/instance/function.h
+@@ -215,6 +215,8 @@ public:
+   }
+ 
+ private:
++  static void fuseSuperInstructions(AST::InstrVec &Instrs) noexcept;
++
+   struct WasmFunction {
+     const std::vector<std::pair<uint32_t, ValType>> Locals;
+     const uint32_t LocalNum;
+@@ -232,6 +234,7 @@ private:
+       // FIXME: Modify the capacity to prevent from connection of 2 vectors.
+       Instrs.reserve(Expr.size() + 1);
+       Instrs.assign(Expr.begin(), Expr.end());
++      FunctionInstance::fuseSuperInstructions(Instrs);
+     }
+   };
+ 
+diff --git a/include/executor/executor.h b/include/executor/executor.h
+index f672ed0..df851b1 100644
+--- a/include/executor/executor.h
++++ b/include/executor/executor.h
+@@ -593,6 +593,10 @@ private:
+                              const AST::Instruction &Instr,
+                              AST::InstrView::iterator &PC) noexcept;
+   /// ======= Variable instructions =======
++  Expect<void> runLocalGetI32ConstAddOp(Runtime::StackManager &StackMgr,
++                                        const AST::Instruction &Instr,
++                                        AST::InstrView::iterator &PC) const
++      noexcept;
+   Expect<void> runLocalGetOp(Runtime::StackManager &StackMgr,
+                              uint32_t StackOffset) const noexcept;
+   Expect<void> runLocalSetOp(Runtime::StackManager &StackMgr,
+diff --git a/lib/executor/CMakeLists.txt b/lib/executor/CMakeLists.txt
+index 0c32de0..846f14a 100644
+--- a/lib/executor/CMakeLists.txt
++++ b/lib/executor/CMakeLists.txt
+@@ -29,6 +29,7 @@ wasmedge_add_library(wasmedgeExecutor
+   engine/variableInstr.cpp
+   engine/refInstr.cpp
+   engine/engine.cpp
++  superinstr.cpp
+   helper.cpp
+   executor.cpp
+   coredump.cpp
+diff --git a/lib/executor/engine/variableInstr.cpp b/lib/executor/engine/variableInstr.cpp
+index 105ac6a..30bd9c5 100644
+--- a/lib/executor/engine/variableInstr.cpp
++++ b/lib/executor/engine/variableInstr.cpp
+@@ -8,6 +8,16 @@
+ namespace WasmEdge {
+ namespace Executor {
+ 
++Expect<void> Executor::runLocalGetI32ConstAddOp(
++    Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
++    AST::InstrView::iterator &PC) const noexcept {
++  const uint32_t Base =
++      StackMgr.getTopN(Instr.getInternalArgument2()).get<uint32_t>();
++  StackMgr.push(Base + Instr.getInternalArgument0());
++  PC += 2;
++  return {};
++}
++
+ Expect<void> Executor::runLocalGetOp(Runtime::StackManager &StackMgr,
+                                      uint32_t StackOffset) const noexcept {
+   StackMgr.push(StackMgr.getTopN(StackOffset));
+diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
+index 783106e..c1cca67 100644
+--- a/lib/executor/engine/engine.cpp
++++ b/lib/executor/engine/engine.cpp
+@@ -16,6 +16,32 @@ using namespace std::literals;
+ namespace WasmEdge {
+ namespace Executor {
+ 
++namespace {
++
++uint32_t getInstructionCountUnits(OpCode Code) noexcept {
++  switch (Code) {
++  case OpCode::Internal__LocalGetI32ConstAdd:
++    return 3U;
++  default:
++    return 1U;
++  }
++}
++
++uint64_t getInstructionCost(const Statistics::Statistics &Stat,
++                            OpCode Code) noexcept {
++  const auto CostTable = Stat.getCostTable();
++  switch (Code) {
++  case OpCode::Internal__LocalGetI32ConstAdd:
++    return CostTable[uint16_t(OpCode::Local__get)] +
++           CostTable[uint16_t(OpCode::I32__const)] +
++           CostTable[uint16_t(OpCode::I32__add)];
++  default:
++    return CostTable[uint16_t(Code)];
++  }
++}
++
++} // namespace
++
+ Expect<void> Executor::runExpression(Runtime::StackManager &StackMgr,
+                                      AST::InstrView Instrs) {
+   return execute(StackMgr, Instrs.begin(), Instrs.end());
+@@ -271,6 +297,8 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
+     }
+ 
+     // Variable Instructions
++    case OpCode::Internal__LocalGetI32ConstAdd:
++      return runLocalGetI32ConstAddOp(StackMgr, Instr, PC);
+     case OpCode::Local__get:
+       return runLocalGetOp(StackMgr, Instr.getStackOffset());
+     case OpCode::Local__set:
+@@ -2110,11 +2138,13 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
+     if (Stat) {
+       OpCode Code = PC->getOpCode();
+       if (Conf.getStatisticsConfigure().isInstructionCounting()) {
+-        Stat->incInstrCount();
++        for (uint32_t I = 0, N = getInstructionCountUnits(Code); I < N; ++I) {
++          Stat->incInstrCount();
++        }
+       }
+       // Add cost. Note: if-else case should be processed additionally.
+       if (Conf.getStatisticsConfigure().isCostMeasuring()) {
+-        if (unlikely(!Stat->addInstrCost(Code))) {
++        if (unlikely(!Stat->addCost(getInstructionCost(*Stat, Code)))) {
+           const AST::Instruction &Instr = *PC;
+           spdlog::error(
+               ErrInfo::InfoInstruction(Instr.getOpCode(), Instr.getOffset()));
+diff --git a/lib/executor/superinstr.cpp b/lib/executor/superinstr.cpp
+new file mode 100644
+index 0000000..006cb87
+--- /dev/null
++++ b/lib/executor/superinstr.cpp
+@@ -0,0 +1,31 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2019-2024 Second State INC
++
++#include "runtime/instance/function.h"
++
++namespace WasmEdge {
++namespace Runtime {
++namespace Instance {
++
++void FunctionInstance::fuseSuperInstructions(AST::InstrVec &Instrs) noexcept {
++  for (size_t I = 0; I + 2 < Instrs.size(); ++I) {
++    if (Instrs[I].getOpCode() != OpCode::Local__get ||
++        Instrs[I + 1].getOpCode() != OpCode::I32__const ||
++        Instrs[I + 2].getOpCode() != OpCode::I32__add) {
++      continue;
++    }
++
++    AST::Instruction Fused(OpCode::Internal__LocalGetI32ConstAdd,
++                           Instrs[I].getOffset());
++    Fused.getInternalArgument0() = Instrs[I + 1].getNum().get<uint32_t>();
++    Fused.getInternalArgument2() = Instrs[I].getStackOffset();
++    Instrs[I] = std::move(Fused);
++    Instrs[I + 1] = AST::Instruction(OpCode::Nop, Instrs[I + 1].getOffset());
++    Instrs[I + 2] = AST::Instruction(OpCode::Nop, Instrs[I + 2].getOffset());
++    I += 2;
++  }
++}
++
++} // namespace Instance
++} // namespace Runtime
++} // namespace WasmEdge

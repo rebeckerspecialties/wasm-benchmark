@@ -142,6 +142,33 @@ BenchReport bench_run_vtable_poly6_wasm3(void);
 BenchReport bench_run_graphql_validation_as_wasm3(void);
 BenchReport bench_run_graphql_validation_porf_wasm3(void);
 
+// WasmEdge — pure interpreter (WASMEDGE_USE_LLVM=OFF + 27-patch
+// Apple-mobile enablement stack). Incumbent runtime for the user's
+// WatchOS audio app; canonical comparison target. Unlike WAMR,
+// WasmEdge's interpreter has SIMD + exceptions enabled together, so
+// graphql-validation Porffor loads successfully (host-import trap is
+// the next blocker, handled the same way Pulley/WAMR handle it).
+uint8_t bench_init_wasmedge(void);
+
+BenchReport bench_run_fib_wasmedge(int32_t n);
+BenchReport bench_run_fib_tail_wasmedge(int32_t n);
+BenchReport bench_run_factorial_wasmedge(int32_t n);
+BenchReport bench_run_sieve_wasmedge(int32_t n);
+BenchReport bench_run_crc32_wasmedge(void);
+BenchReport bench_run_matmul_simd_wasmedge(void);
+BenchReport bench_run_matmul_fma_wasmedge(void);
+BenchReport bench_run_convolution_wasmedge(void);
+BenchReport bench_run_audio_dsp_wasmedge(void);
+BenchReport bench_run_bulk_memory_wasmedge(void);
+BenchReport bench_run_call_indirect_wasmedge(void);
+BenchReport bench_run_xmrsplayer_wasmedge(void);
+BenchReport bench_run_vtable_mono_wasmedge(void);
+BenchReport bench_run_vtable_bi_wasmedge(void);
+BenchReport bench_run_vtable_poly4_wasmedge(void);
+BenchReport bench_run_vtable_poly6_wasmedge(void);
+BenchReport bench_run_graphql_validation_as_wasmedge(void);
+BenchReport bench_run_graphql_validation_porf_wasmedge(void);
+
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.
 void bench_free_error_msg(char *ptr);

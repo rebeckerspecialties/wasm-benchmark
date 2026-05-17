@@ -53,8 +53,9 @@ Launch_*
 /scripts/__pycache__/
 
 # --- Per-target build dirs inside submodules ---
-# Created by scripts/build-{wamr,wasm3}.sh; output static libs land
-# here. Reproducible from the submodule HEAD + the build script, so no
-# need to track them.
+# Created by scripts/build-{wamr,wasm3,wasmedge}.sh; output static
+# libs land here. Reproducible from the patched submodule HEAD + the
+# build script, so no need to track them.
 /wasm-micro-runtime/product-mini/platforms/*/build*/
 /wasm3/build*/
+/WasmEdge/build*/

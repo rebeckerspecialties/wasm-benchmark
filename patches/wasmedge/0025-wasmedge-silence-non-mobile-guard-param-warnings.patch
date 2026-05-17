@@ -1,0 +1,21 @@
+diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
+index 2d3afe0..5a17ace 100644
+--- a/lib/system/allocator.cpp
++++ b/lib/system/allocator.cpp
+@@ -162,6 +162,8 @@ Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,
+   bool UsedGuardPageBoundsCheck = false;
+   uint8_t *Result = nullptr;
+   uint64_t ReservedBytes = 0;
++  (void)ReservedPageCount;
++  (void)GuardPageBytes;
+ 
+   if (AllowGuardPageBoundsCheck) {
+ #if WASMEDGE_OS_WINDOWS
+@@ -241,6 +243,7 @@ WASMEDGE_EXPORT uint8_t *Allocator::resize(uint8_t *Pointer,
+ WASMEDGE_EXPORT void
+ Allocator::release(uint8_t *Pointer, bool GuardPageBoundsCheck,
+                    uint64_t GuardedReservationBytes) noexcept {
++  (void)GuardedReservationBytes;
+   if (Pointer == nullptr) {
+     return;
+   }

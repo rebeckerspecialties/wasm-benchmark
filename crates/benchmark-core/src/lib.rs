@@ -48,6 +48,32 @@ pub mod wamr {
     }
 }
 
+#[cfg(have_wasmedge)]
+pub mod wasmedge;
+#[cfg(not(have_wasmedge))]
+pub mod wasmedge {
+    use crate::RunReport;
+    use anyhow::{anyhow, Result};
+    pub fn init() -> Result<()> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
+    pub fn run_workload_wasmedge(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
+    pub fn run_workload_wasmedge_iters(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+        _iters: u32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
+}
+
 #[cfg(have_wasm3)]
 pub mod wasm3;
 // Stub for targets without libm3.a — same shape as the WAMR stub above.
@@ -89,6 +115,7 @@ pub enum Runtime {
     Pulley = 0,
     Wamr = 1,
     Wasm3 = 2,
+    WasmEdge = 3,
 }
 
 // ---- Apple `task_info` thin wrapper for CPU time / RSS / page faults ----
@@ -401,6 +428,7 @@ pub fn run_workload_with(
         Runtime::Pulley => run_workload(wasm_bytes, fn_name, arg),
         Runtime::Wamr => wamr::run_workload_wamr(wasm_bytes, fn_name, arg),
         Runtime::Wasm3 => wasm3::run_workload_wasm3(wasm_bytes, fn_name, arg),
+        Runtime::WasmEdge => wasmedge::run_workload_wasmedge(wasm_bytes, fn_name, arg),
     }
 }
 
@@ -1300,6 +1328,130 @@ pub extern "C" fn bench_run_graphql_validation_as_wasm3() -> BenchReport {
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_porf_wasm3() -> BenchReport {
     report_from(wasm3::run_workload_wasm3(
+        GRAPHQL_VALIDATION_PORF_WASM,
+        "m",
+        0,
+    ))
+}
+
+// ---------------------------------------------------------------------
+// WasmEdge — pure-interpreter mode (WASMEDGE_USE_LLVM=OFF) with the
+// 27-patch Apple-mobile enablement stack. Unlike WAMR, WasmEdge's
+// interpreter supports SIMD + wasm-exceptions simultaneously, so
+// Porffor's graphql-validation should run on this path (subject to the
+// host-print import; the runner uses no imports, so it'll trap on the
+// missing import — same shape as Pulley would without the host stub).
+// ---------------------------------------------------------------------
+
+/// Initialize WasmEdge. No process-global state to set up — kept
+/// symmetrical with `bench_init_wamr` / `bench_init_wasm3`. Returns 1
+/// if WasmEdge is linked into this build, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_init_wasmedge() -> u8 {
+    match wasmedge::init() {
+        Ok(()) => 1,
+        Err(_) => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_fib_wasmedge(n: i32) -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(FIB_WASM, "fib", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_fib_tail_wasmedge(n: i32) -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(FIB_TAIL_WASM, "fib_tail", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_factorial_wasmedge(n: i32) -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(FACTORIAL_WASM, "factorial", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_sieve_wasmedge(n: i32) -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(SIEVE_WASM, "sieve", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_crc32_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(CRC32_WASM, "crc32", 0xC0FFEE))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_matmul_simd_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_matmul_fma_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_convolution_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(CONVOLUTION_WASM, "convolve", 0xCAFE))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_audio_dsp_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_bulk_memory_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_call_indirect_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_xmrsplayer_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(XMRSPLAYER_WASM, "play_buffer", 0))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_mono_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_bi_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly4_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly6_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_as_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(
+        GRAPHQL_VALIDATION_AS_WASM,
+        "validate_once",
+        0,
+    ))
+}
+
+/// graphql-validation Porffor on WasmEdge. Unlike WAMR, WasmEdge's
+/// interpreter has both SIMD and wasm-exceptions enabled simultaneously,
+/// so the load should succeed. The wasm imports a `b` print function
+/// in module `""`; we don't register a host stub here yet, so the call
+/// will trap on missing import — log surfaces the import-name from the
+/// WasmEdge error string. Wiring the host stub is a follow-up.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_porf_wasmedge() -> BenchReport {
+    report_from(wasmedge::run_workload_wasmedge(
         GRAPHQL_VALIDATION_PORF_WASM,
         "m",
         0,

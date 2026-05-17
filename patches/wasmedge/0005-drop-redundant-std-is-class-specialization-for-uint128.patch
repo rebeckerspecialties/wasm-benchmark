@@ -1,0 +1,16 @@
+diff --git a/include/common/int128.h b/include/common/int128.h
+index 23f567b92c9b800991a98e21469876400f400a43..be416807e9e772b69f8bc188f4fa30cb99f51f6c 100644
+--- a/include/common/int128.h
++++ b/include/common/int128.h
+@@ -540,11 +540,6 @@ public:
+ };
+ } // namespace std
+ 
+-#include <type_traits>
+-namespace std {
+-template <> struct is_class<WasmEdge::uint128> : std::true_type {};
+-} // namespace std
+-
+ namespace WasmEdge {
+ // If there is a built-in type __int128, then use it directly
+ #if defined(__x86_64__) || defined(__aarch64__) ||                             \
