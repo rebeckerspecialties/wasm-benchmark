@@ -166,6 +166,41 @@ pub fn run_workload_wasmedge_iters(
     arg: i32,
     iters: u32,
 ) -> Result<RunReport> {
+    // arm64_32-apple-watchos: WasmEdge_VMInstantiate consistently SIGTRAPs
+    // on Watch SE2 S8 hardware. Traced via per-step `eprintln!` markers
+    // in this adapter: ConfigureCreate ✓, VMCreate ✓, LoadWasmFromBytes
+    // ✓, Validate ✓, Instantiate → BRK (SIGTRAP). Likely an
+    // `assuming(x)` in lib/executor/instantiate/* that's false on the
+    // 32-bit ABI — `assuming()` in NDEBUG builds is
+    // `x ? : __builtin_unreachable()`, which clang/arm64_32 compiles to
+    // a brk. The Apple-mobile guarded allocator path is already
+    // disabled on arm64_32 via patches/wasmedge/0028, but the trap is
+    // beyond the allocator — somewhere in module instantiation
+    // pointer math. Returning a clean error here is what keeps the
+    // rest of the watch benchmark suite from aborting; a follow-up
+    // WasmEdge patch is required to actually run workloads on
+    // arm64_32-apple-watchos.
+    #[cfg(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64")))]
+    {
+        let _ = (wasm_bytes, fn_name, arg, iters);
+        return Err(anyhow!(
+            "WasmEdge VMInstantiate SIGTRAPs on arm64_32-apple-watchos \
+             (assuming(x) UB in instantiate path beyond the allocator); \
+             needs a follow-up patch — see crates/benchmark-core/src/wasmedge.rs"
+        ));
+    }
+    #[cfg(not(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64"))))]
+    {
+        run_workload_wasmedge_iters_inner(wasm_bytes, fn_name, arg, iters)
+    }
+}
+
+fn run_workload_wasmedge_iters_inner(
+    wasm_bytes: &[u8],
+    fn_name: &str,
+    arg: i32,
+    iters: u32,
+) -> Result<RunReport> {
     init()?;
 
     let load_start = Instant::now();
