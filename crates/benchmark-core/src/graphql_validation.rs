@@ -162,9 +162,17 @@ fn make_engine() -> Result<Engine> {
     config.relaxed_simd_deterministic(false);
     config.wasm_tail_call(true);
     config.wasm_bulk_memory(true);
-    // Porffor compiles JS try/catch to wasm exceptions, so enable that
-    // proposal. AS doesn't use it but the flag is harmless when not used.
+    // Porffor compiles JS try/catch to the LEGACY (phase-3) wasm-eh
+    // proposal — `try` / `catch tag` / `throw tag`. The new (phase-4)
+    // `try_table` / `throw_ref` proposal isn't used by Porffor, but
+    // enable both so the AS workload (which uses neither) keeps
+    // loading regardless of future default changes. The legacy flag
+    // is marked deprecated upstream ("internal use with spec
+    // testsuite") but it's the only way to make Porffor's output
+    // load on wasmtime.
     config.wasm_exceptions(true);
+    #[allow(deprecated)]
+    config.wasm_legacy_exceptions(true);
     // Default `memory_reservation` is 4 GiB (the wasm32 address-space cap),
     // which `mmap` rejects on memory-constrained mobile (iPhone XS / Apple
     // Watch SE2). Drop to 64 MiB — comfortably above what either workload

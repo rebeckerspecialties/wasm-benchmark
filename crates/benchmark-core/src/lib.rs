@@ -394,6 +394,32 @@ pub const GRAPHQL_VALIDATION_PORF_WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../workloads/graphql-validation-porf.wasm"
 ));
+/// "Accurate" Porffor variant — the same JS source, but the JS
+/// `validate()` wraps `visit()` in a real try/catch / abortObj
+/// sentinel pattern (mirrors graphql-js's `validation/validate.mjs`).
+/// Compiles to wasm with **1 try + 1 catch 0 + 605 throws** (vs the
+/// "production" wasm above which has 0/0/561). Currently fails to load
+/// on every runtime in our matrix:
+///
+/// - **Pulley** — Cranelift lowers legacy `try`/`catch`, but the Pulley
+///   target doesn't ("Unsupported feature: operator Try"). Cranelift
+///   itself is JIT-only and disqualified for our pure-interpreter
+///   matrix. Tracked at rebeckerspecialties/wasmtime branch
+///   `accurate-graphql-needs-legacy-exceptions`.
+/// - **WAMR fast-interp** — our throw-only EH PR
+///   (rebeckerspecialties/wasm-micro-runtime#1) doesn't handle CATCH
+///   in normal flow. Full-spec impl tracked in AGENTS.md.
+/// - **WasmEdge interpreter / wasm3 / zwasm / wasmz** — none parse the
+///   legacy try/catch opcodes today.
+///
+/// Kept here as the **integration test target** for the WAMR fast-
+/// interp full-spec EH PR (next session). When that lands, this wasm
+/// will load + run + return `result=0` matching cross-runtime
+/// consensus, proving the spec implementation is correct.
+pub const GRAPHQL_VALIDATION_PORF_ACCURATE_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/graphql-validation-porf-accurate.wasm"
+));
 /// Real-world `call_indirect`-shaped workload: the `xmrsplayer` Rust
 /// soundtracker player rendering `unreal.s3m` (a Scream Tracker 3
 /// module) at 44 100 Hz stereo to a null sound driver. ~340 KB
@@ -523,6 +549,14 @@ pub fn run_workload_iters(
     config.wasm_tail_call(true);
     // Bulk memory is default-on; explicit for the bulk_memory workload.
     config.wasm_bulk_memory(true);
+    // Legacy wasm-eh (phase-3) — Porffor lowers JS try/catch to the
+    // legacy `try`/`catch tag` opcodes. The wasmtime API for this is
+    // marked deprecated upstream ("internal usage with the spec
+    // testsuite") but it's the only way to make our Porffor-compiled
+    // graphql-validation workload load. The new (phase-4) `try_table`
+    // proposal isn't relevant: Porffor doesn't emit it.
+    #[allow(deprecated)]
+    config.wasm_legacy_exceptions(true);
     // Note: `wasm_reference_types` is gated behind wasmtime's `gc` feature
     // (which we don't enable). The plain wasm 1.0 `call_indirect` op our
     // workload uses works fine without it.
