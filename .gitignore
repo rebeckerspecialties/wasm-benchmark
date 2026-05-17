@@ -11,10 +11,10 @@
 **/DerivedData*/
 *.dSYM/
 
-# --- wasmtime working clone ---
-# 47 GB working clone, not a submodule (multiple active branches, too heavy
-# for fresh-clone reproducibility). Set up per AGENTS.md → wasmtime section.
-/wasmtime/
+# --- wasmtime is a submodule now (rebeckerspecialties/wasmtime) ---
+# Build artifacts inside wasmtime/ stay gitignored — only `target/` is
+# the offender (~70 GB on a populated build). The .git itself is ~170 MB.
+/wasmtime/target/
 
 # --- Experiment outputs (large, mostly machine-generated) ---
 # All raw trace bundles, large XML exports, run logs, and intermediate

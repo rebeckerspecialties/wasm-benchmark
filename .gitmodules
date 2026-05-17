@@ -27,3 +27,7 @@
 [submodule "zwasm"]
 	path = zwasm
 	url = https://github.com/clojurewasm/zwasm.git
+[submodule "wasmtime"]
+	path = wasmtime
+	url = https://github.com/rebeckerspecialties/wasmtime.git
+	branch = accurate-graphql-needs-legacy-exceptions

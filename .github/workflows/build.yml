@@ -1,0 +1,88 @@
+name: build
+
+# Reproducibility smoke-test: a fresh GitHub-runner checkout should be
+# able to (a) clone every submodule we depend on, (b) apply each
+# runtime's patch series via scripts/build-<runtime>.sh, (c) compile
+# the benchmark-core static lib for at least the macOS host target,
+# and (d) link the macOS app variant. This proves the build can be
+# recreated from source on a machine that didn't run our session.
+#
+# Device-side targets (iOS / watchOS / tvOS) need real Apple hardware
+# to install + run, so they're not exercised here — but the static-lib
+# CROSS builds for those targets ARE exercised, so we'd catch a
+# broken target / patch / submodule pin before it landed on main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build (macOS host + cross targets)
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out wasm-benchmark with all submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install pinned rustup toolchains
+        run: |
+          rustup toolchain install 1.94.1 --component rust-src
+          rustup toolchain install nightly-2026-01-25 --component rust-src
+          # Tier-1/2 targets we cross-build for.
+          rustup target add --toolchain 1.94.1 \
+            aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim \
+            wasm32-unknown-unknown
+          # Tier-3 watchOS/tvOS use build-std; nothing to add via target.
+
+      - name: Install build deps (cmake, ninja, zig 0.16)
+        run: |
+          brew install cmake ninja zig
+
+      - name: Build wasm workloads
+        run: ./scripts/build-workloads.sh
+
+      - name: Build WAMR (macOS) — applies any patches/wasm-micro-runtime/
+        run: ./scripts/build-wamr.sh macos
+
+      - name: Build wasm3 (macOS) — applies patches/wasm3/0001 (v128 opaque)
+        run: ./scripts/build-wasm3.sh macos
+
+      - name: Build wasmz (macOS) — applies patches/wasmz/{0001 stdlib port, 0002 watchos}
+        run: ./scripts/build-wasmz.sh macos
+
+      - name: Build zwasm (macOS) — applies patches/zwasm/0001 watchos
+        run: ./scripts/build-zwasm.sh macos
+
+      - name: Build WasmEdge (macOS) — applies 27-patch series in patches/wasmedge/
+        run: ./scripts/build-wasmedge.sh macos
+
+      - name: Build benchmark-core static lib (macOS host)
+        run: ./scripts/build-lib.sh macos
+
+      - name: Build benchmark-core static lib (iOS device cross-build)
+        run: ./scripts/build-lib.sh ios
+
+      - name: Build benchmark-core static lib (iOS simulator cross-build)
+        run: ./scripts/build-lib.sh ios-sim
+
+      - name: Build WAMR (iOS) — confirms patch series applies cleanly cross-target
+        run: ./scripts/build-wamr.sh ios
+
+      - name: Build wasmz + zwasm for arm64_32-apple-watchos — the patches we cared about
+        run: |
+          ./scripts/build-wasmz.sh watchos
+          ./scripts/build-zwasm.sh watchos
+
+      - name: Build WAMR + benchmark-core for arm64_32-apple-watchos
+        run: |
+          ./scripts/build-wamr.sh watchos
+          ./scripts/build-lib.sh watchos
+
+      - name: Build all native test binaries (validates harness wiring)
+        run: cargo build --release -p benchmark-core --bins

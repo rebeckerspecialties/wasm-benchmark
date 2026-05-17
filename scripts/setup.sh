@@ -3,13 +3,25 @@
 # Idempotent — safe to run repeatedly.
 #
 # Does:
-#   1. Init submodules (mach2, target-lexicon, wasm-micro-runtime,
-#      porffor, sightglass) — pinned per .gitmodules. mach2 and
-#      target-lexicon are on the fork's arm64_32-apple-watchos
-#      branch so they ship with our patches already applied. The
-#      `patches/` directory in this repo is the same content in
-#      patch-file form for upstream-PR drafting; you do NOT need to
-#      apply them.
+#   1. Init submodules. All runtime sources live as submodules now —
+#      target-lexicon, mach2, wasmtime, wasm-micro-runtime, wasm3,
+#      WasmEdge, wasmz, zwasm, porffor, sightglass — each pinned per
+#      .gitmodules to a specific SHA. CI runs `git submodule update
+#      --init --recursive` and reproduces the source state exactly.
+#
+#      Three submodules point at rebeckerspecialties forks because the
+#      patches haven't landed upstream yet:
+#        - target-lexicon (arm64_32-apple-watchos branch)
+#        - mach2 (arm64_32-apple-watchos branch)
+#        - wasmtime (accurate-graphql-needs-legacy-exceptions branch
+#          — stacks Pulley fusion phases 1-4 + the
+#          wasm_legacy_exceptions feature-known fix)
+#
+#      The rest point at upstream pinned SHAs with our patches applied
+#      at build time from `patches/<runtime>/` via
+#      `scripts/apply_patch_series.sh` (called by each
+#      `scripts/build-<runtime>.sh`). The build scripts are idempotent
+#      — they reset the submodule to its pinned HEAD before applying.
 #
 #   2. Verify rustup toolchains. Pinned:
 #        * 1.94.1            — default stable
@@ -17,10 +29,6 @@
 #                              `become` Pulley dispatch
 #
 #   3. Verify rustup targets. Adds them if missing.
-#
-#   4. Optionally clone the wasmtime working clone if absent. It's
-#      gitignored (47 GB, multiple active branches — see AGENTS.md →
-#      wasmtime section). Skip with NO_WASMTIME_CLONE=1.
 
 set -uo pipefail
 
@@ -72,23 +80,17 @@ done
 # build-std; nothing to install via rustup target.
 
 echo
-echo "==> 4. wasmtime working clone"
-if [[ -d "${ROOT}/wasmtime/.git" || -f "${ROOT}/wasmtime/.git" ]]; then
-  echo "    wasmtime/ present"
-elif [[ -n "${NO_WASMTIME_CLONE:-}" ]]; then
-  echo "    wasmtime/ not present; NO_WASMTIME_CLONE set, skipping"
-else
-  echo "    wasmtime/ not present, cloning fork at PR #2 branch..."
-  echo "    (set NO_WASMTIME_CLONE=1 to skip; you can also clone manually:"
-  echo "       git clone --branch table-mutability-tracking \\"
-  echo "         git@github.com:rebeckerspecialties/wasmtime.git wasmtime"
-  echo "    then add bytecodealliance upstream as 'origin' for fetches)"
-  git clone --branch table-mutability-tracking \
-    https://github.com/rebeckerspecialties/wasmtime.git wasmtime
-fi
-
-echo
 echo "==> Setup complete. Next:"
-echo "    ./scripts/build-workloads.sh     # builds workloads/*.wasm"
-echo "    ./scripts/build-lib.sh macos     # builds benchmark-core .a"
-echo "    cargo build --release --bin run_dispatch_workloads"
+echo "    ./scripts/build-workloads.sh           # builds workloads/*.wasm"
+echo "    ./scripts/build-wamr.sh macos          # builds WAMR fast-interp .a"
+echo "    ./scripts/build-wasm3.sh macos         # builds wasm3 .a"
+echo "    ./scripts/build-wasmedge.sh macos      # builds WasmEdge .a (slow)"
+echo "    ./scripts/build-wasmz.sh macos         # builds wasmz .a"
+echo "    ./scripts/build-zwasm.sh macos         # builds zwasm .a"
+echo "    ./scripts/build-lib.sh macos           # builds benchmark-core .a"
+echo "    cargo build --release -p benchmark-core"
+echo
+echo "    The build scripts above each call apply_patch_series.sh to"
+echo "    apply their patches/<runtime>/ stack to the submodule before"
+echo "    the upstream build. The scripts are idempotent — they reset"
+echo "    the submodule to its pinned HEAD first."
