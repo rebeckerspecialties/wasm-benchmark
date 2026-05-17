@@ -182,13 +182,18 @@ WasmEdge/                WasmEdge submodule pinned at 3ad922d6 (the
                          output dirs same convention as wasm3 / WAMR.
 zwasm/                   clojurewasm/zwasm submodule. Built via
                          scripts/build-zwasm.sh with `-Djit=false`.
-                         No arm64_32 target.
-wasmz/                   Ray-D-Song/wasmz submodule. Currently builds
-                         no static lib — wasmz source uses Zig 0.15
-                         stdlib APIs that don't exist in Zig 0.16, and
-                         Zig 0.15 itself crashes on macOS 26 Tahoe.
-                         Kept here so the port is a single follow-up
-                         step away. See "Skipped runtimes" below.
+                         arm64_32-apple-watchos device support carried
+                         in patches/zwasm/0001-arm64_32-apple-watchos-
+                         support.patch (single_threaded static lib +
+                         ILP32 narrowing fixes + self-contained panic).
+wasmz/                   Ray-D-Song/wasmz submodule. Carried as a
+                         Zig-0.16 port (patches/wasmz/0001-zig-0.16-
+                         stdlib-port.patch) since wasmz pins Zig 0.15.2
+                         and Zig 0.15 segfaults on macOS 26 Tahoe.
+                         arm64_32-apple-watchos device support added in
+                         patches/wasmz/0002-arm64_32-apple-watchos-
+                         support.patch (single_threaded + self-
+                         contained panic / logFn).
 patches/                 Out-of-tree patch series. Currently
                          patches/wasmedge/0001-0027 — Apple-mobile
                          memory-guard fallbacks + interpreter
@@ -495,19 +500,31 @@ The harness builds against **five** comparison runtimes alongside Pulley:
    covering `std.meta.intToEnum` → `std.enums.fromInt`, `posix.PROT`
    packed-struct migration, `std.Thread.Mutex/Condition` API churn,
    `Target.Os.Tag.solaris` → `.illumos`, and a static-lib build step).
-   Same arm64_32-apple-watchos exclusion as zwasm (no Zig target),
-   same iOS dyld-stub + 8 MiB-stack workarounds.
+   arm64_32-apple-watchos is enabled via
+   `patches/wasmz/0002-arm64_32-apple-watchos-support.patch`
+   (`single_threaded = true` for the static lib + a self-contained
+   `panic` / `logFn` in src/capi.zig to avoid pulling
+   `std.Io.Threaded`, which doesn't compile under ILP32). Same iOS
+   dyld-stub + 8 MiB-stack workarounds.
 5. **zwasm** (`zwasm/` submodule, `libzwasm.a`) — clojurewasm's Zig
    runtime built `-Djit=false`. Zig 0.16 cross-compiles cleanly to
    `aarch64-ios` / `aarch64-tvos` / `aarch64-watchos-simulator` /
-   `aarch64-macos`. arm64_32-apple-watchos has **no Zig target** so the
-   device-watch path is structurally unavailable and the rows return
-   ERROR there. Needs a dedicated 8 MiB-stack thread
-   (`std::thread::Builder::stack_size`) because Zig's load path
-   overflows the 272 KiB Swift dispatch worker stack; also needs a
-   tiny weak `_dyld_get_image_header_containing_address` stub on
-   iOS/tvOS/watchOS (Zig's panic-stackwalk references a dyld symbol
-   that's in dyld at runtime but missing from Apple's mobile TBDs).
+   `aarch64-macos`. arm64_32-apple-watchos is enabled via
+   `patches/zwasm/0001-arm64_32-apple-watchos-support.patch`
+   (`single_threaded = true` + self-contained `panic` / `logFn` in
+   src/c_api.zig + ILP32 narrowing fixes: 4 / 8 GiB guard constants
+   gated on `@sizeOf(usize) >= 8`, `@intCast(u64 → usize)` for
+   `Memory.read` / `write` and the v128 narrow-load loop, skipped
+   auto-init of `std.Io.Threaded` in `types.zig.loadCore` —
+   non-WASI workloads never deref the io vtable). Zig 0.16 spells
+   the triple `aarch64-watchos-ilp32` (legacy `arm64_32-` arch was
+   removed in ziglang/zig PR #20820). Needs a dedicated 8 MiB-stack
+   thread (`std::thread::Builder::stack_size`) because Zig's load
+   path overflows the 272 KiB Swift dispatch worker stack; also
+   needs a tiny weak `_dyld_get_image_header_containing_address`
+   stub on iOS/tvOS/watchOS (Zig's panic-stackwalk references a
+   dyld symbol that's in dyld at runtime but missing from Apple's
+   mobile TBDs).
 
 ### Device-side stabilization status (2026-05-16)
 
@@ -520,7 +537,7 @@ adapter-level arm64_32-WE skip:
 | iPhone 12 | A14 Icestorm, aarch64-apple-ios | **all 6** (Pulley, WAMR, wasm3, WasmEdge, zwasm, wasmz) |
 | iPhone XS Max | A12 Tempest, aarch64-apple-ios | **all 6** |
 | iPhone 16 Pro Max | A18 Pro, aarch64-apple-ios | **all 6** |
-| Watch SE2 | S8, arm64_32-apple-watchos | Pulley, WAMR, wasm3 run all 7 watch-filter workloads cleanly; WasmEdge / zwasm / wasmz rows return clean ERROR (WasmEdge: arm64_32 instantiate trap, see follow-up note; zwasm / wasmz: Zig 0.16 has no arm64_32 target) |
+| Watch SE2 | S8, arm64_32-apple-watchos | Pulley, WAMR, wasm3 run all 7 watch-filter workloads cleanly; **wasmz + zwasm init: ok** on device (verified 2026-05-16 via WatchKit app + new patches) and contribute their adapter rows; WasmEdge row still returns clean ERROR (`brk #1` inside `WasmEdge_VMInstantiate` on arm64_32 — adapter short-circuits; debug-build follow-up pending) |
 | Apple TV 4K | A12, aarch64-apple-tvos | not retested in this round (skipped per user direction) |
 | iPhone 16 Pro Max + Apple TV further runs | — | skipped per user direction; iPhone 16 was validated once at fib-only filter and showed all 6 runtimes returning fib(30)=832040 |
 
@@ -565,7 +582,7 @@ structural disadvantage.
 |---|---|
 | **wasmer** | All backends (Singlepass, Cranelift, LLVM) are JIT — emit native code at runtime and require MAP_JIT. No pure-interpreter backend. Cannot ship on iOS / watchOS / tvOS. |
 | **Silverfir-nano** (`mbbill/Silverfir-nano`) | Self-describes as a "compact optimizing WebAssembly 3.0 **JIT**"; JIT is mandatory, no interpreter mode. Disqualified. |
-| **wasmz** (`Ray-D-Song/wasmz`) | Source pins `minimum_zig_version = "0.15.2"` (its build.zig uses `std.meta.intToEnum`, `Target.Os.Tag.solaris`, and other Zig-0.15-only stdlib APIs). On macOS 26 Tahoe, Zig 0.15.1 + 0.15.2 segfault even when building a trivial `zig init` — their build runner has unresolved libSystem symbols (`_realpath$DARWIN_EXTSN`, `_sigaction`, ...) at link time. Zig 0.16 works as a build runner on macOS 26 but rejects ~21 wasmz source files. Porting wasmz to Zig 0.16 stdlib (≈25 mechanical edits) is a self-contained follow-up; deferred. |
+| **wasmz** (`Ray-D-Song/wasmz`) | Source pins `minimum_zig_version = "0.15.2"` (its build.zig uses `std.meta.intToEnum`, `Target.Os.Tag.solaris`, and other Zig-0.15-only stdlib APIs). On macOS 26 Tahoe, Zig 0.15.1 + 0.15.2 segfault even when building a trivial `zig init` — their build runner has unresolved libSystem symbols (`_realpath$DARWIN_EXTSN`, `_sigaction`, ...) at link time. Carried as the Zig 0.16 port in `patches/wasmz/0001-zig-0.16-stdlib-port.patch` (≈25 mechanical stdlib edits); arm64_32-apple-watchos device support added via `patches/wasmz/0002-arm64_32-apple-watchos-support.patch`. **No longer skipped** — wasmz is one of the 5 on-device runtimes on all targets including Watch SE2. |
 
 **Current phase-4 Pulley/WAMR wallclock ratios (lower = closer)**:
 
