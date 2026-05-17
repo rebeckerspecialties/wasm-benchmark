@@ -117,6 +117,31 @@ BenchReport bench_run_bulk_memory_wamr(void);
 BenchReport bench_run_call_indirect_wamr(void);
 BenchReport bench_run_xmrsplayer_wamr(void);
 
+// wasm3 (m3 pure C interpreter) path. No SIMD support; matmul_simd,
+// matmul_fma, and graphql-validation Porffor will load-fail and the
+// row reports ERROR (treat as data: "wasm3's interp can't run this
+// shape"). bench_init_wasm3 is a no-op kept symmetrical to bench_init_wamr.
+uint8_t bench_init_wasm3(void);
+
+BenchReport bench_run_fib_wasm3(int32_t n);
+BenchReport bench_run_fib_tail_wasm3(int32_t n);
+BenchReport bench_run_factorial_wasm3(int32_t n);
+BenchReport bench_run_sieve_wasm3(int32_t n);
+BenchReport bench_run_crc32_wasm3(void);
+BenchReport bench_run_matmul_simd_wasm3(void);
+BenchReport bench_run_matmul_fma_wasm3(void);
+BenchReport bench_run_convolution_wasm3(void);
+BenchReport bench_run_audio_dsp_wasm3(void);
+BenchReport bench_run_bulk_memory_wasm3(void);
+BenchReport bench_run_call_indirect_wasm3(void);
+BenchReport bench_run_xmrsplayer_wasm3(void);
+BenchReport bench_run_vtable_mono_wasm3(void);
+BenchReport bench_run_vtable_bi_wasm3(void);
+BenchReport bench_run_vtable_poly4_wasm3(void);
+BenchReport bench_run_vtable_poly6_wasm3(void);
+BenchReport bench_run_graphql_validation_as_wasm3(void);
+BenchReport bench_run_graphql_validation_porf_wasm3(void);
+
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.
 void bench_free_error_msg(char *ptr);

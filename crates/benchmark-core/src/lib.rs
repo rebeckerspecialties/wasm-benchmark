@@ -43,19 +43,52 @@ pub mod wamr {
     ) -> Result<RunReport> {
         Err(anyhow!("WAMR not linked into this build"))
     }
+    pub fn run_graphql_validation_porf_wamr(_wasm_bytes: &[u8]) -> Result<RunReport> {
+        Err(anyhow!("WAMR not linked into this build"))
+    }
+}
+
+#[cfg(have_wasm3)]
+pub mod wasm3;
+// Stub for targets without libm3.a — same shape as the WAMR stub above.
+#[cfg(not(have_wasm3))]
+pub mod wasm3 {
+    use crate::RunReport;
+    use anyhow::{anyhow, Result};
+    pub fn init() -> Result<()> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
+    pub fn run_workload_wasm3(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
+    pub fn run_workload_wasm3_iters(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+        _iters: u32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
 }
 
 /// Which interpreter runtime to dispatch a benchmark workload through.
 ///
-/// `Pulley` is wasmtime's portable interpreter. `Wamr` is the WAMR fast
-/// interpreter (preprocessed bytecode mode). Both run the same `.wasm`
-/// modules and produce the same i32 results — the harness uses this enum
-/// to select which path to time.
+/// All are pure-interpreter (no JIT / AOT / MAP_JIT) and so are
+/// App-Store-eligible on iOS / watchOS / tvOS. `Pulley` is wasmtime's
+/// portable interpreter; `Wamr` is the WAMR fast interpreter
+/// (preprocessed bytecode mode); `Wasm3` is the wasm3 m3 interpreter
+/// (C, used as a 3rd cross-runtime data point — missing SIMD, so the
+/// matmul / Porffor / xmrsplayer rows return ERROR; that's signal).
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runtime {
     Pulley = 0,
     Wamr = 1,
+    Wasm3 = 2,
 }
 
 // ---- Apple `task_info` thin wrapper for CPU time / RSS / page faults ----
@@ -367,6 +400,7 @@ pub fn run_workload_with(
     match rt {
         Runtime::Pulley => run_workload(wasm_bytes, fn_name, arg),
         Runtime::Wamr => wamr::run_workload_wamr(wasm_bytes, fn_name, arg),
+        Runtime::Wasm3 => wasm3::run_workload_wasm3(wasm_bytes, fn_name, arg),
     }
 }
 
@@ -1153,6 +1187,123 @@ pub extern "C" fn bench_run_graphql_validation_porf_wamr() -> BenchReport {
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sqlite3() -> BenchReport {
     report_from(sqlite3::run_sqlite3(SQLITE3_WASM))
+}
+
+// ---------------------------------------------------------------------
+// wasm3 (m3) — pure C interpreter, no SIMD / no exceptions. Same
+// `(wasm_bytes, fn_name, arg)` signature as the WAMR exports above.
+// Workloads that require features wasm3 lacks (matmul_simd /
+// matmul_fma / xmrsplayer / graphql-validation-porf / sqlite3) will
+// fail at load time; that's data, not a regression — the harness
+// surfaces the wasm3 error string in the workload row.
+// ---------------------------------------------------------------------
+
+/// Initialize wasm3 (currently a no-op — wasm3 has no process-global
+/// state to set up, unlike WAMR — but exposed symmetrically so the
+/// Swift app can call all three init functions from main.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_init_wasm3() -> u8 {
+    match wasm3::init() {
+        Ok(()) => 1,
+        Err(_) => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_fib_wasm3(n: i32) -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(FIB_WASM, "fib", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_fib_tail_wasm3(n: i32) -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(FIB_TAIL_WASM, "fib_tail", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_factorial_wasm3(n: i32) -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(FACTORIAL_WASM, "factorial", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_sieve_wasm3(n: i32) -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(SIEVE_WASM, "sieve", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_crc32_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(CRC32_WASM, "crc32", 0xC0FFEE))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_matmul_simd_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_matmul_fma_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_convolution_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(CONVOLUTION_WASM, "convolve", 0xCAFE))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_audio_dsp_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_bulk_memory_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_call_indirect_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_xmrsplayer_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(XMRSPLAYER_WASM, "play_buffer", 0))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_mono_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_bi_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly4_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly6_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_as_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0))
+}
+
+/// graphql-validation Porffor on wasm3. Porffor compiles JS try/catch
+/// to the wasm exceptions proposal; wasm3 doesn't implement exceptions,
+/// so this will fail at load with `unknownOpcode` or similar.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_porf_wasm3() -> BenchReport {
+    report_from(wasm3::run_workload_wasm3(
+        GRAPHQL_VALIDATION_PORF_WASM,
+        "m",
+        0,
+    ))
 }
 
 /// Hand-written graphql-js validation-shape benchmark, AssemblyScript port.

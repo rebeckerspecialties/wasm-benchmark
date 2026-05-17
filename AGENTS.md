@@ -4,10 +4,10 @@ This is a WebAssembly-interpreter benchmark harness targeting Apple Silicon
 deployment platforms (App-Store-eligible: no JIT, no MAP_JIT, no
 copy-and-patch) — primarily arm64_32-apple-watchos, aarch64-apple-ios,
 aarch64-apple-tvos, and aarch64-apple-darwin. The harness compares
-Pulley (wasmtime's interpreter) against WAMR (WebAssembly Micro
-Runtime) and was set up to drive a per-table-mutability optimization
-stack upstream (see
-[PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
+**Pulley** (wasmtime's interpreter), **WAMR** (WebAssembly Micro
+Runtime fast-interp), and **wasm3** (the m3 pure C interpreter), and
+was set up to drive a per-table-mutability optimization stack upstream
+(see [PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
 
 ## Project goal & current state
 
@@ -148,8 +148,8 @@ linker-plugin-lto since Apple's macOS `ld` doesn't accept the
 ## Repo layout
 
 ```
-apps/                    iOS / watchOS / macOS SwiftUI app
-crates/benchmark-core/   Rust library — Pulley + WAMR adapters,
+apps/                    iOS / watchOS / tvOS / macOS SwiftUI app
+crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 adapters,
                          workload registration, PMU-aware harness
 crates/test-programs/    (vendored from wasmtime)
 workloads-rs/            one .rs per workload (cdylib, no_std)
@@ -157,6 +157,7 @@ workloads-rs-cargo/      xmrsplayer-bench (uses cargo for crates.io deps)
 workloads/               pre-built *.wasm (checked in — apps don't
                          need a wasm toolchain at build time)
 scripts/                 build-workloads.sh, build-lib.sh, build-wamr.sh,
+                         build-wasm3.sh,
                          analyze_pmu.py, aggregate_3way.py,
                          aggregate_4way.py, parse_n10.py,
                          run_fusion_n10.sh, run_fusion_pmu.sh,
@@ -165,6 +166,10 @@ scripts/                 build-workloads.sh, build-lib.sh, build-wamr.sh,
                          m4_phase4_bucket_shares.py
 wasmtime/                working clone of bytecodealliance/wasmtime
                          (gitignored; see PR #2's table-mutability-tracking branch)
+wasm3/                   wasm3 submodule (m3 pure-C interp). Built into
+                         libm3.a via scripts/build-wasm3.sh; per-target
+                         output dirs (build / build-aarch64-apple-ios / ...)
+                         mirror the WAMR layout.
 out/                     experiment outputs, PMU traces, summaries
 docs/                    project docs
 ```
@@ -183,6 +188,12 @@ docs/                    project docs
 ./scripts/build-lib.sh tvos         # Apple TV 4K (aarch64-apple-tvos)
 ./scripts/build-lib.sh tvos-sim     # aarch64-apple-tvos-sim
 ./scripts/build-lib.sh all          # build everything
+
+# Cross-runtime libs. Each script writes a per-target output dir under
+# its submodule (build/, build-aarch64-apple-ios, ...). build-lib.sh
+# picks them up via the cargo `have_wamr` / `have_wasm3` cfgs.
+./scripts/build-wamr.sh all         # WAMR libiwasm.a per platform
+./scripts/build-wasm3.sh all        # wasm3 libm3.a per platform
 
 # M4 host runner (used for E-core PMU + taskpolicy -b)
 cargo build --release --bin run_dispatch_workloads
@@ -233,6 +244,11 @@ To add a workload:
    - Add `BenchReport bench_run_<name>(void);`
 6. In `apps/Shared/BenchmarkContentView.swift`:
    - Add `Workload(id: NN, label: "[Pulley] <name> ...", run: { bench_run_<name>() })`
+   - For each cross-runtime peer (WAMR / wasm3) the new workload runs
+     on, add a matching `[ WAMR ]` / `[wasm3 ]` row using the same
+     human label. Keep the bracketed prefix exact — `BenchmarkContentView`'s
+     RUNTIMES env-var filter substring-matches on `[pulley]`, `[ wamr ]`,
+     `[wasm3 ]` (note the trailing space inside the bracket).
 7. In `crates/benchmark-core/src/bin/run_dispatch_workloads.rs`:
    - Add a `Case { name: "<name>", run: || run_<name>(seed) }` entry
 
@@ -404,8 +420,22 @@ submodule). Active branches:
 
 ## Cross-runtime comparison
 
-The harness builds against **WAMR** (`wasm-micro-runtime/` submodule)
-as a comparison runtime. The gap is **structural, not IC-related** —
+The harness builds against two comparison runtimes alongside Pulley:
+
+1. **WAMR** (`wasm-micro-runtime/` submodule, `libiwasm.a`) — fast
+   preprocessed-bytecode interpreter; SIMD + bulk-memory + tail-call +
+   ref-types all enabled. Wasm exceptions are not (FAST_INTERP +
+   EXCE_HANDLING is a forbidden combination in WAMR's CMake).
+2. **wasm3** (`wasm3/` submodule, `libm3.a`) — pure C in-place
+   interpreter, 11 sources, no external deps when WASI is disabled.
+   Supports `return_call` / `return_call_indirect` but **no SIMD** and
+   **no wasm exceptions** — `matmul_simd`, `matmul_fma`,
+   `graphql-validation (Porffor)`, and `sqlite3` rows are expected to
+   fail at load and surface as ERROR rows (treat as data, not a
+   regression). xmrsplayer uses `return_call`, which wasm3 implements,
+   so it should run subject to the 256 KiB wasm3 stack budget.
+
+The Pulley-vs-WAMR gap is **structural, not IC-related** —
 WAMR's preprocessed register-IR has fewer match_loop-equivalent
 dispatches per source-level wasm op. The PR-#4 phases-1–4 fusion stack
 closes ~10 % of that gap on the iPhone 12 vtable suite (vtable_poly4

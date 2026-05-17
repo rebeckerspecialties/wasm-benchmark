@@ -51,3 +51,10 @@ Launch_*
 # as a reference for vtable_dispatch.rs design. Not part of any build path.
 /StarlingMonkey/
 /scripts/__pycache__/
+
+# --- Per-target build dirs inside submodules ---
+# Created by scripts/build-{wamr,wasm3}.sh; output static libs land
+# here. Reproducible from the submodule HEAD + the build script, so no
+# need to track them.
+/wasm-micro-runtime/product-mini/platforms/*/build*/
+/wasm3/build*/

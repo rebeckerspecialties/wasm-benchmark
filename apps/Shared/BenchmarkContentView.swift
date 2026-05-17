@@ -86,6 +86,30 @@ let WORKLOADS: [Workload] = [
     Workload(id: 34, label: "[ WAMR ] vtable_bi (200K)",    run: { bench_run_vtable_bi_wamr() }),
     Workload(id: 35, label: "[ WAMR ] vtable_poly4 (200K)", run: { bench_run_vtable_poly4_wamr() }),
     Workload(id: 36, label: "[ WAMR ] vtable_poly6 (200K)", run: { bench_run_vtable_poly6_wamr() }),
+    // wasm3 (pure C interpreter) variants. wasm3 doesn't implement
+    // SIMD, wasm exceptions, or WASI, so matmul_simd / matmul_fma /
+    // graphql-validation Porffor will fail at load — the row reports
+    // ERROR with wasm3's error string. xmrsplayer uses `return_call`,
+    // which wasm3 *does* implement, so it should run (subject to the
+    // 256 KiB wasm3 stack budget; see crates/benchmark-core/src/wasm3.rs).
+    Workload(id: 37, label: "[wasm3 ] fib(30)",                        run: { bench_run_fib_wasm3(30) }),
+    Workload(id: 38, label: "[wasm3 ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_wasm3(100000) }),
+    Workload(id: 39, label: "[wasm3 ] factorial(20)",                  run: { bench_run_factorial_wasm3(20) }),
+    Workload(id: 40, label: "[wasm3 ] sieve(10000)",                   run: { bench_run_sieve_wasm3(10000) }),
+    Workload(id: 41, label: "[wasm3 ] crc32(64KB)",                    run: { bench_run_crc32_wasm3() }),
+    Workload(id: 42, label: "[wasm3 ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wasm3() }),
+    Workload(id: 43, label: "[wasm3 ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wasm3() }),
+    Workload(id: 44, label: "[wasm3 ] convolution 256×256",            run: { bench_run_convolution_wasm3() }),
+    Workload(id: 45, label: "[wasm3 ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_wasm3() }),
+    Workload(id: 46, label: "[wasm3 ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_wasm3() }),
+    Workload(id: 47, label: "[wasm3 ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_wasm3() }),
+    Workload(id: 48, label: "[wasm3 ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_wasm3() }),
+    Workload(id: 49, label: "[wasm3 ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_wasm3() }),
+    Workload(id: 50, label: "[wasm3 ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_wasm3() }),
+    Workload(id: 51, label: "[wasm3 ] vtable_mono (200K)",             run: { bench_run_vtable_mono_wasm3() }),
+    Workload(id: 52, label: "[wasm3 ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasm3() }),
+    Workload(id: 53, label: "[wasm3 ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasm3() }),
+    Workload(id: 54, label: "[wasm3 ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasm3() }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -103,7 +127,7 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR")
+                Text("Pulley vs WAMR vs wasm3")
                     .font(.title3.bold())
                 Text("workload set • \(WORKLOADS.count) cases")
                     .font(.caption)
@@ -135,6 +159,11 @@ struct BenchmarkContentView: View {
         // didn't link in libiwasm.a (e.g. older device libs).
         let wamrOk = bench_init_wamr() == 1
         FileHandle.standardError.write(Data("wamr init: \(wamrOk ? "ok" : "unavailable")\n".utf8))
+        // wasm3 has no process-global state, but we call its init
+        // symmetrically so all three runtimes' availability is logged
+        // up-front in the same line shape.
+        let wasm3Ok = bench_init_wasm3() == 1
+        FileHandle.standardError.write(Data("wasm3 init: \(wasm3Ok ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -146,11 +175,12 @@ struct BenchmarkContentView: View {
         // Optional `WORKLOADS` env-var filter (comma-separated, case-
         // insensitive substring match against the workload label).
         // Optional `RUNTIMES` env-var filter (comma-separated; valid
-        // values are `pulley` and `wamr`) to keep only the matching
-        // runtime — useful for PMU traces where you want to isolate
-        // signal from one runtime without WAMR's identical-across-
-        // builds dispatch overhead diluting the trace aggregate.
-        // Without filters, all 25 workloads run on both runtimes.
+        // values are `pulley`, `wamr`, `wasm3`) to keep only the
+        // matching runtime — useful for PMU traces where you want to
+        // isolate signal from one runtime without the others'
+        // identical-across-builds dispatch overhead diluting the trace
+        // aggregate. Without filters, every workload runs on every
+        // runtime that supports it.
         let workloads: [Workload] = {
             // watchOS doesn't propagate `devicectl --environment-variables`
             // to ProcessInfo (verified empirically — iOS does, watchOS
@@ -192,14 +222,16 @@ struct BenchmarkContentView: View {
                 let runtimeOk = runtimes.isEmpty
                     || runtimes.contains(where: { rt in
                         // Labels look like `[Pulley] call_indirect ...`
-                        // or `[ WAMR ] call_indirect ...`. Case-
-                        // insensitive substring on the prefix is
-                        // unambiguous.
+                        // or `[ WAMR ] call_indirect ...` or
+                        // `[wasm3 ] call_indirect ...`. Case-insensitive
+                        // substring on the prefix is unambiguous.
                         switch rt {
                         case "pulley":
                             return lc.contains("[pulley]")
                         case "wamr":
                             return lc.contains("[ wamr ]")
+                        case "wasm3", "m3":
+                            return lc.contains("[wasm3 ]")
                         default:
                             return false
                         }
