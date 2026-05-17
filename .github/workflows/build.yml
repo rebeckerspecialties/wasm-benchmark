@@ -32,13 +32,22 @@ jobs:
 
       - name: Install pinned rustup toolchains
         run: |
+          # 1.94.1 — default stable (cargo workspace, benchmark-core).
+          # 1.93.1 — what build-workloads.sh defaults to via TOOLCHAIN env.
+          # nightly-2026-01-25 — Tier-3 build-std + `become` Pulley TCO.
           rustup toolchain install 1.94.1 --component rust-src
+          rustup toolchain install 1.93.1 --component rust-src
           rustup toolchain install nightly-2026-01-25 --component rust-src
-          # Tier-1/2 targets we cross-build for.
-          rustup target add --toolchain 1.94.1 \
-            aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim \
-            wasm32-unknown-unknown
-          # Tier-3 watchOS/tvOS use build-std; nothing to add via target.
+          # Tier-1/2 targets we cross-build for. wasm32-unknown-unknown
+          # has to land on the 1.93.1 toolchain too because that's what
+          # build-workloads.sh uses by default.
+          for tc in 1.94.1 1.93.1; do
+            rustup target add --toolchain "$tc" \
+              aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim \
+              wasm32-unknown-unknown
+          done
+          # Tier-3 watchOS/tvOS use build-std on the nightly; nothing to
+          # add via target.
 
       - name: Install build deps (cmake, ninja, zig 0.16)
         run: |
