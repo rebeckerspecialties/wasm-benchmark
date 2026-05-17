@@ -26,28 +26,17 @@ for src in "${SRC}"/*.rs; do
   out="${OUT}/${name}.wasm"
   echo "==> ${name}.wasm"
 
-  # SIMD policy:
-  #  - matmul_simd / matmul_fma INTENTIONALLY use v128 intrinsics
-  #    (`v128_load`, `f32x4_*`, `f32x4_relaxed_madd`, ...) — keep
-  #    `+simd128,+relaxed-simd` for them.
-  #  - Every other workload uses only scalar math, BUT with `+simd128`
-  #    the Rust compiler's auto-vectorizer freely emits v128 LOCAL
-  #    slots even when no v128 value is ever read. wasm3 0.5.1 rejects
-  #    these modules at parse time ("unknown value_type"), and wasmz
-  #    silently fails the call without surfacing a trap (leaves the
-  #    runtime in a state that SIGBUSes the next call on iOS — verified
-  #    on iPhone 12 A14, 2026-05-16). Compile non-SIMD workloads with
-  #    `-simd128 -relaxed-simd` so the auto-vectorizer can't emit
-  #    v128 slots and both interpreters can run them cleanly.
-  case "${name}" in
-    matmul_simd|matmul_fma)
-      SIMD_FEATS="+simd128,+relaxed-simd"
-      ;;
-    *)
-      SIMD_FEATS="-simd128,-relaxed-simd"
-      ;;
-  esac
-
+  # Canonical feature set: every workload is compiled with the full
+  # wasm-3.0-ish proposal stack. Runtimes that can't handle a given
+  # feature surface ERROR rows in the harness — that's the
+  # cross-runtime signal we want, not a per-workload neutering.
+  # (Earlier this script gated `+simd128` to matmul-only so that
+  # wasm3 wouldn't choke on auto-vectorizer-emitted v128 locals;
+  # patches/wasm3/0001-wasm3-accept-v128-as-opaque-slot.patch makes
+  # wasm3 accept those slots without executing SIMD ops, so we can
+  # restore the canonical `+simd128 +relaxed-simd` for every
+  # workload without re-introducing the iPhone-side wasmz SIGBUS.)
+  #
   # `-C panic=abort` avoids the unwinding personality function.
   rustc \
     --target wasm32-unknown-unknown \
@@ -57,7 +46,7 @@ for src in "${SRC}"/*.rs; do
     -C opt-level=3 \
     -C lto=fat \
     -C panic=abort \
-    -C target-feature="${SIMD_FEATS},+tail-call,+bulk-memory,+multivalue,+reference-types" \
+    -C target-feature=+simd128,+relaxed-simd,+tail-call,+bulk-memory,+multivalue,+reference-types \
     "${src}" \
     -o "${out}"
   size=$(wc -c < "${out}" | tr -d ' ')

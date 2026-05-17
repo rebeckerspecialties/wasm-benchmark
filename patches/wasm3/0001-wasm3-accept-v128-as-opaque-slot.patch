@@ -1,0 +1,59 @@
+diff --git a/source/m3_compile.c b/source/m3_compile.c
+index c93f823..38b847c 100644
+--- a/source/m3_compile.c
++++ b/source/m3_compile.c
+@@ -194,6 +194,14 @@ void  ReleaseCompilationCodePage  (IM3Compilation o)
+ static inline
+ u16 GetTypeNumSlots (u8 i_type)
+ {
++    // v128 is 16 bytes — 4 slots in 32-bit-slot mode, 2 in 64-bit.
++    // (Slot-allocator only; no v128 ops execute.)
++    if (i_type == c_m3Type_v128)
++#       if d_m3Use32BitSlots
++            return 4;
++#       else
++            return 2;
++#       endif
+ #   if d_m3Use32BitSlots
+         return Is64BitType (i_type) ? 2 : 1;
+ #   else
+diff --git a/source/m3_core.c b/source/m3_core.c
+index 5980ab8..dd356f7 100644
+--- a/source/m3_core.c
++++ b/source/m3_core.c
+@@ -203,7 +203,12 @@ M3Result NormalizeType (u8 * o_type, i8 i_convolutedWasmType)
+ 
+     if (type == 0x40)
+         type = c_m3Type_none;
+-    else if (type < c_m3Type_i32 or type > c_m3Type_f64)
++    // Accept v128 (wasm-encoded as 0x7b → -i_convolutedWasmType == 5)
++    // as an opaque slot so modules with v128 in signatures or local
++    // declarations parse. Actual v128 opcodes still hit
++    // m3Err_unknownOpcode at compile time — we just stop refusing
++    // unused SIMD slots that auto-vectorization emits.
++    else if (type < c_m3Type_i32 or type > c_m3Type_v128)
+         result = m3Err_invalidTypeId;
+ 
+     * o_type = type;
+diff --git a/source/wasm3.h b/source/wasm3.h
+index 6a0bae3..b0779f3 100644
+--- a/source/wasm3.h
++++ b/source/wasm3.h
+@@ -75,6 +75,17 @@ typedef enum M3ValueType
+     c_m3Type_f32    = 3,
+     c_m3Type_f64    = 4,
+ 
++    // Opaque 16-byte slot used purely so wasm3 can PARSE modules
++    // whose function signatures or local-variable declarations
++    // mention v128 (the SIMD value type, wasm-encoded as 0x7B).
++    // Actual v128 OPCODES still error at compile-time with
++    // m3Err_unknownOpcode — we only avoid the parse-time
++    // m3Err_invalidTypeId rejection. LLVM's auto-vectorizer emits
++    // unused v128 locals into many `+simd128` modules even when no
++    // SIMD op executes; without this slot wasm3 rejects every such
++    // module before it ever sees a function body.
++    c_m3Type_v128   = 5,
++
+     c_m3Type_unknown
+ } M3ValueType;
+ 

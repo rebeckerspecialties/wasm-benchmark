@@ -22,7 +22,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 W3="${ROOT}/wasm3"
+PATCH_DIR="${ROOT}/patches/wasm3"
+APPLY_PATCHES="${ROOT}/scripts/apply_patch_series.sh"
 WHICH="${1:-macos}"
+
+# Reset to pinned HEAD then apply the wasm3 patch series. Idempotent
+# via apply_patch_series.sh (skips already-applied patches).
+( cd "${W3}" && git reset --hard HEAD --quiet && git clean -fdq -e 'build*' )
+if [[ -d "${PATCH_DIR}" ]]; then
+  "${APPLY_PATCHES}" "${W3}" "${PATCH_DIR}"
+fi
 
 # Source files. The four m3_api_*wasi*.c + m3_api_tracer.c files reference
 # host APIs we don't need; omit them so the static lib has no unresolved
