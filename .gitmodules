@@ -21,3 +21,9 @@
 [submodule "WasmEdge"]
 	path = WasmEdge
 	url = https://github.com/WasmEdge/WasmEdge.git
+[submodule "wasmz"]
+	path = wasmz
+	url = https://github.com/Ray-D-Song/wasmz.git
+[submodule "zwasm"]
+	path = zwasm
+	url = https://github.com/clojurewasm/zwasm.git

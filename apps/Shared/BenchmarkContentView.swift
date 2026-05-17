@@ -136,6 +136,28 @@ let WORKLOADS: [Workload] = [
     Workload(id: 70, label: "[WE    ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmedge() }),
     Workload(id: 71, label: "[WE    ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmedge() }),
     Workload(id: 72, label: "[WE    ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmedge() }),
+    // zwasm (clojurewasm/zwasm, Zig) variants. Built `-Djit=false`
+    // so it's pure-interpreter / App-Store-eligible. Zig 0.16 has no
+    // arm64_32 target → device-watch rows return ERROR ("zwasm not
+    // linked into this build") — treat as data, not a regression.
+    Workload(id: 73, label: "[zwasm ] fib(30)",                        run: { bench_run_fib_zwasm(30) }),
+    Workload(id: 74, label: "[zwasm ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_zwasm(100000) }),
+    Workload(id: 75, label: "[zwasm ] factorial(20)",                  run: { bench_run_factorial_zwasm(20) }),
+    Workload(id: 76, label: "[zwasm ] sieve(10000)",                   run: { bench_run_sieve_zwasm(10000) }),
+    Workload(id: 77, label: "[zwasm ] crc32(64KB)",                    run: { bench_run_crc32_zwasm() }),
+    Workload(id: 78, label: "[zwasm ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_zwasm() }),
+    Workload(id: 79, label: "[zwasm ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_zwasm() }),
+    Workload(id: 80, label: "[zwasm ] convolution 256×256",            run: { bench_run_convolution_zwasm() }),
+    Workload(id: 81, label: "[zwasm ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_zwasm() }),
+    Workload(id: 82, label: "[zwasm ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_zwasm() }),
+    Workload(id: 83, label: "[zwasm ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_zwasm() }),
+    Workload(id: 84, label: "[zwasm ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_zwasm() }),
+    Workload(id: 85, label: "[zwasm ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_zwasm() }),
+    Workload(id: 86, label: "[zwasm ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_zwasm() }),
+    Workload(id: 87, label: "[zwasm ] vtable_mono (200K)",             run: { bench_run_vtable_mono_zwasm() }),
+    Workload(id: 88, label: "[zwasm ] vtable_bi (200K)",               run: { bench_run_vtable_bi_zwasm() }),
+    Workload(id: 89, label: "[zwasm ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_zwasm() }),
+    Workload(id: 90, label: "[zwasm ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_zwasm() }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -153,7 +175,7 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR vs wasm3 vs WasmEdge")
+                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm")
                     .font(.title3.bold())
                 Text("workload set • \(WORKLOADS.count) cases")
                     .font(.caption)
@@ -195,6 +217,8 @@ struct BenchmarkContentView: View {
         // scripts/build-wasmedge.sh has run for this target).
         let wasmedgeOk = bench_init_wasmedge() == 1
         FileHandle.standardError.write(Data("wasmedge init: \(wasmedgeOk ? "ok" : "unavailable")\n".utf8))
+        let zwasmOk = bench_init_zwasm() == 1
+        FileHandle.standardError.write(Data("zwasm init: \(zwasmOk ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -265,6 +289,8 @@ struct BenchmarkContentView: View {
                             return lc.contains("[wasm3 ]")
                         case "wasmedge", "we":
                             return lc.contains("[we    ]")
+                        case "zwasm":
+                            return lc.contains("[zwasm ]")
                         default:
                             return false
                         }

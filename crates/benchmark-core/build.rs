@@ -109,6 +109,30 @@ fn main() {
         );
     }
 
+    // -- zwasm static lib ----------------------------------------------
+    // Per-target trees written by scripts/build-zwasm.sh via Zig 0.16
+    // `zig build static-lib -Djit=false`. macOS uses bare `build/`,
+    // cross targets use `build-<triple>`. zwasm assumes 64-bit
+    // pointers; arm64_32-apple-watchos is not built (Zig 0.16 has no
+    // arm64_32 target anyway).
+    let zwasm_root = manifest.join("../../zwasm");
+    let zwasm_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let zwasm_dir: PathBuf = zwasm_root.join(&zwasm_subdir);
+    let libzwasm_a = zwasm_dir.join("libzwasm.a");
+    println!("cargo:rerun-if-changed={}", libzwasm_a.display());
+    let is_arm64_32_watchos = target == "arm64_32-apple-watchos";
+    if libzwasm_a.exists() && !is_arm64_32_watchos {
+        println!("cargo:rustc-link-search=native={}", zwasm_dir.display());
+        println!("cargo:rustc-link-lib=static=zwasm");
+        println!("cargo:rustc-cfg=have_zwasm");
+    } else if !is_arm64_32_watchos {
+        println!(
+            "cargo:warning=libzwasm.a not found at {} — zwasm runtime unavailable for this target",
+            libzwasm_a.display()
+        );
+    }
+
     // -- wasm3 static lib ----------------------------------------------
     // Per-target trees written by scripts/build-wasm3.sh. Same naming
     // convention as WAMR: `wasm3/build` for the host, `wasm3/build-<triple>`

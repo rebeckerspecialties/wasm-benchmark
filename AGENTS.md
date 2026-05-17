@@ -5,9 +5,10 @@ deployment platforms (App-Store-eligible: no JIT, no MAP_JIT, no
 copy-and-patch) — primarily arm64_32-apple-watchos, aarch64-apple-ios,
 aarch64-apple-tvos, and aarch64-apple-darwin. The harness compares
 **Pulley** (wasmtime's interpreter), **WAMR** (WebAssembly Micro
-Runtime fast-interp), **wasm3** (the m3 pure C interpreter), and
-**WasmEdge** (`WASMEDGE_USE_LLVM=OFF` with a 27-patch Apple-mobile
-enablement stack), and was set up to drive a per-table-mutability
+Runtime fast-interp), **wasm3** (the m3 pure C interpreter),
+**WasmEdge** (`WASMEDGE_USE_LLVM=OFF` with the 27-patch Apple-mobile
+enablement stack), and **zwasm** (clojurewasm's Zig runtime built
+`-Djit=false`), and was set up to drive a per-table-mutability
 optimization stack upstream (see
 [PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
 
@@ -152,8 +153,8 @@ linker-plugin-lto since Apple's macOS `ld` doesn't accept the
 ```
 apps/                    iOS / watchOS / tvOS / macOS SwiftUI app
 crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 +
-                         WasmEdge adapters, workload registration,
-                         PMU-aware harness
+                         WasmEdge + zwasm adapters, workload
+                         registration, PMU-aware harness
 crates/test-programs/    (vendored from wasmtime)
 workloads-rs/            one .rs per workload (cdylib, no_std)
 workloads-rs-cargo/      xmrsplayer-bench (uses cargo for crates.io deps)
@@ -161,7 +162,7 @@ workloads/               pre-built *.wasm (checked in — apps don't
                          need a wasm toolchain at build time)
 scripts/                 build-workloads.sh, build-lib.sh, build-wamr.sh,
                          build-wasm3.sh, build-wasmedge.sh,
-                         apply_patch_series.sh,
+                         build-zwasm.sh, apply_patch_series.sh,
                          analyze_pmu.py, aggregate_3way.py,
                          aggregate_4way.py, parse_n10.py,
                          run_fusion_n10.sh, run_fusion_pmu.sh,
@@ -179,6 +180,15 @@ WasmEdge/                WasmEdge submodule pinned at 3ad922d6 (the
                          scripts/build-wasmedge.sh after applying the
                          27 patches in patches/wasmedge/. Per-target
                          output dirs same convention as wasm3 / WAMR.
+zwasm/                   clojurewasm/zwasm submodule. Built via
+                         scripts/build-zwasm.sh with `-Djit=false`.
+                         No arm64_32 target.
+wasmz/                   Ray-D-Song/wasmz submodule. Currently builds
+                         no static lib — wasmz source uses Zig 0.15
+                         stdlib APIs that don't exist in Zig 0.16, and
+                         Zig 0.15 itself crashes on macOS 26 Tahoe.
+                         Kept here so the port is a single follow-up
+                         step away. See "Skipped runtimes" below.
 patches/                 Out-of-tree patch series. Currently
                          patches/wasmedge/0001-0027 — Apple-mobile
                          memory-guard fallbacks + interpreter
@@ -207,12 +217,15 @@ docs/                    project docs
 # Cross-runtime libs. Each script writes a per-target output dir under
 # its submodule (build/, build-aarch64-apple-ios, ...). build-lib.sh
 # picks them up via the cargo `have_wamr` / `have_wasm3` /
-# `have_wasmedge` cfgs.
+# `have_wasmedge` / `have_zwasm` cfgs.
 ./scripts/build-wamr.sh all         # WAMR libiwasm.a per platform
 ./scripts/build-wasm3.sh all        # wasm3 libm3.a per platform
 ./scripts/build-wasmedge.sh all     # WasmEdge libwasmedge.a per platform
                                     # (applies patches/wasmedge/*.patch in
                                     #  series via scripts/apply_patch_series.sh)
+./scripts/build-zwasm.sh all        # zwasm libzwasm.a per platform
+                                    # (no arm64_32 device-watch — Zig 0.16
+                                    #  has no arm64_32 target)
 
 # M4 host runner (used for E-core PMU + taskpolicy -b)
 cargo build --release --bin run_dispatch_workloads
@@ -439,7 +452,7 @@ submodule). Active branches:
 
 ## Cross-runtime comparison
 
-The harness builds against three comparison runtimes alongside Pulley:
+The harness builds against four comparison runtimes alongside Pulley:
 
 1. **WAMR** (`wasm-micro-runtime/` submodule, `libiwasm.a`) — fast
    preprocessed-bytecode interpreter; SIMD + bulk-memory + tail-call +
@@ -461,6 +474,17 @@ The harness builds against three comparison runtimes alongside Pulley:
    `NSInteger` sign-comparison narrowing in `lib/host/wasi/macos.mm`).
    SIMD + wasm-exceptions are both enabled, so the Porffor variant of
    graphql-validation actually *loads* (vs WAMR refusing it).
+4. **zwasm** (`zwasm/` submodule, `libzwasm.a`) — clojurewasm's Zig
+   runtime built `-Djit=false`. Zig 0.16 cross-compiles cleanly to
+   `aarch64-ios` / `aarch64-tvos` / `aarch64-watchos-simulator` /
+   `aarch64-macos`. arm64_32-apple-watchos has **no Zig target** so the
+   device-watch path is structurally unavailable and the rows return
+   ERROR there. Needs a dedicated 8 MiB-stack thread
+   (`std::thread::Builder::stack_size`) because Zig's load path
+   overflows the 272 KiB Swift dispatch worker stack; also needs a
+   tiny weak `_dyld_get_image_header_containing_address` stub on
+   iOS/tvOS/watchOS (Zig's panic-stackwalk references a dyld symbol
+   that's in dyld at runtime but missing from Apple's mobile TBDs).
 
 The Pulley-vs-WAMR gap is **structural, not IC-related** —
 WAMR's preprocessed register-IR has fewer match_loop-equivalent
@@ -468,6 +492,14 @@ dispatches per source-level wasm op. The PR-#4 phases-1–4 fusion stack
 closes ~10 % of that gap on the iPhone 12 vtable suite (vtable_poly4
 1.73× → 1.58×; vtable_bi 1.78× → 1.65×) without changing the
 structural disadvantage.
+
+### Skipped runtimes (App Store / Apple-platform feasibility)
+
+| runtime | reason skipped |
+|---|---|
+| **wasmer** | All backends (Singlepass, Cranelift, LLVM) are JIT — emit native code at runtime and require MAP_JIT. No pure-interpreter backend. Cannot ship on iOS / watchOS / tvOS. |
+| **Silverfir-nano** (`mbbill/Silverfir-nano`) | Self-describes as a "compact optimizing WebAssembly 3.0 **JIT**"; JIT is mandatory, no interpreter mode. Disqualified. |
+| **wasmz** (`Ray-D-Song/wasmz`) | Source pins `minimum_zig_version = "0.15.2"` (its build.zig uses `std.meta.intToEnum`, `Target.Os.Tag.solaris`, and other Zig-0.15-only stdlib APIs). On macOS 26 Tahoe, Zig 0.15.1 + 0.15.2 segfault even when building a trivial `zig init` — their build runner has unresolved libSystem symbols (`_realpath$DARWIN_EXTSN`, `_sigaction`, ...) at link time. Zig 0.16 works as a build runner on macOS 26 but rejects ~21 wasmz source files. Porting wasmz to Zig 0.16 stdlib (≈25 mechanical edits) is a self-contained follow-up; deferred. |
 
 **Current phase-4 Pulley/WAMR wallclock ratios (lower = closer)**:
 

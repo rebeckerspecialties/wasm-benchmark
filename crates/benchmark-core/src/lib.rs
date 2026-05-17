@@ -48,6 +48,32 @@ pub mod wamr {
     }
 }
 
+#[cfg(have_zwasm)]
+pub mod zwasm;
+#[cfg(not(have_zwasm))]
+pub mod zwasm {
+    use crate::RunReport;
+    use anyhow::{anyhow, Result};
+    pub fn init() -> Result<()> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+    pub fn run_workload_zwasm(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+    pub fn run_workload_zwasm_iters(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+        _iters: u32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+}
+
 #[cfg(have_wasmedge)]
 pub mod wasmedge;
 #[cfg(not(have_wasmedge))]
@@ -116,6 +142,7 @@ pub enum Runtime {
     Wamr = 1,
     Wasm3 = 2,
     WasmEdge = 3,
+    Zwasm = 4,
 }
 
 // ---- Apple `task_info` thin wrapper for CPU time / RSS / page faults ----
@@ -429,6 +456,7 @@ pub fn run_workload_with(
         Runtime::Wamr => wamr::run_workload_wamr(wasm_bytes, fn_name, arg),
         Runtime::Wasm3 => wasm3::run_workload_wasm3(wasm_bytes, fn_name, arg),
         Runtime::WasmEdge => wasmedge::run_workload_wasmedge(wasm_bytes, fn_name, arg),
+        Runtime::Zwasm => zwasm::run_workload_zwasm(wasm_bytes, fn_name, arg),
     }
 }
 
@@ -1456,6 +1484,116 @@ pub extern "C" fn bench_run_graphql_validation_porf_wasmedge() -> BenchReport {
         "m",
         0,
     ))
+}
+
+// ---------------------------------------------------------------------
+// zwasm (clojurewasm/zwasm) — Zig pure-interpreter mode, built with
+// `-Djit=false`. arm64_32-apple-watchos device builds are not
+// supported (zwasm assumes 64-bit pointers; Zig 0.16 has no arm64_32
+// target); the rows will report ERROR on watchOS device, which is
+// what we want — the data point is "zwasm doesn't run on this target."
+// ---------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_init_zwasm() -> u8 {
+    match zwasm::init() {
+        Ok(()) => 1,
+        Err(_) => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_fib_zwasm(n: i32) -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(FIB_WASM, "fib", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_fib_tail_zwasm(n: i32) -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(FIB_TAIL_WASM, "fib_tail", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_factorial_zwasm(n: i32) -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(FACTORIAL_WASM, "factorial", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_sieve_zwasm(n: i32) -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(SIEVE_WASM, "sieve", n))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_crc32_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(CRC32_WASM, "crc32", 0xC0FFEE))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_matmul_simd_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(MATMUL_SIMD_WASM, "matmul", 0xBEEF))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_matmul_fma_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(MATMUL_FMA_WASM, "matmul_fma", 0xBEEF))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_convolution_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(CONVOLUTION_WASM, "convolve", 0xCAFE))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_audio_dsp_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(AUDIO_DSP_WASM, "audio_dsp", 0x5C7))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_bulk_memory_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(BULK_MEMORY_WASM, "bulk_memory", 0xB0CC))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_call_indirect_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(CALL_INDIRECT_WASM, "call_indirect", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_xmrsplayer_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(XMRSPLAYER_WASM, "play_buffer", 0))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_mono_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_mono", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_bi_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_bi", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly4_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_poly4", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_vtable_poly6_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(VTABLE_DISPATCH_WASM, "vtable_poly6", 0xC1AA))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_as_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(
+        GRAPHQL_VALIDATION_AS_WASM,
+        "validate_once",
+        0,
+    ))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_run_graphql_validation_porf_zwasm() -> BenchReport {
+    report_from(zwasm::run_workload_zwasm(GRAPHQL_VALIDATION_PORF_WASM, "m", 0))
 }
 
 /// Hand-written graphql-js validation-shape benchmark, AssemblyScript port.

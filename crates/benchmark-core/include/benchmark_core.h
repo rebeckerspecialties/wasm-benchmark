@@ -169,6 +169,32 @@ BenchReport bench_run_vtable_poly6_wasmedge(void);
 BenchReport bench_run_graphql_validation_as_wasmedge(void);
 BenchReport bench_run_graphql_validation_porf_wasmedge(void);
 
+// zwasm (clojurewasm/zwasm) — Zig pure-interpreter built with
+// `-Djit=false`. arm64_32-apple-watchos is structurally unsupported
+// (Zig 0.16 has no arm64_32 target + zwasm assumes 64-bit pointers);
+// every workload row on that platform returns ERROR with "zwasm not
+// linked into this build."
+uint8_t bench_init_zwasm(void);
+
+BenchReport bench_run_fib_zwasm(int32_t n);
+BenchReport bench_run_fib_tail_zwasm(int32_t n);
+BenchReport bench_run_factorial_zwasm(int32_t n);
+BenchReport bench_run_sieve_zwasm(int32_t n);
+BenchReport bench_run_crc32_zwasm(void);
+BenchReport bench_run_matmul_simd_zwasm(void);
+BenchReport bench_run_matmul_fma_zwasm(void);
+BenchReport bench_run_convolution_zwasm(void);
+BenchReport bench_run_audio_dsp_zwasm(void);
+BenchReport bench_run_bulk_memory_zwasm(void);
+BenchReport bench_run_call_indirect_zwasm(void);
+BenchReport bench_run_xmrsplayer_zwasm(void);
+BenchReport bench_run_vtable_mono_zwasm(void);
+BenchReport bench_run_vtable_bi_zwasm(void);
+BenchReport bench_run_vtable_poly4_zwasm(void);
+BenchReport bench_run_vtable_poly6_zwasm(void);
+BenchReport bench_run_graphql_validation_as_zwasm(void);
+BenchReport bench_run_graphql_validation_porf_zwasm(void);
+
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.
 void bench_free_error_msg(char *ptr);
