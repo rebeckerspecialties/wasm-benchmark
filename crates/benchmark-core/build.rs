@@ -109,6 +109,32 @@ fn main() {
         );
     }
 
+    // -- wasmz static lib ----------------------------------------------
+    // Per-target trees written by scripts/build-wasmz.sh via Zig 0.16
+    // `zig build static-lib -Doptimize=ReleaseFast`. Patched (see
+    // patches/wasmz/0001-zig-0.16-stdlib-port.patch) so the sources
+    // build with 0.16 instead of the upstream-required 0.15.2 (Zig
+    // 0.15's build runner segfaults on macOS 26 Tahoe). wasmz uses
+    // 64-bit pointers; arm64_32-apple-watchos is not built (Zig 0.16
+    // has no arm64_32 target anyway).
+    let wasmz_root = manifest.join("../../wasmz");
+    let wasmz_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let wasmz_dir: PathBuf = wasmz_root.join(&wasmz_subdir);
+    let libwasmz_a = wasmz_dir.join("libwasmz.a");
+    println!("cargo:rerun-if-changed={}", libwasmz_a.display());
+    let is_arm64_32_watchos = target == "arm64_32-apple-watchos";
+    if libwasmz_a.exists() && !is_arm64_32_watchos {
+        println!("cargo:rustc-link-search=native={}", wasmz_dir.display());
+        println!("cargo:rustc-link-lib=static=wasmz");
+        println!("cargo:rustc-cfg=have_wasmz");
+    } else if !is_arm64_32_watchos {
+        println!(
+            "cargo:warning=libwasmz.a not found at {} — wasmz runtime unavailable for this target",
+            libwasmz_a.display()
+        );
+    }
+
     // -- zwasm static lib ----------------------------------------------
     // Per-target trees written by scripts/build-zwasm.sh via Zig 0.16
     // `zig build static-lib -Djit=false`. macOS uses bare `build/`,
@@ -121,7 +147,6 @@ fn main() {
     let zwasm_dir: PathBuf = zwasm_root.join(&zwasm_subdir);
     let libzwasm_a = zwasm_dir.join("libzwasm.a");
     println!("cargo:rerun-if-changed={}", libzwasm_a.display());
-    let is_arm64_32_watchos = target == "arm64_32-apple-watchos";
     if libzwasm_a.exists() && !is_arm64_32_watchos {
         println!("cargo:rustc-link-search=native={}", zwasm_dir.display());
         println!("cargo:rustc-link-lib=static=zwasm");

@@ -195,6 +195,33 @@ BenchReport bench_run_vtable_poly6_zwasm(void);
 BenchReport bench_run_graphql_validation_as_zwasm(void);
 BenchReport bench_run_graphql_validation_porf_zwasm(void);
 
+// wasmz (Ray-D-Song/wasmz) — Zig pure-interpreter, ported to Zig 0.16
+// (the upstream sources pin Zig 0.15.2 but Zig 0.15's build runner
+// segfaults on macOS 26 Tahoe). Same arm64_32-apple-watchos caveat as
+// zwasm — wasmz assumes 64-bit pointers and Zig 0.16 has no arm64_32
+// target, so every workload row on that platform returns ERROR with
+// "wasmz not linked into this build."
+uint8_t bench_init_wasmz(void);
+
+BenchReport bench_run_fib_wasmz(int32_t n);
+BenchReport bench_run_fib_tail_wasmz(int32_t n);
+BenchReport bench_run_factorial_wasmz(int32_t n);
+BenchReport bench_run_sieve_wasmz(int32_t n);
+BenchReport bench_run_crc32_wasmz(void);
+BenchReport bench_run_matmul_simd_wasmz(void);
+BenchReport bench_run_matmul_fma_wasmz(void);
+BenchReport bench_run_convolution_wasmz(void);
+BenchReport bench_run_audio_dsp_wasmz(void);
+BenchReport bench_run_bulk_memory_wasmz(void);
+BenchReport bench_run_call_indirect_wasmz(void);
+BenchReport bench_run_xmrsplayer_wasmz(void);
+BenchReport bench_run_vtable_mono_wasmz(void);
+BenchReport bench_run_vtable_bi_wasmz(void);
+BenchReport bench_run_vtable_poly4_wasmz(void);
+BenchReport bench_run_vtable_poly6_wasmz(void);
+BenchReport bench_run_graphql_validation_as_wasmz(void);
+BenchReport bench_run_graphql_validation_porf_wasmz(void);
+
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.
 void bench_free_error_msg(char *ptr);

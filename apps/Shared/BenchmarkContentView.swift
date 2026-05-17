@@ -158,6 +158,30 @@ let WORKLOADS: [Workload] = [
     Workload(id: 88, label: "[zwasm ] vtable_bi (200K)",               run: { bench_run_vtable_bi_zwasm() }),
     Workload(id: 89, label: "[zwasm ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_zwasm() }),
     Workload(id: 90, label: "[zwasm ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_zwasm() }),
+    // wasmz (Ray-D-Song/wasmz, Zig) variants. Pure interpreter, no
+    // JIT — same App-Store-eligibility profile as zwasm. Ported to
+    // Zig 0.16 via patches/wasmz/ because the upstream-pinned 0.15.2
+    // build runner segfaults on macOS 26 Tahoe. Same arm64_32-watchOS
+    // caveat as zwasm — device-watch rows return ERROR ("wasmz not
+    // linked into this build") and that's signal, not noise.
+    Workload(id: 91,  label: "[wasmz ] fib(30)",                        run: { bench_run_fib_wasmz(30) }),
+    Workload(id: 92,  label: "[wasmz ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_wasmz(100000) }),
+    Workload(id: 93,  label: "[wasmz ] factorial(20)",                  run: { bench_run_factorial_wasmz(20) }),
+    Workload(id: 94,  label: "[wasmz ] sieve(10000)",                   run: { bench_run_sieve_wasmz(10000) }),
+    Workload(id: 95,  label: "[wasmz ] crc32(64KB)",                    run: { bench_run_crc32_wasmz() }),
+    Workload(id: 96,  label: "[wasmz ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wasmz() }),
+    Workload(id: 97,  label: "[wasmz ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wasmz() }),
+    Workload(id: 98,  label: "[wasmz ] convolution 256×256",            run: { bench_run_convolution_wasmz() }),
+    Workload(id: 99,  label: "[wasmz ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_wasmz() }),
+    Workload(id: 100, label: "[wasmz ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_wasmz() }),
+    Workload(id: 101, label: "[wasmz ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_wasmz() }),
+    Workload(id: 102, label: "[wasmz ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_wasmz() }),
+    Workload(id: 103, label: "[wasmz ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_wasmz() }),
+    Workload(id: 104, label: "[wasmz ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_wasmz() }),
+    Workload(id: 105, label: "[wasmz ] vtable_mono (200K)",             run: { bench_run_vtable_mono_wasmz() }),
+    Workload(id: 106, label: "[wasmz ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmz() }),
+    Workload(id: 107, label: "[wasmz ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmz() }),
+    Workload(id: 108, label: "[wasmz ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmz() }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -175,7 +199,7 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm")
+                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz")
                     .font(.title3.bold())
                 Text("workload set • \(WORKLOADS.count) cases")
                     .font(.caption)
@@ -219,6 +243,11 @@ struct BenchmarkContentView: View {
         FileHandle.standardError.write(Data("wasmedge init: \(wasmedgeOk ? "ok" : "unavailable")\n".utf8))
         let zwasmOk = bench_init_zwasm() == 1
         FileHandle.standardError.write(Data("zwasm init: \(zwasmOk ? "ok" : "unavailable")\n".utf8))
+        // wasmz — patched to Zig 0.16; reports "unavailable" if libwasmz.a
+        // wasn't linked in (e.g. arm64_32 watchOS or host-only build
+        // before scripts/build-wasmz.sh has run for this target).
+        let wasmzOk = bench_init_wasmz() == 1
+        FileHandle.standardError.write(Data("wasmz init: \(wasmzOk ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -291,6 +320,8 @@ struct BenchmarkContentView: View {
                             return lc.contains("[we    ]")
                         case "zwasm":
                             return lc.contains("[zwasm ]")
+                        case "wasmz":
+                            return lc.contains("[wasmz ]")
                         default:
                             return false
                         }
