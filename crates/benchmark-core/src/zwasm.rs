@@ -52,6 +52,10 @@ mod ios_dyld_stub {
     }
 }
 
+// Opaque pointer for the imports collection.
+#[allow(non_camel_case_types)]
+type zwasm_imports_t = c_void;
+
 extern "C" {
     fn zwasm_config_new() -> *mut zwasm_config_t;
     fn zwasm_config_delete(cfg: *mut zwasm_config_t);
@@ -60,6 +64,11 @@ extern "C" {
         wasm_ptr: *const u8,
         len: usize,
         cfg: *mut zwasm_config_t,
+    ) -> *mut zwasm_module_t;
+    fn zwasm_module_new_with_imports(
+        wasm_ptr: *const u8,
+        len: usize,
+        imports: *mut zwasm_imports_t,
     ) -> *mut zwasm_module_t;
     fn zwasm_module_delete(m: *mut zwasm_module_t);
     fn zwasm_module_invoke(
@@ -71,6 +80,27 @@ extern "C" {
         nresults: u32,
     ) -> bool;
     fn zwasm_last_error_message() -> *const c_char;
+
+    fn zwasm_import_new() -> *mut zwasm_imports_t;
+    fn zwasm_import_delete(imports: *mut zwasm_imports_t);
+    fn zwasm_import_add_fn(
+        imports: *mut zwasm_imports_t,
+        module_name: *const c_char,
+        func_name: *const c_char,
+        callback: ZwasmHostFn,
+        env: *mut c_void,
+        param_count: u32,
+        result_count: u32,
+    );
+}
+
+type ZwasmHostFn =
+    extern "C" fn(env: *mut c_void, args: *const u64, results: *mut u64) -> bool;
+
+// Porffor host-print stub. zwasm's callback signature passes args /
+// results as raw u64; we don't read either. Returns true (no trap).
+extern "C" fn zwasm_porf_b(_env: *mut c_void, _args: *const u64, _results: *mut u64) -> bool {
+    true
 }
 
 fn last_error() -> String {
@@ -248,4 +278,141 @@ fn run_workload_zwasm_iters_inner(
 
 pub fn run_workload_zwasm(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
     run_workload_zwasm_iters(wasm_bytes, fn_name, arg, 0)
+}
+
+/// Dedicated Porffor-graphql runner. The Porffor-compiled wasm
+/// exports `m()` with signature `() → (f64, i32)` (multi-value) and
+/// imports `("", "b") : (f64) → ()` for per-character host print. The
+/// generic i32→i32 runner can't drive either shape; this function
+/// wires the imports + uses the right call shape. Mirrors
+/// `wamr::run_graphql_validation_porf_wamr`.
+pub fn run_graphql_validation_porf_zwasm(wasm_bytes: &[u8]) -> Result<RunReport> {
+    let wasm_bytes_owned = wasm_bytes.to_vec();
+    std::thread::Builder::new()
+        .name("zwasm-porf".to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || run_graphql_validation_porf_zwasm_inner(&wasm_bytes_owned))
+        .context("zwasm: failed to spawn 8 MiB-stack thread")?
+        .join()
+        .map_err(|_| anyhow!("zwasm-porf thread panicked"))?
+}
+
+fn run_graphql_validation_porf_zwasm_inner(wasm_bytes: &[u8]) -> Result<RunReport> {
+    init()?;
+
+    let load_start = Instant::now();
+
+    let imports = unsafe { zwasm_import_new() };
+    if imports.is_null() {
+        return Err(anyhow!("zwasm_import_new returned NULL"));
+    }
+    struct ImpGuard(*mut zwasm_imports_t);
+    impl Drop for ImpGuard {
+        fn drop(&mut self) {
+            unsafe { zwasm_import_delete(self.0) };
+        }
+    }
+    let _ig = ImpGuard(imports);
+    let modname = b"\0".as_ptr() as *const c_char;
+    let funcname = b"b\0".as_ptr() as *const c_char;
+    // f64 in, no results — Porffor's print-char shape.
+    unsafe {
+        zwasm_import_add_fn(imports, modname, funcname, zwasm_porf_b, std::ptr::null_mut(), 1, 0);
+    }
+
+    let module = unsafe {
+        zwasm_module_new_with_imports(wasm_bytes.as_ptr(), wasm_bytes.len(), imports)
+    };
+    if module.is_null() {
+        return Err(anyhow!(
+            "zwasm_module_new_with_imports failed: {}",
+            last_error()
+        ));
+    }
+    struct ModGuard(*mut zwasm_module_t);
+    impl Drop for ModGuard {
+        fn drop(&mut self) {
+            unsafe { zwasm_module_delete(self.0) };
+        }
+    }
+    let _mg = ModGuard(module);
+
+    let load_time = load_start.elapsed();
+
+    // m() → (f64, i32). We don't use either; just measure wallclock.
+    let cname = std::ffi::CString::new("m")?;
+    let call = || -> Result<i32> {
+        let mut results: [u64; 2] = [0; 2];
+        let ok = unsafe {
+            zwasm_module_invoke(
+                module,
+                cname.as_ptr(),
+                std::ptr::null(),
+                0,
+                results.as_mut_ptr(),
+                2,
+            )
+        };
+        if !ok {
+            return Err(anyhow!("zwasm m() trap: {}", last_error()));
+        }
+        Ok(results[1] as u32 as i32)
+    };
+
+    let mut result = call().context("zwasm porf warmup failed")?;
+    let warm_start = Instant::now();
+    result = call().context("zwasm porf steady-warmup failed")?;
+    let warm = warm_start.elapsed();
+    let n = crate::pick_iters(warm, Duration::from_millis(200));
+
+    let cpu_before = taskinfo::thread_times();
+    let events_before = taskinfo::events_info();
+    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let it_start = Instant::now();
+        result = call()?;
+        samples.push(it_start.elapsed().as_nanos() as u64);
+    }
+    let cpu_after = taskinfo::thread_times();
+    let events_after = taskinfo::events_info();
+    let basic = taskinfo::basic_info();
+
+    samples.sort_unstable();
+    let run_min = Duration::from_nanos(samples[0]);
+    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
+    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
+    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
+
+    #[cfg(target_vendor = "apple")]
+    let (cpu_user_ns, cpu_system_ns, page_faults) = {
+        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
+        match (cpu_before, cpu_after, events_before, events_after) {
+            (Some(b), Some(a), Some(eb), Some(ea)) => (
+                to(a.user_time).saturating_sub(to(b.user_time)),
+                to(a.system_time).saturating_sub(to(b.system_time)),
+                (ea.faults as u64).saturating_sub(eb.faults as u64),
+            ),
+            _ => (0, 0, 0),
+        }
+    };
+    #[cfg(not(target_vendor = "apple"))]
+    let (cpu_user_ns, cpu_system_ns, page_faults) = {
+        let _ = (cpu_before, cpu_after, events_before, events_after);
+        (0u64, 0u64, 0u64)
+    };
+
+    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
+
+    Ok(RunReport {
+        result,
+        iterations: n,
+        load_time,
+        run_min,
+        run_median,
+        run_p99,
+        cpu_user_ns,
+        cpu_system_ns,
+        rss_peak_bytes,
+        page_faults,
+    })
 }

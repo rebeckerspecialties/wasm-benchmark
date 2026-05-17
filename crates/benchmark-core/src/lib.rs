@@ -72,6 +72,9 @@ pub mod zwasm {
     ) -> Result<RunReport> {
         Err(anyhow!("zwasm not linked into this build"))
     }
+    pub fn run_graphql_validation_porf_zwasm(_wasm_bytes: &[u8]) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
 }
 
 #[cfg(have_wasmz)]
@@ -98,6 +101,9 @@ pub mod wasmz {
     ) -> Result<RunReport> {
         Err(anyhow!("wasmz not linked into this build"))
     }
+    pub fn run_graphql_validation_porf_wasmz(_wasm_bytes: &[u8]) -> Result<RunReport> {
+        Err(anyhow!("wasmz not linked into this build"))
+    }
 }
 
 #[cfg(have_wasmedge)]
@@ -122,6 +128,9 @@ pub mod wasmedge {
         _arg: i32,
         _iters: u32,
     ) -> Result<RunReport> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
+    pub fn run_graphql_validation_porf_wasmedge(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("WasmEdge not linked into this build"))
     }
 }
@@ -1501,16 +1510,13 @@ pub extern "C" fn bench_run_graphql_validation_as_wasmedge() -> BenchReport {
 
 /// graphql-validation Porffor on WasmEdge. Unlike WAMR, WasmEdge's
 /// interpreter has both SIMD and wasm-exceptions enabled simultaneously,
-/// so the load should succeed. The wasm imports a `b` print function
-/// in module `""`; we don't register a host stub here yet, so the call
-/// will trap on missing import — log surfaces the import-name from the
-/// WasmEdge error string. Wiring the host stub is a follow-up.
+/// so the load should succeed. The Porffor `b` host print is stubbed
+/// in `crates/benchmark-core/src/wasmedge.rs`, and the dedicated
+/// runner handles the `m() → (f64, i32)` multi-value signature.
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_porf_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_workload_wasmedge(
+    report_from(wasmedge::run_graphql_validation_porf_wasmedge(
         GRAPHQL_VALIDATION_PORF_WASM,
-        "m",
-        0,
     ))
 }
 
@@ -1621,7 +1627,7 @@ pub extern "C" fn bench_run_graphql_validation_as_zwasm() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_porf_zwasm() -> BenchReport {
-    report_from(zwasm::run_workload_zwasm(GRAPHQL_VALIDATION_PORF_WASM, "m", 0))
+    report_from(zwasm::run_graphql_validation_porf_zwasm(GRAPHQL_VALIDATION_PORF_WASM))
 }
 
 // ---------------------------------------------------------------------
@@ -1730,7 +1736,7 @@ pub extern "C" fn bench_run_graphql_validation_as_wasmz() -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_graphql_validation_porf_wasmz() -> BenchReport {
-    report_from(wasmz::run_workload_wasmz(GRAPHQL_VALIDATION_PORF_WASM, "m", 0))
+    report_from(wasmz::run_graphql_validation_porf_wasmz(GRAPHQL_VALIDATION_PORF_WASM))
 }
 
 /// Hand-written graphql-js validation-shape benchmark, AssemblyScript port.
