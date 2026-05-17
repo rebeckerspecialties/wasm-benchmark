@@ -117,6 +117,111 @@ BenchReport bench_run_bulk_memory_wamr(void);
 BenchReport bench_run_call_indirect_wamr(void);
 BenchReport bench_run_xmrsplayer_wamr(void);
 
+// wasm3 (m3 pure C interpreter) path. No SIMD support; matmul_simd,
+// matmul_fma, and graphql-validation Porffor will load-fail and the
+// row reports ERROR (treat as data: "wasm3's interp can't run this
+// shape"). bench_init_wasm3 is a no-op kept symmetrical to bench_init_wamr.
+uint8_t bench_init_wasm3(void);
+
+BenchReport bench_run_fib_wasm3(int32_t n);
+BenchReport bench_run_fib_tail_wasm3(int32_t n);
+BenchReport bench_run_factorial_wasm3(int32_t n);
+BenchReport bench_run_sieve_wasm3(int32_t n);
+BenchReport bench_run_crc32_wasm3(void);
+BenchReport bench_run_matmul_simd_wasm3(void);
+BenchReport bench_run_matmul_fma_wasm3(void);
+BenchReport bench_run_convolution_wasm3(void);
+BenchReport bench_run_audio_dsp_wasm3(void);
+BenchReport bench_run_bulk_memory_wasm3(void);
+BenchReport bench_run_call_indirect_wasm3(void);
+BenchReport bench_run_xmrsplayer_wasm3(void);
+BenchReport bench_run_vtable_mono_wasm3(void);
+BenchReport bench_run_vtable_bi_wasm3(void);
+BenchReport bench_run_vtable_poly4_wasm3(void);
+BenchReport bench_run_vtable_poly6_wasm3(void);
+BenchReport bench_run_graphql_validation_as_wasm3(void);
+BenchReport bench_run_graphql_validation_porf_wasm3(void);
+
+// WasmEdge — pure interpreter (WASMEDGE_USE_LLVM=OFF + 27-patch
+// Apple-mobile enablement stack). Incumbent runtime for the user's
+// WatchOS audio app; canonical comparison target. Unlike WAMR,
+// WasmEdge's interpreter has SIMD + exceptions enabled together, so
+// graphql-validation Porffor loads successfully (host-import trap is
+// the next blocker, handled the same way Pulley/WAMR handle it).
+uint8_t bench_init_wasmedge(void);
+
+BenchReport bench_run_fib_wasmedge(int32_t n);
+BenchReport bench_run_fib_tail_wasmedge(int32_t n);
+BenchReport bench_run_factorial_wasmedge(int32_t n);
+BenchReport bench_run_sieve_wasmedge(int32_t n);
+BenchReport bench_run_crc32_wasmedge(void);
+BenchReport bench_run_matmul_simd_wasmedge(void);
+BenchReport bench_run_matmul_fma_wasmedge(void);
+BenchReport bench_run_convolution_wasmedge(void);
+BenchReport bench_run_audio_dsp_wasmedge(void);
+BenchReport bench_run_bulk_memory_wasmedge(void);
+BenchReport bench_run_call_indirect_wasmedge(void);
+BenchReport bench_run_xmrsplayer_wasmedge(void);
+BenchReport bench_run_vtable_mono_wasmedge(void);
+BenchReport bench_run_vtable_bi_wasmedge(void);
+BenchReport bench_run_vtable_poly4_wasmedge(void);
+BenchReport bench_run_vtable_poly6_wasmedge(void);
+BenchReport bench_run_graphql_validation_as_wasmedge(void);
+BenchReport bench_run_graphql_validation_porf_wasmedge(void);
+
+// zwasm (clojurewasm/zwasm) — Zig pure-interpreter built with
+// `-Djit=false`. arm64_32-apple-watchos is structurally unsupported
+// (Zig 0.16 has no arm64_32 target + zwasm assumes 64-bit pointers);
+// every workload row on that platform returns ERROR with "zwasm not
+// linked into this build."
+uint8_t bench_init_zwasm(void);
+
+BenchReport bench_run_fib_zwasm(int32_t n);
+BenchReport bench_run_fib_tail_zwasm(int32_t n);
+BenchReport bench_run_factorial_zwasm(int32_t n);
+BenchReport bench_run_sieve_zwasm(int32_t n);
+BenchReport bench_run_crc32_zwasm(void);
+BenchReport bench_run_matmul_simd_zwasm(void);
+BenchReport bench_run_matmul_fma_zwasm(void);
+BenchReport bench_run_convolution_zwasm(void);
+BenchReport bench_run_audio_dsp_zwasm(void);
+BenchReport bench_run_bulk_memory_zwasm(void);
+BenchReport bench_run_call_indirect_zwasm(void);
+BenchReport bench_run_xmrsplayer_zwasm(void);
+BenchReport bench_run_vtable_mono_zwasm(void);
+BenchReport bench_run_vtable_bi_zwasm(void);
+BenchReport bench_run_vtable_poly4_zwasm(void);
+BenchReport bench_run_vtable_poly6_zwasm(void);
+BenchReport bench_run_graphql_validation_as_zwasm(void);
+BenchReport bench_run_graphql_validation_porf_zwasm(void);
+
+// wasmz (Ray-D-Song/wasmz) — Zig pure-interpreter, ported to Zig 0.16
+// (the upstream sources pin Zig 0.15.2 but Zig 0.15's build runner
+// segfaults on macOS 26 Tahoe). Same arm64_32-apple-watchos caveat as
+// zwasm — wasmz assumes 64-bit pointers and Zig 0.16 has no arm64_32
+// target, so every workload row on that platform returns ERROR with
+// "wasmz not linked into this build."
+uint8_t bench_init_wasmz(void);
+
+BenchReport bench_run_fib_wasmz(int32_t n);
+BenchReport bench_run_fib_tail_wasmz(int32_t n);
+BenchReport bench_run_factorial_wasmz(int32_t n);
+BenchReport bench_run_sieve_wasmz(int32_t n);
+BenchReport bench_run_crc32_wasmz(void);
+BenchReport bench_run_matmul_simd_wasmz(void);
+BenchReport bench_run_matmul_fma_wasmz(void);
+BenchReport bench_run_convolution_wasmz(void);
+BenchReport bench_run_audio_dsp_wasmz(void);
+BenchReport bench_run_bulk_memory_wasmz(void);
+BenchReport bench_run_call_indirect_wasmz(void);
+BenchReport bench_run_xmrsplayer_wasmz(void);
+BenchReport bench_run_vtable_mono_wasmz(void);
+BenchReport bench_run_vtable_bi_wasmz(void);
+BenchReport bench_run_vtable_poly4_wasmz(void);
+BenchReport bench_run_vtable_poly6_wasmz(void);
+BenchReport bench_run_graphql_validation_as_wasmz(void);
+BenchReport bench_run_graphql_validation_porf_wasmz(void);
+
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.
 void bench_free_error_msg(char *ptr);

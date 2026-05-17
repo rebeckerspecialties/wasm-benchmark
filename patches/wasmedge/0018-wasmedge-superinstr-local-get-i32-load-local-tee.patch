@@ -1,0 +1,212 @@
+diff --git a/include/common/enum_ast.hpp b/include/common/enum_ast.hpp
+index 9f01ac9..44fe823 100644
+--- a/include/common/enum_ast.hpp
++++ b/include/common/enum_ast.hpp
+@@ -65,6 +65,7 @@ enum class OpCode : uint32_t {
+ #undef UseOpCode
+   Internal__LocalGetI32ConstAdd,
+   Internal__LocalGetI32Load,
++  Internal__LocalGetI32LoadLocalTee,
+ };
+ 
+ /// Instruction opcode enumeration string mapping.
+@@ -87,6 +88,8 @@ static inline constexpr const auto OpCodeStr = []() constexpr {
+     {OpCode::Internal__LocalGetI32ConstAdd,
+      "internal.local.get.i32.const.add"},
+     {OpCode::Internal__LocalGetI32Load, "internal.local.get.i32.load"},
++    {OpCode::Internal__LocalGetI32LoadLocalTee,
++     "internal.local.get.i32.load.local.tee"},
+   };
+   return SpareEnumMap(Array);
+ }();
+diff --git a/include/executor/executor.h b/include/executor/executor.h
+index b807aec..74cb037 100644
+--- a/include/executor/executor.h
++++ b/include/executor/executor.h
+@@ -601,6 +601,9 @@ private:
+                                     const AST::Instruction &Instr,
+                                     AST::InstrView::iterator &PC) const
+       noexcept;
++  Expect<void> runLocalGetI32LoadLocalTeeOp(
++      Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
++      AST::InstrView::iterator &PC) const noexcept;
+   Expect<void> runLocalGetOp(Runtime::StackManager &StackMgr,
+                              uint32_t StackOffset) const noexcept;
+   Expect<void> runLocalSetOp(Runtime::StackManager &StackMgr,
+diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
+index b29407c..ad7bad1 100644
+--- a/lib/executor/engine/engine.cpp
++++ b/lib/executor/engine/engine.cpp
+@@ -24,6 +24,8 @@ uint32_t getInstructionCountUnits(OpCode Code) noexcept {
+     return 3U;
+   case OpCode::Internal__LocalGetI32Load:
+     return 2U;
++  case OpCode::Internal__LocalGetI32LoadLocalTee:
++    return 3U;
+   default:
+     return 1U;
+   }
+@@ -40,6 +42,10 @@ uint64_t getInstructionCost(const Statistics::Statistics &Stat,
+   case OpCode::Internal__LocalGetI32Load:
+     return CostTable[uint16_t(OpCode::Local__get)] +
+            CostTable[uint16_t(OpCode::I32__load)];
++  case OpCode::Internal__LocalGetI32LoadLocalTee:
++    return CostTable[uint16_t(OpCode::Local__get)] +
++           CostTable[uint16_t(OpCode::I32__load)] +
++           CostTable[uint16_t(OpCode::Local__tee)];
+   default:
+     return CostTable[uint16_t(Code)];
+   }
+@@ -306,6 +312,8 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
+       return runLocalGetI32ConstAddOp(StackMgr, Instr, PC);
+     case OpCode::Internal__LocalGetI32Load:
+       return runLocalGetI32LoadOp(StackMgr, Instr, PC);
++    case OpCode::Internal__LocalGetI32LoadLocalTee:
++      return runLocalGetI32LoadLocalTeeOp(StackMgr, Instr, PC);
+     case OpCode::Local__get:
+       return runLocalGetOp(StackMgr, Instr.getStackOffset());
+     case OpCode::Local__set:
+diff --git a/lib/executor/engine/variableInstr.cpp b/lib/executor/engine/variableInstr.cpp
+index 3d80922..e0ff80e 100644
+--- a/lib/executor/engine/variableInstr.cpp
++++ b/lib/executor/engine/variableInstr.cpp
+@@ -9,6 +9,22 @@
+ namespace WasmEdge {
+ namespace Executor {
+ 
++namespace {
++
++constexpr uint32_t kPackedStackOffsetBits = 16U;
++constexpr uint32_t kPackedStackOffsetMask =
++    (1U << kPackedStackOffsetBits) - 1U;
++
++inline uint32_t unpackLowStackOffset(uint32_t Packed) noexcept {
++  return Packed & kPackedStackOffsetMask;
++}
++
++inline uint32_t unpackHighStackOffset(uint32_t Packed) noexcept {
++  return Packed >> kPackedStackOffsetBits;
++}
++
++} // namespace
++
+ Expect<void> Executor::runLocalGetI32ConstAddOp(
+     Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
+     AST::InstrView::iterator &PC) const noexcept {
+@@ -67,6 +83,59 @@ Expect<void> Executor::runLocalGetI32LoadOp(
+   return {};
+ }
+ 
++Expect<void> Executor::runLocalGetI32LoadLocalTeeOp(
++    Runtime::StackManager &StackMgr, const AST::Instruction &Instr,
++    AST::InstrView::iterator &PC) const noexcept {
++  auto *MemInst = getMemInstByIdx(StackMgr, Instr.getInternalArgument0());
++  assuming(MemInst);
++
++  const uint32_t PackedOffsets = Instr.getInternalArgument2();
++  const uint32_t BaseStackOffset = unpackLowStackOffset(PackedOffsets);
++  const uint32_t TeeStackOffset = unpackHighStackOffset(PackedOffsets);
++  const auto AddrType = MemInst->getMemoryType().getLimit().getAddrType();
++  const uint64_t Base =
++      extractAddr(StackMgr.getTopN(BaseStackOffset), AddrType);
++  const uint64_t Offset = Instr.getInternalArgument1();
++
++  StackMgr.push(uint32_t(0));
++  ValVariant &Val = StackMgr.getTop();
++  if (likely(MemInst->canUseGuardPageBoundsCheck())) {
++    MemInst->loadValueUnchecked<uint32_t, 4>(Val.emplace<uint32_t>(),
++                                             Base + Offset);
++    StackMgr.getTopN(TeeStackOffset) = Val;
++    PC += 2;
++    return {};
++  }
++
++  uint64_t EA = 0;
++#if defined(_MSC_VER) && !defined(__clang__)
++  if (std::numeric_limits<uint64_t>::max() - Offset < Base) {
++    EA = Base + Offset;
++#else
++  if (unlikely(__builtin_add_overflow(Base, Offset, &EA))) {
++#endif
++    spdlog::error(ErrCode::Value::MemoryOutOfBounds);
++    spdlog::error(ErrInfo::InfoBoundary(EA, 4, MemInst->getSize(), true));
++    spdlog::error(
++        ErrInfo::InfoInstruction(OpCode::I32__load, Instr.getOffset()));
++    return Unexpect(ErrCode::Value::MemoryOutOfBounds);
++  }
++
++  auto LoadResult =
++      MemInst->loadValue<uint32_t, 4>(Val.emplace<uint32_t>(), EA)
++          .map_error([&Instr](auto E) {
++            spdlog::error(
++                ErrInfo::InfoInstruction(OpCode::I32__load, Instr.getOffset()));
++            return E;
++          });
++  if (unlikely(!LoadResult)) {
++    return Unexpect(LoadResult.error());
++  }
++  StackMgr.getTopN(TeeStackOffset) = Val;
++  PC += 2;
++  return {};
++}
++
+ Expect<void> Executor::runLocalGetOp(Runtime::StackManager &StackMgr,
+                                      uint32_t StackOffset) const noexcept {
+   StackMgr.push(StackMgr.getTopN(StackOffset));
+diff --git a/lib/executor/superinstr.cpp b/lib/executor/superinstr.cpp
+index 7a4804f..271c409 100644
+--- a/lib/executor/superinstr.cpp
++++ b/lib/executor/superinstr.cpp
+@@ -9,6 +9,22 @@ namespace WasmEdge {
+ namespace Runtime {
+ namespace Instance {
+ 
++namespace {
++
++constexpr uint32_t kPackedStackOffsetBits = 16U;
++constexpr uint32_t kPackedStackOffsetMask =
++    (1U << kPackedStackOffsetBits) - 1U;
++
++inline bool canPackStackOffsets(uint32_t First, uint32_t Second) noexcept {
++  return First <= kPackedStackOffsetMask && Second <= kPackedStackOffsetMask;
++}
++
++inline uint32_t packStackOffsets(uint32_t First, uint32_t Second) noexcept {
++  return First | (Second << kPackedStackOffsetBits);
++}
++
++} // namespace
++
+ void FunctionInstance::fuseSuperInstructions(AST::InstrVec &Instrs) noexcept {
+   for (size_t I = 0; I < Instrs.size(); ++I) {
+     if (Instrs[I].getOpCode() != OpCode::Local__get) {
+@@ -31,6 +47,29 @@ void FunctionInstance::fuseSuperInstructions(AST::InstrVec &Instrs) noexcept {
+       continue;
+     }
+ 
++    if (I + 2 < Instrs.size() &&
++        Instrs[I + 1].getOpCode() == OpCode::I32__load &&
++        Instrs[I + 2].getOpCode() == OpCode::Local__tee &&
++        Instrs[I + 1].getMemoryOffset() <=
++            std::numeric_limits<uint32_t>::max() &&
++        canPackStackOffsets(Instrs[I].getStackOffset(),
++                            Instrs[I + 2].getStackOffset())) {
++      AST::Instruction Fused(OpCode::Internal__LocalGetI32LoadLocalTee,
++                             Instrs[I + 1].getOffset());
++      Fused.getInternalArgument0() = Instrs[I + 1].getTargetIndex();
++      Fused.getInternalArgument1() =
++          static_cast<uint32_t>(Instrs[I + 1].getMemoryOffset());
++      Fused.getInternalArgument2() = packStackOffsets(
++          Instrs[I].getStackOffset(), Instrs[I + 2].getStackOffset());
++      Instrs[I] = std::move(Fused);
++      Instrs[I + 1] =
++          AST::Instruction(OpCode::Nop, Instrs[I + 1].getOffset());
++      Instrs[I + 2] =
++          AST::Instruction(OpCode::Nop, Instrs[I + 2].getOffset());
++      I += 2;
++      continue;
++    }
++
+     if (I + 1 < Instrs.size() &&
+         Instrs[I + 1].getOpCode() == OpCode::I32__load &&
+         Instrs[I + 1].getMemoryOffset() <=

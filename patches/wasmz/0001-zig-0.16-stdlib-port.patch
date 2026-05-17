@@ -1,0 +1,511 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Fri, 16 May 2026 19:00:00 -0700
+Subject: [PATCH] Port wasmz to Zig 0.16 stdlib + add static-lib target
+
+wasmz is pinned to Zig 0.15.2 but Zig 0.15s build runner segfaults on
+macOS 26 Tahoe (its bundled libSystem TBDs are missing _realpath$DARWIN_EXTSN,
+_sigaction, etc.). This patch ports the wasmz sources to the 0.16 stdlib so
+the codebase builds with the working 0.16 toolchain.
+
+Mechanical migrations:
+
+  * std.meta.intToEnum(E, x) catch ... → std.enums.fromInt(E, x) orelse ...
+    (0.16 returns ?E instead of !E)
+  * std.ArrayListUnmanaged(T){} → .empty / explicit type ascription
+    (default init of the unmanaged variant is deprecated)
+  * std.meta.TagPayload(U, tag) → @FieldType(U, name) builtin
+  * std.posix.mprotect was removed — call std.c.mprotect directly.
+  * std.posix.PROT.NONE / .READ / .WRITE no longer exist as plain enum
+    constants on Apple targets (it's now vm_prot_t, a packed struct).
+    Replace with literal packed-struct values.
+  * std.Thread.Mutex / Condition moved to std.Io and require an Io
+    parameter — stub locally; the only caller is the wasm-threads
+    atomic.wait/notify path which is gated by single_threaded and is
+    not exercised by App-Store-eligible (single-threaded) embedders.
+  * std.time.nanoTimestamp was removed — call clock_gettime(MONOTONIC)
+    directly (same paths as above).
+  * Target.Os.Tag.solaris was merged into .illumos — drop the stale arm.
+  * Add Apple targets (.ios/.tvos/.watchos/.visionos) to the mmap-strategy
+    selector — they all support mmap/mprotect (verified).
+
+New build artefact:
+
+  * static-lib step that mirrors the existing clib step but emits
+    libwasmz.a, used by wasm-benchmark to link wasmz into an
+    iOS/watchOS/tvOS App-Store-eligible bundle.
+---
+diff --git a/build.zig b/build.zig
+index 9768a4c..befb75a 100644
+--- a/build.zig
++++ b/build.zig
+@@ -285,6 +285,29 @@ pub fn build(b: *std.Build) void {
+     clib_step.dependOn(&b.addInstallArtifact(clib, .{}).step);
+     clib_step.dependOn(&install_header.step);
+ 
++    // Static-lib companion of `clib` — built so Apple Store-eligible iOS /
++    // watchOS / tvOS apps can link wasmz in directly (no JIT, no dlopen).
++    // Mirrors the wasm-benchmark project convention (`zwasm` exposes the
++    // same `static-lib` step) so `scripts/build-wasmz.sh` can call it
++    // without a special case.
++    const clib_static = b.addLibrary(.{
++        .name = "wasmz",
++        .linkage = .static,
++        .root_module = b.createModule(.{
++            .root_source_file = b.path("src/capi.zig"),
++            .target = target,
++            .optimize = optimize,
++            .imports = &.{
++                .{ .name = "wasmz", .module = mod },
++            },
++            .link_libc = true,
++        }),
++    });
++
++    const static_lib_step = b.step("static-lib", "Build the C static library (libwasmz.a)");
++    static_lib_step.dependOn(&b.addInstallArtifact(clib_static, .{}).step);
++    static_lib_step.dependOn(&install_header.step);
++
+     // ── wasmz-as-WASI (self-hosted CLI) ─────────────────────────────────────
+     //
+     // Build with: zig build wasi
+diff --git a/src/compiler/lower.zig b/src/compiler/lower.zig
+index a6fd83a..96a30ac 100644
+--- a/src/compiler/lower.zig
++++ b/src/compiler/lower.zig
+@@ -148,7 +148,7 @@ pub const SmallPatchList = struct {
+             return;
+         }
+         // First spill: move inline_buf into ArrayList then append new entry.
+-        var list = std.ArrayListUnmanaged(u32){};
++        var list: std.ArrayListUnmanaged(u32) = .empty;
+         try list.ensureTotalCapacity(allocator, INLINE_CAP + 1);
+         list.appendSliceAssumeCapacity(self.inline_buf[0..INLINE_CAP]);
+         list.appendAssumeCapacity(site);
+@@ -2699,7 +2699,7 @@ pub const Lower = struct {
+         const imm_tag = op_tag ++ "_imm";
+         if (comptime @hasField(Op, imm_tag)) {
+             // Determine imm type from the fused op's struct field at compile time.
+-            const ImmType = @TypeOf(@field(@as(std.meta.TagPayload(Op, @field(Op, imm_tag)), undefined), "imm"));
++            const ImmType = @FieldType(@FieldType(Op, imm_tag), "imm");
+             const ops = self.compiled.ops.items;
+             if (ops.len > 0) {
+                 switch (ops[ops.len - 1]) {
+@@ -2855,7 +2855,7 @@ pub const Lower = struct {
+         // Peephole C (compare variant): const_i32/i64 + xxx_cmp → xxx_cmp_imm
+         const imm_tag = op_tag ++ "_imm";
+         if (comptime @hasField(Op, imm_tag)) {
+-            const ImmType = @TypeOf(@field(@as(std.meta.TagPayload(Op, @field(Op, imm_tag)), undefined), "imm"));
++            const ImmType = @FieldType(@FieldType(Op, imm_tag), "imm");
+             const ops = self.compiled.ops.items;
+             if (ops.len > 0) {
+                 switch (ops[ops.len - 1]) {
+diff --git a/src/core/memory.zig b/src/core/memory.zig
+index e75ca1c..43a06de 100644
+--- a/src/core/memory.zig
++++ b/src/core/memory.zig
+@@ -50,11 +50,14 @@ const MAX_OWNED_CAPACITY: usize = arch.max_linear_memory_bytes;
+ /// True when the platform supports mmap/mprotect for the virtual-reserve strategy.
+ const use_mmap = builtin.os.tag == .linux or
+     builtin.os.tag == .macos or
++    builtin.os.tag == .ios or
++    builtin.os.tag == .tvos or
++    builtin.os.tag == .watchos or
++    builtin.os.tag == .visionos or
+     builtin.os.tag == .freebsd or
+     builtin.os.tag == .netbsd or
+     builtin.os.tag == .openbsd or
+     builtin.os.tag == .dragonfly or
+-    builtin.os.tag == .solaris or
+     builtin.os.tag == .illumos;
+ 
+ // Owned memory helpers (POSIX mmap strategy)
+@@ -63,6 +66,22 @@ const use_mmap = builtin.os.tag == .linux or
+ /// WASM_PAGE_SIZE (64 KiB) is always a multiple of this so all offsets are valid.
+ const mmap_page_align = std.heap.page_size_min;
+ 
++/// PROT_NONE / PROT_READ|WRITE constants that work for both the Linux
++/// packed struct PROT and the Apple `vm_prot_t` packed struct.
++/// Both expose `READ`, `WRITE`, `EXEC` bool fields; default-initialised
++/// is "no access" (== PROT_NONE on the C side).
++const prot_none: std.posix.PROT = .{};
++const prot_rw: std.posix.PROT = .{ .READ = true, .WRITE = true };
++
++/// Replacement for `std.posix.mprotect`, which was removed in Zig 0.16.
++/// Calls `std.c.mprotect` directly and reports failure as a plain bool so
++/// callers can map it onto their own error path.
++fn mprotectRw(slice: []align(mmap_page_align) u8) bool {
++    if (slice.len == 0) return true;
++    const rc = std.c.mprotect(@ptrCast(slice.ptr), slice.len, prot_rw);
++    return rc == 0;
++}
++
+ /// Allocate a virtual address region of `capacity` bytes with no physical pages
+ /// committed (PROT_NONE), then commit the first `committed` bytes.
+ /// Returns a pointer to the base of the region and the full capacity slice.
+@@ -72,16 +91,16 @@ fn ownedMmapInit(committed: usize, capacity: usize) Allocator.Error![]align(mmap
+         const base = posix.mmap(
+             null,
+             capacity,
+-            posix.PROT.NONE,
++            prot_none,
+             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+             -1,
+             0,
+         ) catch return error.OutOfMemory;
+         if (committed > 0) {
+-            posix.mprotect(base[0..committed], posix.PROT.READ | posix.PROT.WRITE) catch {
++            if (!mprotectRw(base[0..committed])) {
+                 posix.munmap(base);
+                 return error.OutOfMemory;
+-            };
++            }
+             @memset(base[0..committed], 0);
+         }
+         return base;
+@@ -94,9 +113,8 @@ fn ownedMmapInit(committed: usize, capacity: usize) Allocator.Error![]align(mmap
+ /// `base` is the full reserved region (capacity bytes).
+ fn ownedMmapGrow(base: []align(mmap_page_align) u8, old_committed: usize, new_committed: usize) bool {
+     if (use_mmap) {
+-        const posix = std.posix;
+         const new_range: []align(mmap_page_align) u8 = @alignCast(base[old_committed..new_committed]);
+-        posix.mprotect(new_range, posix.PROT.READ | posix.PROT.WRITE) catch return false;
++        if (!mprotectRw(new_range)) return false;
+         @memset(new_range, 0);
+         return true;
+     } else {
+@@ -119,13 +137,62 @@ pub const WASM_PAGE_SIZE: usize = 65536;
+ /// Number of futex buckets in the wait/notify table.  Must be a power of two.
+ const FUTEX_BUCKETS: usize = 64;
+ 
++/// Zig-0.16 stubs for `std.Thread.Mutex` / `std.Thread.Condition`.
++///
++/// In 0.15 these were callable without an `Io` parameter. In 0.16 the
++/// blocking synchronisation primitives live under `std.Io` and require an
++/// `Io` instance. wasmz only uses them for the wasm `atomic.wait` /
++/// `atomic.notify` path on **shared** memories — and every public entry
++/// point on `SharedMemoryInner` short-circuits with
++/// `if (builtin.single_threaded) return …;`. The benchmark workloads we
++/// care about never instantiate a shared memory, so the real lock /
++/// condition implementations are never reached. Provide the smallest
++/// possible API surface that lets the type-check pass; if a future user
++/// actually runs wasm threads through this build they'll trip an
++/// `unreachable` and we can plumb the real `std.Io.Mutex` / `Condition`
++/// through then.
++const StubMutex = struct {
++    pub fn lock(_: *StubMutex) void {
++        unreachable; // wasmz shared-memory wait/notify is not wired through Io in this build
++    }
++    pub fn unlock(_: *StubMutex) void {
++        unreachable;
++    }
++};
++const StubCondition = struct {
++    pub fn wait(_: *StubCondition, _: *StubMutex) void {
++        unreachable;
++    }
++    pub fn timedWait(_: *StubCondition, _: *StubMutex, _: u64) error{Timeout}!void {
++        unreachable;
++    }
++    pub fn signal(_: *StubCondition) void {
++        unreachable;
++    }
++    pub fn broadcast(_: *StubCondition) void {
++        unreachable;
++    }
++};
++
++/// Zig-0.16 replacement for `std.time.nanoTimestamp`. Reads CLOCK_MONOTONIC
++/// directly via libc; used only by the shared-memory wait paths that the
++/// stub Mutex/Condition above turn into compile-time-unreachable code on
++/// non-single-threaded builds. Returning a sensible value (rather than
++/// `unreachable`) keeps the arithmetic well-defined if a future revision
++/// re-enables real synchronisation primitives without touching this file.
++inline fn monotonicNanos() i128 {
++    var ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
++    _ = std.c.clock_gettime(.MONOTONIC, &ts);
++    return @as(i128, ts.sec) * std.time.ns_per_s + @as(i128, ts.nsec);
++}
++
+ /// One entry in the futex bucket table.
+ const FutexBucket = if (builtin.single_threaded) struct {
+     waiters: u32 = 0,
+     notify_seq: u32 = 0,
+ } else struct {
+-    mutex: std.Thread.Mutex = .{},
+-    cond: std.Thread.Condition = .{},
++    mutex: StubMutex = .{},
++    cond: StubCondition = .{},
+     waiters: u32 = 0,
+     notify_seq: u32 = 0,
+ };
+@@ -242,10 +309,10 @@ const SharedMemoryInner = struct {
+             }
+             return .ok;
+         } else {
+-            const start_ns = std.time.nanoTimestamp();
++            const start_ns: i128 = monotonicNanos();
+             const deadline_ns = start_ns + timeout_ns;
+             while (bucket.notify_seq == initial_seq) {
+-                const now_ns = std.time.nanoTimestamp();
++                const now_ns: i128 = monotonicNanos();
+                 if (now_ns >= deadline_ns) return .timed_out;
+                 const left: u64 = @intCast(deadline_ns - now_ns);
+                 bucket.cond.timedWait(&bucket.mutex, left) catch {
+@@ -287,10 +354,10 @@ const SharedMemoryInner = struct {
+             }
+             return .ok;
+         } else {
+-            const start_ns = std.time.nanoTimestamp();
++            const start_ns: i128 = monotonicNanos();
+             const deadline_ns = start_ns + timeout_ns;
+             while (bucket.notify_seq == initial_seq) {
+-                const now_ns = std.time.nanoTimestamp();
++                const now_ns: i128 = monotonicNanos();
+                 if (now_ns >= deadline_ns) return .timed_out;
+                 const left: u64 = @intCast(deadline_ns - now_ns);
+                 bucket.cond.timedWait(&bucket.mutex, left) catch {
+diff --git a/src/parser/root.zig b/src/parser/root.zig
+index cd2e343..d96d449 100644
+--- a/src/parser/root.zig
++++ b/src/parser/root.zig
+@@ -695,7 +695,7 @@ pub const Parser = struct {
+         const module = self.read_str_bytes();
+         const field = self.read_str_bytes();
+         const kind_raw = self.read_u8();
+-        const kind = std.meta.intToEnum(ExternalKind, kind_raw) catch {
++        const kind = std.enums.fromInt(ExternalKind, kind_raw) orelse {
+             std.debug.panic("Unknown external kind: {}", .{kind_raw});
+         };
+ 
+@@ -735,7 +735,7 @@ pub const Parser = struct {
+ 
+         const field = self.read_str_bytes();
+         const kind_raw = self.read_u8();
+-        const kind = std.meta.intToEnum(ExternalKind, kind_raw) catch {
++        const kind = std.enums.fromInt(ExternalKind, kind_raw) orelse {
+             std.debug.panic("Unknown external kind: {}", .{kind_raw});
+         };
+         const index = self.read_var_uint32();
+@@ -848,7 +848,7 @@ pub const Parser = struct {
+             const typ_raw = self.read_var_uint7();
+             const payload_len = self.read_var_uint32();
+             const payload_end = self.cur_pos + payload_len;
+-            const typ = std.meta.intToEnum(NameType, typ_raw) catch {
++            const typ = std.enums.fromInt(NameType, typ_raw) orelse {
+                 self.cur_pos = payload_end;
+                 continue;
+             };
+@@ -978,7 +978,7 @@ pub const Parser = struct {
+         }
+ 
+         const typ_raw = self.read_var_uint7();
+-        const typ = std.meta.intToEnum(RelocType, typ_raw) catch {
++        const typ = std.enums.fromInt(RelocType, typ_raw) orelse {
+             self.last_err_arg = typ_raw;
+             return self.fail_with_state(ParserError.BadRelocationType);
+         };
+@@ -1097,7 +1097,7 @@ pub const Parser = struct {
+         }
+ 
+         const segment_type_raw = self.read_u8();
+-        const segment_type = std.meta.intToEnum(ElementSegmentType, segment_type_raw) catch {
++        const segment_type = std.enums.fromInt(ElementSegmentType, segment_type_raw) orelse {
+             self.last_err_arg = segment_type_raw;
+             return self.fail_with_state(ParserError.UnsupportedElementSegmentType);
+         };
+@@ -1213,7 +1213,7 @@ pub const Parser = struct {
+         }
+ 
+         const typ_raw = self.read_var_uint32();
+-        const typ = std.meta.intToEnum(LinkingType, typ_raw) catch {
++        const typ = std.enums.fromInt(LinkingType, typ_raw) orelse {
+             self.last_err_arg = typ_raw;
+             return self.fail_with_state(ParserError.BadLinkingType);
+         };
+@@ -1492,7 +1492,7 @@ pub const Parser = struct {
+     fn read_tag_type(self: *Parser) TagType {
+         const attribute = self.read_var_uint32();
+         return .{
+-            .attribute = std.meta.intToEnum(TagAttribute, @as(u8, @intCast(attribute))) catch {
++            .attribute = std.enums.fromInt(TagAttribute, @as(u8, @intCast(attribute))) orelse {
+                 std.debug.panic("Unknown tag attribute: {}", .{attribute});
+             },
+             .type_index = self.read_var_uint32(),
+@@ -1570,7 +1570,7 @@ pub const Parser = struct {
+         for (handlers) |*handler| {
+             if (!self.has_var_int_bytes()) return error.NeedMoreData;
+             const kind_raw = self.read_var_uint32();
+-            const kind = std.meta.intToEnum(CatchHandlerKind, kind_raw) catch {
++            const kind = std.enums.fromInt(CatchHandlerKind, kind_raw) orelse {
+                 self.last_err_arg = kind_raw;
+                 return error.UnknownOperator;
+             };
+@@ -1596,7 +1596,7 @@ pub const Parser = struct {
+         if (!self.has_var_int_bytes()) return error.NeedMoreData;
+         const subcode = self.read_var_uint32();
+         const code_value = 0xfb00 | subcode;
+-        const code = std.meta.intToEnum(OperatorCode, code_value) catch {
++        const code = std.enums.fromInt(OperatorCode, code_value) orelse {
+             self.last_err_arg = code_value;
+             return error.UnknownOperator;
+         };
+@@ -1670,7 +1670,7 @@ pub const Parser = struct {
+         if (!self.has_var_int_bytes()) return error.NeedMoreData;
+         const subcode = self.read_var_uint32();
+         const code_value = 0xfc00 | subcode;
+-        const code = std.meta.intToEnum(OperatorCode, code_value) catch {
++        const code = std.enums.fromInt(OperatorCode, code_value) orelse {
+             self.last_err_arg = code_value;
+             return error.UnknownOperator;
+         };
+@@ -1734,7 +1734,7 @@ pub const Parser = struct {
+         if (!self.has_var_int_bytes()) return error.NeedMoreData;
+         const subcode = self.read_var_uint32();
+         const code_value = 0xfd000 | subcode;
+-        const code = std.meta.intToEnum(OperatorCode, code_value) catch {
++        const code = std.enums.fromInt(OperatorCode, code_value) orelse {
+             self.last_err_arg = code_value;
+             return error.UnknownOperator;
+         };
+@@ -2026,7 +2026,7 @@ pub const Parser = struct {
+         if (!self.has_var_int_bytes()) return error.NeedMoreData;
+         const subcode = self.read_var_uint32();
+         const code_value = 0xfe00 | subcode;
+-        const code = std.meta.intToEnum(OperatorCode, code_value) catch {
++        const code = std.enums.fromInt(OperatorCode, code_value) orelse {
+             self.last_err_arg = code_value;
+             return error.UnknownOperator;
+         };
+@@ -2122,7 +2122,7 @@ pub const Parser = struct {
+ 
+         if (!self.has_bytes(1)) return error.NeedMoreData;
+         const code_raw = self.read_u8();
+-        const code = std.meta.intToEnum(OperatorCode, code_raw) catch {
++        const code = std.enums.fromInt(OperatorCode, code_raw) orelse {
+             self.last_err_arg = code_raw;
+             return error.UnknownOperator;
+         };
+@@ -2485,7 +2485,7 @@ pub const Parser = struct {
+         if (!self.has_bytes(1)) return false;
+ 
+         const kind_raw = self.read_u8();
+-        const kind = std.meta.intToEnum(ExternalKind, kind_raw) catch return true;
++        const kind = std.enums.fromInt(ExternalKind, kind_raw) orelse return true;
+         return switch (kind) {
+             .function => blk: {
+                 if (!self.has_var_int_bytes()) break :blk false;
+@@ -2531,7 +2531,7 @@ pub const Parser = struct {
+     fn skip_element_entry(self: *Parser) bool {
+         if (!self.has_bytes(1)) return false;
+         const segment_type_raw = self.read_u8();
+-        const segment_type = std.meta.intToEnum(ElementSegmentType, segment_type_raw) catch return true;
++        const segment_type = std.enums.fromInt(ElementSegmentType, segment_type_raw) orelse return true;
+         return switch (segment_type) {
+             .active_externval, .active_elemexpr => blk: {
+                 if (!self.has_var_int_bytes()) break :blk false;
+@@ -2576,7 +2576,7 @@ pub const Parser = struct {
+     fn skip_linking_entry(self: *Parser) bool {
+         if (!self.has_var_int_bytes()) return false;
+         const typ_raw = self.read_var_uint32();
+-        const typ = std.meta.intToEnum(LinkingType, typ_raw) catch return true;
++        const typ = std.enums.fromInt(LinkingType, typ_raw) orelse return true;
+         return switch (typ) {
+             .stack_pointer => blk: {
+                 if (!self.has_var_int_bytes()) break :blk false;
+@@ -2608,7 +2608,7 @@ pub const Parser = struct {
+         if (!self.has_bytes(payload_len)) return false;
+ 
+         const payload_end = self.cur_pos + payload_len;
+-        const typ = std.meta.intToEnum(NameType, typ_raw) catch {
++        const typ = std.enums.fromInt(NameType, typ_raw) orelse {
+             self.cur_pos = payload_end;
+             return true;
+         };
+@@ -2663,7 +2663,7 @@ pub const Parser = struct {
+     fn skip_reloc_entry(self: *Parser) bool {
+         if (!self.has_var_int_bytes()) return false;
+         const typ_raw = self.read_var_uint7();
+-        const typ = std.meta.intToEnum(RelocType, typ_raw) catch return true;
++        const typ = std.enums.fromInt(RelocType, typ_raw) orelse return true;
+         if (!self.has_var_int_bytes()) return false;
+         _ = self.read_var_uint32();
+         if (!self.has_var_int_bytes()) return false;
+@@ -3054,11 +3054,11 @@ fn contains_u32(values: []const u32, value: u32) bool {
+ }
+ 
+ fn parse_section_code(raw: u7) ?SectionCode {
+-    return std.meta.intToEnum(SectionCode, raw) catch null;
++    return std.enums.fromInt(SectionCode, raw);
+ }
+ 
+ fn parse_type_kind(kind: i64) TypeKind {
+-    return std.meta.intToEnum(TypeKind, @as(i32, @intCast(kind))) catch {
++    return std.enums.fromInt(TypeKind, @as(i32, @intCast(kind))) orelse {
+         std.debug.panic("Unknown type kind: {}", .{kind});
+     };
+ }
+diff --git a/src/vm/gc/heap.zig b/src/vm/gc/heap.zig
+index 8647586..5b8e289 100644
+--- a/src/vm/gc/heap.zig
++++ b/src/vm/gc/heap.zig
+@@ -111,7 +111,7 @@ pub const GcHeap = struct {
+             .free_list = .{},
+             .allocator = allocator,
+             .used = 0,
+-            .live_objects = .{},
++            .live_objects = .empty,
+             .budget = budget,
+         };
+     }
+@@ -555,7 +555,7 @@ pub const GcHeap = struct {
+         // Phase 1: Mark
+         // Use an explicit ArrayListUnmanaged as the worklist so we never overflow
+         // the native call stack regardless of object graph depth.
+-        var worklist = std.ArrayListUnmanaged(u32){};
++        var worklist: std.ArrayListUnmanaged(u32) = .empty;
+         defer worklist.deinit(self.allocator);
+ 
+         // Seed the worklist with all heap references found in the root set.
+diff --git a/src/vm/handlers/eh.zig b/src/vm/handlers/eh.zig
+index c9919f0..e5e9f45 100644
+--- a/src/vm/handlers/eh.zig
++++ b/src/vm/handlers/eh.zig
+@@ -58,7 +58,7 @@ fn collectGcRoots(
+     frame: *DispatchState,
+     globals: []const Global,
+ ) Allocator.Error![]GcRef {
+-    var roots = std.ArrayListUnmanaged(GcRef){};
++    var roots: std.ArrayListUnmanaged(GcRef) = .empty;
+     errdefer roots.deinit(allocator);
+ 
+     for (0..frame.call_depth) |i| {
+diff --git a/src/vm/handlers/gc.zig b/src/vm/handlers/gc.zig
+index a25ae7e..5c622ac 100644
+--- a/src/vm/handlers/gc.zig
++++ b/src/vm/handlers/gc.zig
+@@ -86,7 +86,7 @@ fn collectGcRoots(
+     frame: *const DispatchState,
+     globals: []const Global,
+ ) Allocator.Error![]GcRef {
+-    var roots = std.ArrayListUnmanaged(GcRef){};
++    var roots: std.ArrayListUnmanaged(GcRef) = .empty;
+     errdefer roots.deinit(allocator);
+ 
+     for (0..frame.call_depth) |i| {
+diff --git a/src/wasmz/module.zig b/src/wasmz/module.zig
+index ca2ee5f..b3650d3 100644
+--- a/src/wasmz/module.zig
++++ b/src/wasmz/module.zig
+@@ -2530,7 +2530,7 @@ fn decodeAndLower(
+ 
+     if (!p.has_bytes(1)) return error.NeedMoreData;
+     const code_raw = p.read_u8();
+-    const code = std.meta.intToEnum(payload_mod.OperatorCode, code_raw) catch {
++    const code = std.enums.fromInt(payload_mod.OperatorCode, code_raw) orelse {
+         return error.UnknownOperator;
+     };
+ 
+-- 
+2.50.0
+

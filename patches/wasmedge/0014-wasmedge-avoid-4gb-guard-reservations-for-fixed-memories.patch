@@ -1,0 +1,129 @@
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index 2cde328adbde60924a94d8f8cfab0d51fe070473..467e942dba9a3f6ee974f38ad42f34c83824035c 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -49,18 +49,21 @@ public:
+   MemoryInstance(MemoryInstance &&Inst) noexcept
+       : MemType(Inst.MemType), DataPtr(Inst.DataPtr),
+         PageLimit(Inst.PageLimit),
++        ReservedPageLimit(Inst.ReservedPageLimit),
+         GuardPageBoundsCheck(Inst.GuardPageBoundsCheck),
+         RequestedGuardPageBytes(Inst.RequestedGuardPageBytes),
+         GuardedReservationBytes(Inst.GuardedReservationBytes) {
+     Inst.DataPtr = nullptr;
++    Inst.ReservedPageLimit = 0;
+     Inst.GuardPageBoundsCheck = false;
+     Inst.RequestedGuardPageBytes = 0;
+     Inst.GuardedReservationBytes = 0;
+   }
+   MemoryInstance(const AST::MemoryType &MType,
+                  uint64_t PageLim = kPageLimit64,
+-                 uint64_t GuardBytes = 0) noexcept
+-      : MemType(MType), PageLimit(PageLim) {
++                 uint64_t GuardBytes = 0,
++                 uint64_t ReservedPageLim = 0) noexcept
++      : MemType(MType), PageLimit(PageLim), ReservedPageLimit(ReservedPageLim) {
+     using namespace std::literals;
+     if (MemType.getLimit().is32() && PageLimit > kPageLimit32) {
+       if (PageLimit != kPageLimit64) {
+@@ -85,6 +88,11 @@ public:
+           std::min(ReservationPageCount, MemType.getLimit().getMax());
+     }
+     ReservationPageCount = std::min(ReservationPageCount, PageLimit);
++    if (ReservedPageLimit != 0) {
++      ReservationPageCount = std::min(ReservationPageCount, ReservedPageLimit);
++    }
++    ReservationPageCount =
++        std::max(ReservationPageCount, MemType.getLimit().getMin());
+ 
+     RequestedGuardPageBytes = GuardBytes;
+     DataPtr = Allocator::allocate(
+@@ -488,6 +496,7 @@ private:
+   AST::MemoryType MemType;
+   uint8_t *DataPtr = nullptr;
+   uint64_t PageLimit;
++  uint64_t ReservedPageLimit = 0;
+   bool GuardPageBoundsCheck = false;
+   uint64_t RequestedGuardPageBytes = 0;
+   uint64_t GuardedReservationBytes = 0;
+diff --git a/include/runtime/instance/module.h b/include/runtime/instance/module.h
+index b9915c9e483072893f930f1e831f3a548c742059..176d8a6830c883933c4e111287b3425962e117f7 100644
+--- a/include/runtime/instance/module.h
++++ b/include/runtime/instance/module.h
+@@ -231,6 +231,7 @@ public:
+   void reserveMemoryGuardPageBytes(uint32_t Count) {
+     std::unique_lock Lock(Mutex);
+     MemoryGuardPageBytes.resize(Count, 0U);
++    MemoryMayGrow.resize(Count, false);
+   }
+ 
+   void noteMemoryGuardPageBytes(uint32_t Idx, uint64_t GuardBytes) {
+@@ -249,6 +250,22 @@ public:
+     return MemoryGuardPageBytes[Idx];
+   }
+ 
++  void noteMemoryMayGrow(uint32_t Idx) {
++    std::unique_lock Lock(Mutex);
++    if (Idx >= MemoryMayGrow.size()) {
++      MemoryMayGrow.resize(static_cast<size_t>(Idx) + 1U, false);
++    }
++    MemoryMayGrow[Idx] = true;
++  }
++
++  bool getMemoryMayGrow(uint32_t Idx) const noexcept {
++    std::shared_lock Lock(Mutex);
++    if (Idx >= MemoryMayGrow.size()) {
++      return true;
++    }
++    return MemoryMayGrow[Idx];
++  }
++
+ protected:
+   friend class Executor::Executor;
+   friend class ComponentInstance;
+@@ -597,6 +614,7 @@ protected:
+   std::vector<ElementInstance *> ElemInsts;
+   std::vector<DataInstance *> DataInsts;
+   std::vector<uint64_t> MemoryGuardPageBytes;
++  std::vector<bool> MemoryMayGrow;
+ 
+   /// Imported instances counts.
+   uint32_t ImpGlobalNum = 0;
+diff --git a/lib/executor/instantiate/function.cpp b/lib/executor/instantiate/function.cpp
+index 24df6d3ed40da6b7b1a466f05c333fdc3bcd35de..29443c48b4bd3d88496305c1e6c94edf56c8f2f2 100644
+--- a/lib/executor/instantiate/function.cpp
++++ b/lib/executor/instantiate/function.cpp
+@@ -138,6 +138,9 @@ uint64_t getMemoryAccessSize(const AST::Instruction &Instr) noexcept {
+ void noteMemoryGuardPageBytes(Runtime::Instance::ModuleInstance &ModInst,
+                               AST::InstrView Instrs) {
+   for (const auto &Instr : Instrs) {
++    if (Instr.getOpCode() == OpCode::Memory__grow) {
++      ModInst.noteMemoryMayGrow(Instr.getTargetIndex());
++    }
+     const uint64_t AccessSize = getMemoryAccessSize(Instr);
+     if (AccessSize == 0U) {
+       continue;
+diff --git a/lib/executor/instantiate/memory.cpp b/lib/executor/instantiate/memory.cpp
+index 341447a3a4e0dcf9e5b94f2d18d60e85f42a8368..497d7f2ae5a442b4bf714c49d4257dd8c3a476c0 100644
+--- a/lib/executor/instantiate/memory.cpp
++++ b/lib/executor/instantiate/memory.cpp
+@@ -28,9 +28,18 @@ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
+   // Iterate through the memory types to instantiate memory instances.
+   for (uint32_t I = 0; I < MemTypes.size(); ++I) {
+     const uint32_t Index = ImportedMemoryCount + I;
++    uint64_t ReservationPageCount = MemTypes[I].getLimit().getMin();
++    if (ModInst.getMemoryMayGrow(Index)) {
++      ReservationPageCount = Conf.getRuntimeConfigure().getMaxMemoryPage();
++      if (MemTypes[I].getLimit().hasMax()) {
++        ReservationPageCount =
++            std::min(ReservationPageCount, MemTypes[I].getLimit().getMax());
++      }
++    }
+     // Create and add the memory instance into the module instance.
+     ModInst.addMemory(MemTypes[I], Conf.getRuntimeConfigure().getMaxMemoryPage(),
+-                      ModInst.getMemoryGuardPageBytes(Index));
++                      ModInst.getMemoryGuardPageBytes(Index),
++                      ReservationPageCount);
+     Runtime::Instance::MemoryInstance *MemInst = *ModInst.getMemory(Index);
+     // Set the memory pointers of instantiated memories.
+ #if WASMEDGE_ALLOCATOR_IS_STABLE

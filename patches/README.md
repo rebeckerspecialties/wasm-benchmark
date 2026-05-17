@@ -88,28 +88,40 @@ and-load tail. Dispatch tail at the call_indirect lazy-init site
 goes from 5 ops (baseline) to **2** ops. See
 [docs/opcode-fusion-band-funcref-dispatch.md](../docs/opcode-fusion-band-funcref-dispatch.md).
 
-### `pulley-fusion-call-indirect-args/` (2 commits)
+### `pulley-fusion-call-indirect-args/` (3 commits)
 
-Phase 4: mirrors `Inst::Call`'s `call{1,2,3,4}` arg-bundling for
-`Inst::IndirectCall`. Adds Pulley opcodes `call_indirect{1,2,3,4}`
-that combine `xmov xN, argN` ABI fixups with the indirect call
-into one dispatch. Cranelift side adds a new `PulleyCallIndirect
-{ target, args }` payload (mirror of `PulleyCall`) so the first
-0–4 integer ABI args bypass regalloc's `reg_fixed_use` mechanism
-and are moved by the call opcode at call time. Dispatch tail
-shrinks from phase-3's 2 ops to 1 fused op (`xband_funcref_
-dispatch_*` + `call_indirect1`) per call_indirect lazy-init site,
-saving one Pulley dispatch per call_indirect on the eager-table
-fast path. See [docs/four-way-baseline-phase3-phase4-wamr.md](../docs/four-way-baseline-phase3-phase4-wamr.md).
+Phase 4 (commits 1–2): mirrors `Inst::Call`'s `call{1,2,3,4}`
+arg-bundling for `Inst::IndirectCall`. Adds Pulley opcodes
+`call_indirect{1,2,3,4}` that combine `xmov xN, argN` ABI fixups
+with the indirect call into one dispatch. Cranelift side adds a
+new `PulleyCallIndirect { target, args }` payload (mirror of
+`PulleyCall`) so the first 0–4 integer ABI args bypass regalloc's
+`reg_fixed_use` mechanism and are moved by the call opcode at
+call time. Dispatch tail shrinks from phase-3's 2 ops to 1 fused
+op (`xband_funcref_dispatch_*` + `call_indirect1`) per
+call_indirect lazy-init site. See
+[docs/four-way-baseline-phase3-phase4-wamr.md](../docs/four-way-baseline-phase3-phase4-wamr.md).
+
+Commit 3 (correctness fix): trap on null in the 8 fused
+funcref-dispatch handlers (phase 2 + phase 3 ops) instead of
+falling through to the lazy-init `null_block`. Phase 2/3's load
+absorption removed the loads from `continuation_block`, so the
+slow path's `null_block → lazy_init → jump continuation` would
+land in a continuation block with no loads — `call_indirect`
+would observe uninitialized `dst_code`/`dst_vmctx`. The fusion is
+gated on `is_eagerly_initialized_funcref_table` so the slow path
+is unreachable in correct code; trapping defends against future
+predicate unsoundness by failing closed.
 
 | # | subject |
 |---|---------|
 | 1 | `pulley: add call_indirect{1,2,3,4} fused indirect-call ops` |
 | 2 | `cranelift/pulley: pass first 4 indirect-call args via call_indirectN` |
+| 3 | `pulley: trap on null in 8 fused funcref-dispatch handlers` |
 
 iPhone 12 A14 Icestorm wallclock vs phase 3 (N=10, vtable suite):
 **vtable_poly4 −8.94 %, vtable_bi −6.71 %, vtable_poly6 −3.72 %**.
-iPhone XS A12 Mistral recovers phase-3's call_indirect regression
+iPhone XS A12 Tempest recovers phase-3's call_indirect regression
 (−4.77 % vs phase 3, back to baseline parity).
 
 ## Workflow — sending an upstream PR

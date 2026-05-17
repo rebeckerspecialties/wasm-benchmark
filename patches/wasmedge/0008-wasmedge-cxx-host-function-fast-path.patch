@@ -1,0 +1,99 @@
+diff --git a/include/api/wasmedge/wasmedge_instance.h b/include/api/wasmedge/wasmedge_instance.h
+index 35de6a776de6f79976d0c255d6f54bdcb0f0f366..691e55faf56e0592efb0bf7477295fc0316cfd0c 100644
+--- a/include/api/wasmedge/wasmedge_instance.h
++++ b/include/api/wasmedge/wasmedge_instance.h
+@@ -656,6 +656,24 @@ WasmEdge_FunctionInstanceCreateBinding(
+     const WasmEdge_FunctionTypeContext *Type, WasmEdge_WrapFunc_t WrapFunc,
+     void *Binding, void *Data, const uint64_t Cost) WASMEDGE_CAPI_NOEXCEPT;
+ 
++#ifdef __cplusplus
++typedef WasmEdge_Result (*WasmEdge_HostFuncCxx_t)(
++    void *Data, const WasmEdge_CallingFrameContext *CallFrameCxt,
++    const uint128_t *Params, uint128_t *Returns);
++
++/// Creation of the WasmEdge_FunctionInstanceContext for C++ host functions
++/// that want direct access to WasmEdge::ValVariant values without the C API
++/// WasmEdge_Value marshaling layer.
++///
++/// This entry point is C++-only and intended for embedders that compile
++/// directly against WasmEdge internals.
++WASMEDGE_CAPI_EXPORT extern WasmEdge_FunctionInstanceContext *
++WasmEdge_FunctionInstanceCreateCxx(const WasmEdge_FunctionTypeContext *Type,
++                                   WasmEdge_HostFuncCxx_t HostFunc,
++                                   void *Data,
++                                   const uint64_t Cost) noexcept;
++#endif
++
+ /// Get the function data field of the function instance.
+ ///
+ /// The function data is passed when creating the FunctionInstance.
+diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
+index 5c0b125bbe4583d7928501b9e18aba609b99b802..7f14afbb9bfaa9147b84b967dee8d0d31208dee1 100644
+--- a/lib/api/wasmedge.cpp
++++ b/lib/api/wasmedge.cpp
+@@ -545,6 +545,42 @@ private:
+   void *Data;
+ };
+ 
++class CxxAPIHostFunc : public Runtime::HostFunctionBase {
++public:
++  CxxAPIHostFunc(const AST::FunctionType *Type, WasmEdge_HostFuncCxx_t FuncPtr,
++                 void *ExtData, const uint64_t FuncCost = 0) noexcept
++      : Runtime::HostFunctionBase(FuncCost), Func(FuncPtr), Data(ExtData) {
++    DefType.getCompositeType().getFuncType() = *Type;
++  }
++  ~CxxAPIHostFunc() noexcept override = default;
++
++  Expect<void> run(const Runtime::CallingFrame &CallFrame,
++                   Span<const ValVariant> Args,
++                   Span<ValVariant> Rets) override {
++    static_assert(sizeof(ValVariant) == sizeof(uint128_t));
++    static_assert(alignof(ValVariant) == alignof(uint128_t));
++    auto *CallFrameCxt = toCallFrameCxt(&CallFrame);
++    WasmEdge_Result Stat =
++        Func(Data, CallFrameCxt,
++             reinterpret_cast<const uint128_t *>(Args.data()),
++             reinterpret_cast<uint128_t *>(Rets.data()));
++    if (WasmEdge_ResultOK(Stat)) {
++      if (WasmEdge_ResultGetCode(Stat) == 0x01U) {
++        return Unexpect(ErrCode::Value::Terminated);
++      }
++    } else {
++      return Unexpect(
++          static_cast<ErrCategory>(WasmEdge_ResultGetCategory(Stat)),
++          WasmEdge_ResultGetCode(Stat));
++    }
++    return {};
++  }
++
++private:
++  WasmEdge_HostFuncCxx_t Func;
++  void *Data;
++};
++
+ } // namespace
+ 
+ #ifdef __cplusplus
+@@ -2754,6 +2790,22 @@ WasmEdge_FunctionInstanceCreateBinding(const WasmEdge_FunctionTypeContext *Type,
+   return nullptr;
+ }
+ 
++WASMEDGE_CAPI_EXPORT WasmEdge_FunctionInstanceContext *
++WasmEdge_FunctionInstanceCreateCxx(const WasmEdge_FunctionTypeContext *Type,
++                                   WasmEdge_HostFuncCxx_t HostFunc, void *Data,
++                                   const uint64_t Cost) noexcept {
++  try {
++    if (Type && HostFunc) {
++      return toFuncCxt(new WasmEdge::Runtime::Instance::FunctionInstance(
++          std::make_unique<CxxAPIHostFunc>(fromFuncTypeCxt(Type), HostFunc,
++                                           Data, Cost)));
++    }
++  } catch (...) {
++    handleCAPIError();
++  }
++  return nullptr;
++}
++
+ WASMEDGE_CAPI_EXPORT const WasmEdge_FunctionTypeContext *
+ WasmEdge_FunctionInstanceGetFunctionType(
+     const WasmEdge_FunctionInstanceContext *Cxt) noexcept {

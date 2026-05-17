@@ -8,6 +8,22 @@ use std::path::{Path, PathBuf};
 
 const WORKLOADS_DIR_REL: &str = "../../workloads";
 
+/// Resolve the per-Apple-target output dir for a runtime that follows
+/// the shared "host = build, cross = build-<triple>" layout that the
+/// build-{wamr,wasm3,wasmedge,zwasm}.sh scripts use.
+fn apple_target_subdir(target: &str) -> Option<String> {
+    match target {
+        "aarch64-apple-darwin" | "x86_64-apple-darwin" => Some("build".to_string()),
+        "aarch64-apple-ios"
+        | "aarch64-apple-ios-sim"
+        | "arm64_32-apple-watchos"
+        | "aarch64-apple-watchos-sim"
+        | "aarch64-apple-tvos"
+        | "aarch64-apple-tvos-sim" => Some(format!("build-{}", target)),
+        _ => None,
+    }
+}
+
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let manifest = Path::new(&manifest_dir);
@@ -40,7 +56,9 @@ fn main() {
         "aarch64-apple-ios"
         | "aarch64-apple-ios-sim"
         | "arm64_32-apple-watchos"
-        | "aarch64-apple-watchos-sim" => wamr_root.join(format!("build-{}", target)),
+        | "aarch64-apple-watchos-sim"
+        | "aarch64-apple-tvos"
+        | "aarch64-apple-tvos-sim" => wamr_root.join(format!("build-{}", target)),
         _ => wamr_root.join("build"),
     };
     let iwasm_a = wamr_dir.join("libiwasm.a");
@@ -59,6 +77,107 @@ fn main() {
         println!(
             "cargo:warning=libiwasm.a not found at {} — WAMR runtime unavailable for this target",
             iwasm_a.display()
+        );
+    }
+
+    // -- WasmEdge static lib -------------------------------------------
+    // Per-target trees written by scripts/build-wasmedge.sh, mirroring
+    // the WAMR / wasm3 layout. Built with WASMEDGE_USE_LLVM=OFF (pure
+    // interp) + the 27-patch Apple-mobile patch series in
+    // patches/wasmedge/. Output is `libwasmedge.a` per target.
+    let wasmedge_root = manifest.join("../../WasmEdge");
+    let wasmedge_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let wasmedge_dir: PathBuf = wasmedge_root.join(&wasmedge_subdir);
+    let libwasmedge_a = wasmedge_dir.join("libwasmedge.a");
+    println!("cargo:rerun-if-changed={}", libwasmedge_a.display());
+    if libwasmedge_a.exists() {
+        println!("cargo:rustc-link-search=native={}", wasmedge_dir.display());
+        // The patched build emits a single archive (libwasmedge.a)
+        // assembled from libwasmedgeVM.a + libwasmedgeCAPI.a + ... +
+        // libfmt.a + libspdlog.a (see lib/api/CMakeLists.txt). We link
+        // it whole — no need to enumerate sub-libs.
+        println!("cargo:rustc-link-lib=static=wasmedge");
+        // C++ runtime — WasmEdge is C++17. Apple's libc++ ships with
+        // the OS, no extra search path needed.
+        println!("cargo:rustc-link-lib=c++");
+        println!("cargo:rustc-cfg=have_wasmedge");
+    } else {
+        println!(
+            "cargo:warning=libwasmedge.a not found at {} — WasmEdge runtime unavailable for this target",
+            libwasmedge_a.display()
+        );
+    }
+
+    // -- wasmz static lib ----------------------------------------------
+    // Per-target trees written by scripts/build-wasmz.sh via Zig 0.16
+    // `zig build static-lib -Doptimize=ReleaseFast`. Patched (see
+    // patches/wasmz/0001-zig-0.16-stdlib-port.patch + 0002-arm64_32-
+    // apple-watchos-support.patch) so the sources build with 0.16
+    // instead of the upstream-required 0.15.2 (Zig 0.15's build runner
+    // segfaults on macOS 26 Tahoe). arm64_32-apple-watchos is enabled
+    // via patch 0002 (single_threaded + self-contained panic/logFn);
+    // Zig 0.16 spells the triple `aarch64-watchos-ilp32`.
+    let wasmz_root = manifest.join("../../wasmz");
+    let wasmz_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let wasmz_dir: PathBuf = wasmz_root.join(&wasmz_subdir);
+    let libwasmz_a = wasmz_dir.join("libwasmz.a");
+    println!("cargo:rerun-if-changed={}", libwasmz_a.display());
+    if libwasmz_a.exists() {
+        println!("cargo:rustc-link-search=native={}", wasmz_dir.display());
+        println!("cargo:rustc-link-lib=static=wasmz");
+        println!("cargo:rustc-cfg=have_wasmz");
+    } else {
+        println!(
+            "cargo:warning=libwasmz.a not found at {} — wasmz runtime unavailable for this target",
+            libwasmz_a.display()
+        );
+    }
+
+    // -- zwasm static lib ----------------------------------------------
+    // Per-target trees written by scripts/build-zwasm.sh via Zig 0.16
+    // `zig build static-lib -Djit=false`. macOS uses bare `build/`,
+    // cross targets use `build-<triple>`. arm64_32-apple-watchos is
+    // enabled via patches/zwasm/0001-arm64_32-apple-watchos-support
+    // (single_threaded + ILP32 narrowing fixes + self-contained
+    // panic/logFn); Zig 0.16 spells the triple `aarch64-watchos-ilp32`.
+    let zwasm_root = manifest.join("../../zwasm");
+    let zwasm_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let zwasm_dir: PathBuf = zwasm_root.join(&zwasm_subdir);
+    let libzwasm_a = zwasm_dir.join("libzwasm.a");
+    println!("cargo:rerun-if-changed={}", libzwasm_a.display());
+    if libzwasm_a.exists() {
+        println!("cargo:rustc-link-search=native={}", zwasm_dir.display());
+        println!("cargo:rustc-link-lib=static=zwasm");
+        println!("cargo:rustc-cfg=have_zwasm");
+    } else {
+        println!(
+            "cargo:warning=libzwasm.a not found at {} — zwasm runtime unavailable for this target",
+            libzwasm_a.display()
+        );
+    }
+
+    // -- wasm3 static lib ----------------------------------------------
+    // Per-target trees written by scripts/build-wasm3.sh. Same naming
+    // convention as WAMR: `wasm3/build` for the host, `wasm3/build-<triple>`
+    // for cross builds. We compile only the 11 core m3 sources (no WASI /
+    // tracer / uvwasi), so the output is a self-contained libm3.a.
+    let wasm3_root = manifest.join("../../wasm3");
+    let wasm3_subdir =
+        apple_target_subdir(&target).unwrap_or_else(|| "build".to_string());
+    let wasm3_dir: PathBuf = wasm3_root.join(&wasm3_subdir);
+    let libm3_a = wasm3_dir.join("libm3.a");
+    println!("cargo:rerun-if-changed={}", libm3_a.display());
+    if libm3_a.exists() {
+        println!("cargo:rustc-link-search=native={}", wasm3_dir.display());
+        println!("cargo:rustc-link-lib=static=m3");
+        println!("cargo:rustc-cfg=have_wasm3");
+    } else {
+        println!(
+            "cargo:warning=libm3.a not found at {} — wasm3 runtime unavailable for this target",
+            libm3_a.display()
         );
     }
 }

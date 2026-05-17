@@ -1,0 +1,344 @@
+diff --git a/include/executor/engine/memory.ipp b/include/executor/engine/memory.ipp
+index d987a470d166e54db7937a7ea1c7a1a6d9755eb1..494a266f59c42c3bc42c31f80cb0b44385510cea 100644
+--- a/include/executor/engine/memory.ipp
++++ b/include/executor/engine/memory.ipp
+@@ -17,6 +17,11 @@ TypeT<T> Executor::runLoadOp(Runtime::StackManager &StackMgr,
+   ValVariant &Val = StackMgr.getTop();
+   const auto AddrType = MemInst.getMemoryType().getLimit().getAddrType();
+   uint64_t EA = extractAddr(Val, AddrType);
++  if (likely(MemInst.canUseGuardPageBoundsCheck())) {
++    EA += Instr.getMemoryOffset();
++    MemInst.loadValueUnchecked<T, BitWidth / 8>(Val.emplace<T>(), EA);
++    return {};
++  }
+   EXPECTED_TRY(checkOffsetOverflow(MemInst, Instr, EA, BitWidth / 8));
+   EA += Instr.getMemoryOffset();
+   // Value = Mem.Data[EA : N / 8]
+@@ -38,6 +43,11 @@ TypeN<T> Executor::runStoreOp(Runtime::StackManager &StackMgr,
+   // Calculate EA = i + offset
+   const auto AddrType = MemInst.getMemoryType().getLimit().getAddrType();
+   uint64_t I = extractAddr(StackMgr.pop(), AddrType);
++  if (likely(MemInst.canUseGuardPageBoundsCheck())) {
++    const uint64_t EA = I + Instr.getMemoryOffset();
++    MemInst.storeValueUnchecked<T, BitWidth / 8>(C, EA);
++    return {};
++  }
+   EXPECTED_TRY(checkOffsetOverflow(MemInst, Instr, I, BitWidth / 8));
+   uint64_t EA = I + Instr.getMemoryOffset();
+ 
+@@ -59,6 +69,26 @@ Executor::runLoadExpandOp(Runtime::StackManager &StackMgr,
+   ValVariant &Val = StackMgr.getTop();
+   const auto AddrType = MemInst.getMemoryType().getLimit().getAddrType();
+   uint64_t EA = extractAddr(Val, AddrType);
++  if (likely(MemInst.canUseGuardPageBoundsCheck())) {
++    EA += Instr.getMemoryOffset();
++    uint64_t Buffer = 0;
++    MemInst.loadValueUnchecked<decltype(Buffer), 8>(Buffer, EA);
++    using VTIn = SIMDArray<TIn, 8>;
++    using VTOut = SIMDArray<TOut, 16>;
++
++    VTIn Value;
++    std::memcpy(&Value, &Buffer, 8);
++
++    if constexpr (sizeof(TOut) == 2) {
++      Val.emplace<VTOut>(VTOut{Value[0], Value[1], Value[2], Value[3],
++                               Value[4], Value[5], Value[6], Value[7]});
++    } else if constexpr (sizeof(TOut) == 4) {
++      Val.emplace<VTOut>(VTOut{Value[0], Value[1], Value[2], Value[3]});
++    } else if constexpr (sizeof(TOut) == 8) {
++      Val.emplace<VTOut>(VTOut{Value[0], Value[1]});
++    }
++    return {};
++  }
+   EXPECTED_TRY(checkOffsetOverflow(MemInst, Instr, EA, 8));
+   EA += Instr.getMemoryOffset();
+ 
+@@ -97,6 +127,25 @@ Executor::runLoadSplatOp(Runtime::StackManager &StackMgr,
+   ValVariant &Val = StackMgr.getTop();
+   const auto AddrType = MemInst.getMemoryType().getLimit().getAddrType();
+   uint64_t EA = extractAddr(Val, AddrType);
++  if (likely(MemInst.canUseGuardPageBoundsCheck())) {
++    EA += Instr.getMemoryOffset();
++    using VT = SIMDArray<T, 16>;
++    uint64_t Buffer = 0;
++    MemInst.loadValueUnchecked<decltype(Buffer), sizeof(T)>(Buffer, EA);
++    const T Part = static_cast<T>(Buffer);
++
++    if constexpr (sizeof(T) == 1) {
++      Val.emplace<VT>(VT{Part, Part, Part, Part, Part, Part, Part, Part, Part,
++                         Part, Part, Part, Part, Part, Part, Part});
++    } else if constexpr (sizeof(T) == 2) {
++      Val.emplace<VT>(VT{Part, Part, Part, Part, Part, Part, Part, Part});
++    } else if constexpr (sizeof(T) == 4) {
++      Val.emplace<VT>(VT{Part, Part, Part, Part});
++    } else if constexpr (sizeof(T) == 8) {
++      Val.emplace<VT>(VT{Part, Part});
++    }
++    return {};
++  }
+   EXPECTED_TRY(checkOffsetOverflow(MemInst, Instr, EA, sizeof(T)));
+   EA += Instr.getMemoryOffset();
+ 
+@@ -138,6 +187,14 @@ Expect<void> Executor::runLoadLaneOp(Runtime::StackManager &StackMgr,
+   ValVariant &Val = StackMgr.getTop();
+   const auto AddrType = MemInst.getMemoryType().getLimit().getAddrType();
+   uint64_t EA = extractAddr(Val, AddrType);
++  if (likely(MemInst.canUseGuardPageBoundsCheck())) {
++    EA += Instr.getMemoryOffset();
++    uint64_t Buffer = 0;
++    MemInst.loadValueUnchecked<decltype(Buffer), sizeof(T)>(Buffer, EA);
++    Result[Lane] = static_cast<T>(Buffer);
++    Val.emplace<VT>(Result);
++    return {};
++  }
+   EXPECTED_TRY(checkOffsetOverflow(MemInst, Instr, EA, sizeof(T)));
+   EA += Instr.getMemoryOffset();
+ 
+@@ -170,6 +227,11 @@ Executor::runStoreLaneOp(Runtime::StackManager &StackMgr,
+   // Calculate EA = i + offset
+   const auto AddrType = MemInst.getMemoryType().getLimit().getAddrType();
+   uint64_t I = extractAddr(StackMgr.pop(), AddrType);
++  if (likely(MemInst.canUseGuardPageBoundsCheck())) {
++    const uint64_t EA = I + Instr.getMemoryOffset();
++    MemInst.storeValueUnchecked<decltype(C), sizeof(T)>(C, EA);
++    return {};
++  }
+   EXPECTED_TRY(checkOffsetOverflow(MemInst, Instr, I, sizeof(T)));
+   uint64_t EA = I + Instr.getMemoryOffset();
+ 
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index d46fbaf40e41e075ceaec65e1717c981e1505a76..c0b6a3325699f0d77277fa846086be5be6545cf8 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -97,6 +97,14 @@ public:
+   /// Getter of memory type.
+   const AST::MemoryType &getMemoryType() const noexcept { return MemType; }
+ 
++  bool canUseGuardPageBoundsCheck() const noexcept {
++#if WASMEDGE_ALLOCATOR_IS_STABLE
++    return MemType.getLimit().is32();
++#else
++    return false;
++#endif
++  }
++
+   /// Check access size is valid.
+   bool checkAccessBound(const uint64_t Offset,
+                         const uint64_t Length) const noexcept {
+@@ -345,6 +353,36 @@ public:
+     return {};
+   }
+ 
++  template <typename T, uint32_t Length = sizeof(T)>
++  typename std::enable_if_t<IsWasmNumV<T>, void>
++  loadValueUnchecked(T &Value, const uint64_t Offset) const noexcept {
++    static_assert(Length <= sizeof(T));
++    if constexpr (Length > 0) {
++      if constexpr (std::is_floating_point_v<T>) {
++        EndianValue<T> LoadValue;
++        std::memcpy(&LoadValue.raw(), &DataPtr[Offset], Length);
++        Value = LoadValue.le();
++      } else {
++        if constexpr (sizeof(T) > 8) {
++          assuming(sizeof(T) == 16);
++          EndianValue<T> LoadValue = 0U;
++          std::memcpy(&LoadValue.raw(), &DataPtr[Offset], Length);
++          Value = LoadValue.le();
++        } else {
++          EndianValue<uint64_t> LoadVal = 0;
++          std::memcpy(&LoadVal.raw(), &DataPtr[Offset], Length);
++          uint64_t Val = LoadVal.le();
++          if (std::is_signed_v<T> && (Val >> (Length * 8 - 1))) {
++            for (unsigned int I = Length; I < 8; I++) {
++              Val |= 0xFFULL << (I * 8);
++            }
++          }
++          Value = static_cast<T>(Val);
++        }
++      }
++    }
++  }
++
+   /// Template of loading bytes and convert to a value.
+   ///
+   /// Destruct and Store the value to length of vector.
+@@ -373,6 +411,16 @@ public:
+     return {};
+   }
+ 
++  template <typename T, uint32_t Length = sizeof(T)>
++  typename std::enable_if_t<IsWasmNativeNumV<T>, void>
++  storeValueUnchecked(const T &Value, const uint64_t Offset) noexcept {
++    static_assert(Length <= sizeof(T));
++    if constexpr (Length > 0) {
++      T StoreValue = EndianValue<T>(Value).le();
++      std::memcpy(&DataPtr[Offset], &StoreValue, Length);
++    }
++  }
++
+   uint8_t *const &getDataPtr() const noexcept { return DataPtr; }
+   uint8_t *&getDataPtr() noexcept { return DataPtr; }
+ 
+diff --git a/include/system/fault.h b/include/system/fault.h
+index 1f57d783ab352fbc2977269151bf7281186ab788..ceea8ebbf66e67996c84edee9cfd8d8dfd79ae1f 100644
+--- a/include/system/fault.h
++++ b/include/system/fault.h
+@@ -22,11 +22,18 @@ namespace WasmEdge {
+ 
+ class Fault {
+ public:
++  class SignalTrapSuspend {
++  public:
++    SignalTrapSuspend() noexcept;
++    ~SignalTrapSuspend() noexcept;
++  };
++
+   Fault();
+ 
+   ~Fault() noexcept;
+ 
+   [[noreturn]] static void emitFault(ErrCode Error);
++  static bool areSignalTrapsEnabled() noexcept;
+ 
+   std::jmp_buf &buffer() noexcept { return Buffer; }
+ 
+diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
+index 7e004976225f2da8a4391fd42ffadfdef942cf21..fe6877de5281dcdbdba8609c182bba5edb22616b 100644
+--- a/lib/executor/engine/engine.cpp
++++ b/lib/executor/engine/engine.cpp
+@@ -4,6 +4,7 @@
+ #include "common/endian.h"
+ #include "executor/coredump.h"
+ #include "executor/executor.h"
++#include "system/fault.h"
+ #include "system/stacktrace.h"
+ 
+ #include <array>
+@@ -2085,6 +2086,26 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
+     }
+   };
+ 
++#if WASMEDGE_ALLOCATOR_IS_STABLE
++  Fault FaultHandler;
++  uint32_t FaultCode = PREPARE_FAULT(FaultHandler);
++  if (unlikely(FaultCode != 0)) {
++    const auto Err = ErrCode(static_cast<ErrCategory>(FaultCode >> 24),
++                             FaultCode);
++    if (PC != PCEnd) {
++      spdlog::error(
++          ErrInfo::InfoInstruction(PC->getOpCode(), PC->getOffset()));
++    }
++    StackTraceSize = interpreterStackTrace(StackMgr, StackTrace).size();
++    if (Conf.getRuntimeConfigure().isEnableCoredump() &&
++        Err.getErrCodePhase() == WasmPhase::Execution) {
++      Coredump::generateCoredump(
++          StackMgr, Conf.getRuntimeConfigure().isCoredumpWasmgdb());
++    }
++    return Unexpect(Err);
++  }
++#endif
++
+   while (PC != PCEnd) {
+     if (Stat) {
+       OpCode Code = PC->getOpCode();
+diff --git a/lib/executor/helper.cpp b/lib/executor/helper.cpp
+index 67f4f9f94897d15f1e26fe11de21e612056e3aa2..887ca0623052107238fea80e883084960f787d7f 100644
+--- a/lib/executor/helper.cpp
++++ b/lib/executor/helper.cpp
+@@ -101,21 +101,26 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+       Stat->startRecordHost();
+     }
+ 
+-    // Call pre-host-function
+-    HostFuncHelper.invokePreHostFunc();
+-
+-    // Run host function.
+-    Span<ValVariant> Args = StackMgr.getTopSpan(ArgsN);
+-    for (uint32_t I = 0; I < ArgsN; I++) {
+-      // For the number type cases of the arguments, the unused bits should be
+-      // erased due to the security issue.
+-      cleanNumericVal(Args[I], FuncType.getParamTypes()[I]);
+-    }
+     std::vector<ValVariant> Rets(RetsN);
+-    auto Ret = HostFunc.run(CallFrame, std::move(Args), Rets);
++    auto Ret = [&]() {
++      Fault::SignalTrapSuspend TrapSuspend;
++
++      // Call pre-host-function
++      HostFuncHelper.invokePreHostFunc();
++
++      // Run host function.
++      Span<ValVariant> Args = StackMgr.getTopSpan(ArgsN);
++      for (uint32_t I = 0; I < ArgsN; I++) {
++        // For the number type cases of the arguments, the unused bits should
++        // be erased due to the security issue.
++        cleanNumericVal(Args[I], FuncType.getParamTypes()[I]);
++      }
++      auto Result = HostFunc.run(CallFrame, std::move(Args), Rets);
+ 
+-    // Call post-host-function
+-    HostFuncHelper.invokePostHostFunc();
++      // Call post-host-function
++      HostFuncHelper.invokePostHostFunc();
++      return Result;
++    }();
+ 
+     // Do the statistics if the statistics turned on.
+     if (Stat) {
+diff --git a/lib/system/fault.cpp b/lib/system/fault.cpp
+index e435d4e9537259bfa82577d7d718cf9776a7d695..db8e4e59862f4eb9a24752da25809702056b87dc 100644
+--- a/lib/system/fault.cpp
++++ b/lib/system/fault.cpp
+@@ -9,6 +9,7 @@
+ #include "system/stacktrace.h"
+ 
+ #include <atomic>
++#include <cstdlib>
+ #include <csetjmp>
+ #include <csignal>
+ #include <cstdint>
+@@ -24,9 +25,21 @@ namespace {
+ 
+ std::atomic_uint handlerCount = 0;
+ thread_local Fault *localHandler = nullptr;
++thread_local uint32_t trapSuspendDepth = 0;
++
++void disableHandler() noexcept;
++
++[[noreturn]] void rethrowSignal(int Signal) {
++  disableHandler();
++  std::raise(Signal);
++  std::abort();
++}
+ 
+ #if defined(SA_SIGINFO)
+ void signalHandler(int Signal, siginfo_t *Siginfo, void *) {
++  if (!Fault::areSignalTrapsEnabled()) {
++    rethrowSignal(Signal);
++  }
+   {
+     // Unblock current signal
+     sigset_t Set;
+@@ -104,6 +117,13 @@ void decreaseHandler() noexcept {
+ 
+ } // namespace
+ 
++Fault::SignalTrapSuspend::SignalTrapSuspend() noexcept { ++trapSuspendDepth; }
++
++Fault::SignalTrapSuspend::~SignalTrapSuspend() noexcept {
++  assuming(trapSuspendDepth > 0);
++  --trapSuspendDepth;
++}
++
+ Fault::Fault() {
+   Prev = std::exchange(localHandler, this);
+   increaseHandler();
+@@ -114,6 +134,8 @@ Fault::~Fault() noexcept {
+   localHandler = std::exchange(Prev, nullptr);
+ }
+ 
++bool Fault::areSignalTrapsEnabled() noexcept { return trapSuspendDepth == 0; }
++
+ [[noreturn]] void Fault::emitFault(ErrCode Error) {
+   assuming(localHandler != nullptr);
+   auto Buffer = stackTrace(localHandler->StackTraceBuffer);

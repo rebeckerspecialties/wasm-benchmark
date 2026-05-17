@@ -1,0 +1,60 @@
+diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
+index 4c733d569cce0f7f903b4e51fb1eff42200d00b0..5c0b125bbe4583d7928501b9e18aba609b99b802 100644
+--- a/lib/api/wasmedge.cpp
++++ b/lib/api/wasmedge.cpp
+@@ -483,24 +483,47 @@ public:
+                    Span<const ValVariant> Args,
+                    Span<ValVariant> Rets) override {
+     auto &FuncType = DefType.getCompositeType().getFuncType();
+-    std::vector<WasmEdge_Value> Params(FuncType.getParamTypes().size()),
+-        Returns(FuncType.getReturnTypes().size());
++    constexpr uint32_t ParamStackCapacity = 8;
++    constexpr uint32_t ReturnStackCapacity = 2;
++    std::array<WasmEdge_Value, ParamStackCapacity> ParamStack{};
++    std::array<WasmEdge_Value, ReturnStackCapacity> ReturnStack{};
++    std::vector<WasmEdge_Value> ParamHeap;
++    std::vector<WasmEdge_Value> ReturnHeap;
++
++    WasmEdge_Value *PPtr = nullptr;
++    if (Args.size() > 0) {
++      if (Args.size() <= ParamStackCapacity) {
++        PPtr = ParamStack.data();
++      } else {
++        ParamHeap.resize(Args.size());
++        PPtr = ParamHeap.data();
++      }
++    }
++
++    WasmEdge_Value *RPtr = nullptr;
++    if (Rets.size() > 0) {
++      if (Rets.size() <= ReturnStackCapacity) {
++        RPtr = ReturnStack.data();
++      } else {
++        ReturnHeap.resize(Rets.size());
++        RPtr = ReturnHeap.data();
++      }
++    }
++
+     for (uint32_t I = 0; I < Args.size(); I++) {
+-      Params[I] = genWasmEdge_Value(Args[I], FuncType.getParamTypes()[I]);
++      PPtr[I] = genWasmEdge_Value(Args[I], FuncType.getParamTypes()[I]);
+     }
+-    WasmEdge_Value *PPtr = Params.size() ? (&Params[0]) : nullptr;
+-    WasmEdge_Value *RPtr = Returns.size() ? (&Returns[0]) : nullptr;
+     auto *CallFrameCxt = toCallFrameCxt(&CallFrame);
+     WasmEdge_Result Stat;
+     if (Func) {
+       Stat = Func(Data, CallFrameCxt, PPtr, RPtr);
+     } else {
+       Stat = Wrap(Binding, Data, CallFrameCxt, PPtr,
+-                  static_cast<uint32_t>(Params.size()), RPtr,
+-                  static_cast<uint32_t>(Returns.size()));
++                  static_cast<uint32_t>(Args.size()), RPtr,
++                  static_cast<uint32_t>(Rets.size()));
+     }
+     for (uint32_t I = 0; I < Rets.size(); I++) {
+-      Rets[I] = to_WasmEdge_128_t<WasmEdge::uint128_t>(Returns[I].Value);
++      Rets[I] = to_WasmEdge_128_t<WasmEdge::uint128_t>(RPtr[I].Value);
+     }
+     if (WasmEdge_ResultOK(Stat)) {
+       if (WasmEdge_ResultGetCode(Stat) == 0x01U) {

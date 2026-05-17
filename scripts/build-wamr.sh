@@ -25,7 +25,28 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WAMR="${ROOT}/wasm-micro-runtime"
+PATCH_DIR="${ROOT}/patches/wasm-micro-runtime"
 WHICH="${1:-macos}"
+
+# Reset to pinned submodule HEAD then apply our patch series.
+# Idempotent — re-runs detect already-applied patches via reverse-check.
+# Same pattern as build-wasm3.sh / build-wasmz.sh / build-zwasm.sh.
+#
+# Currently applies:
+#   0001-feat-interpreter-legacy-exception-handling-throw-only-
+#     for-fast-interp.patch
+#     — lifts the EXCE_HANDLING + FAST_INTERP cmake ban for the
+#       throw-only subset of legacy wasm-eh; throw propagates via
+#       the existing got_exception path. Enables Porffor-compiled
+#       wasm to load on WAMR's fast-interp. Open as
+#       rebeckerspecialties/wasm-micro-runtime#1 against the
+#       fork; intended for upstream once same-function try/catch
+#       lowering lands (see AGENTS.md → Open follow-up).
+( cd "${WAMR}" && git reset --hard HEAD --quiet \
+  && git clean -fdq -e 'product-mini' )
+if [[ -d "${PATCH_DIR}" ]]; then
+  "${ROOT}/scripts/apply_patch_series.sh" "${WAMR}" "${PATCH_DIR}"
+fi
 
 COMMON_DEFS=(
   -DBUILD_SHARED_LIBS=OFF
@@ -41,16 +62,21 @@ COMMON_DEFS=(
   -DWAMR_BUILD_BULK_MEMORY=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
-  # Wasm-exceptions support would be required for Porffor-compiled wasm
-  # (lowers JS try/catch to the wasm-exceptions section). HOWEVER, WAMR
+  # Wasm-exceptions support — needed for Porffor-compiled wasm, which
+  # lowers JS try/catch/throw to the wasm-eh section. WAMR upstream
   # forbids `WAMR_BUILD_EXCE_HANDLING=1` together with `FAST_INTERP=1`
-  # (`build-scripts/unsupported_combination.cmake`:67). And the classic
-  # interpreter that DOES support exceptions ALSO forbids
-  # `WAMR_BUILD_SIMD=1` (line 99 of the same file). Porffor's wasm needs
-  # BOTH SIMD (for fast string compare via `v128.xor`/`v128.any_true`)
-  # AND exceptions, so WAMR's interpreter architecture cannot run this
-  # workload at all. The Pulley track DOES handle both. Documented in
-  # `docs/cross-runtime-pulley-vs-wamr.md` → "WAMR-side load failures".
+  # (build-scripts/unsupported_combination.cmake:67). Our fork lifts
+  # that ban for the *throw-only* subset of legacy-EH — modules that
+  # declare tags and execute `throw` but never define a same-function
+  # `try`/`catch` handler. Porffor's emit shape is throw-only in our
+  # test corpus (561 throws, 0 try/catch in graphql-validation-porf),
+  # so this is all we need to make WAMR run the workload correctly.
+  # The throw escapes via the existing `got_exception` bailout, same
+  # path as any other trap; the host sees the exception via
+  # `wasm_runtime_get_exception`. Same-function try/catch lowering is
+  # the natural follow-up — see `core/iwasm/interpreter/wasm_interp_
+  # fast.c::HANDLE_OP(WASM_OP_THROW)` for status.
+  -DWAMR_BUILD_EXCE_HANDLING=1
   -DWAMR_BUILD_MULTI_MODULE=0
   -DWAMR_BUILD_LIB_PTHREAD=0
   -DWAMR_BUILD_MINI_LOADER=0
@@ -111,6 +137,8 @@ build_ios()         { build_target "build-aarch64-apple-ios"          darwin  "a
 build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"      darwin  "arm64"    iphonesimulator AARCH64 "-miphoneos-version-min=18.0 -target arm64-apple-ios18.0-simulator"; }
 build_watchos()     { build_target "build-arm64_32-apple-watchos"     darwin  "arm64_32" watchos         AARCH64 "-mwatchos-version-min=11.0"; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim"  darwin  "arm64"    watchsimulator  AARCH64 "-mwatchos-version-min=11.0 -target arm64-apple-watchos11.0-simulator"; }
+build_tvos()        { build_target "build-aarch64-apple-tvos"         darwin  "arm64"    appletvos       AARCH64 "-mtvos-version-min=26.0"; }
+build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     darwin  "arm64"    appletvsimulator AARCH64 "-mtvos-version-min=26.0 -target arm64-apple-tvos26.0-simulator"; }
 
 case "${WHICH}" in
   macos)        build_macos ;;
@@ -118,6 +146,8 @@ case "${WHICH}" in
   ios-sim)      build_ios_sim ;;
   watchos)      build_watchos ;;
   watchos-sim)  build_watchos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim ;;
+  tvos)         build_tvos ;;
+  tvos-sim)     build_tvos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim && build_tvos && build_tvos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

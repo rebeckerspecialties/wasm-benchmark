@@ -76,15 +76,90 @@ var BREAK = Object.freeze({});
 // =====================================================================
 // GraphQLError
 // =====================================================================
-class GraphQLError {
+// =====================================================================
+// Exception class hierarchy — mirrors graphql-js's `error/` directory:
+//
+//   Error (built-in)
+//     ├── GraphQLError      — graphql-js/error/GraphQLError.mjs
+//     └── NonErrorThrown    — graphql-js/jsutils/toError.mjs
+//
+// Plus factory helpers:
+//   toError(value)                     — graphql-js/jsutils/toError.mjs
+//   syntaxError(source, pos, descr)    — graphql-js/error/syntaxError.mjs
+//   locatedError(raw, nodes, path)     — graphql-js/error/locatedError.mjs
+//
+// Real graphql-js's validate.mjs distinguishes between thrown values
+// (e instanceof GraphQLError vs e === abortObj vs other) inside its
+// top-level catch handler, so Porffor needs to emit one wasm tag per
+// distinct exception type — which is why we keep both subclasses
+// rather than collapsing GraphQLError back to a flat class.
+// =====================================================================
+
+class GraphQLError extends Error {
   constructor(message, options) {
-    this.message = message;
-    if (options && options.nodes !== undefined) {
-      this.nodes = options.nodes;
+    super(message);
+    this.name = "GraphQLError";
+    if (options !== undefined && options !== null) {
+      this.nodes = options.nodes !== undefined ? options.nodes : null;
+      this.path = options.path !== undefined ? options.path : null;
+      this.originalError =
+        options.originalError !== undefined ? options.originalError : null;
+      this.extensions =
+        options.extensions !== undefined ? options.extensions : null;
     } else {
       this.nodes = null;
+      this.path = null;
+      this.originalError = null;
+      this.extensions = null;
     }
+    // Execution-path fields populated by graphql-js's full ctor; the
+    // validation path leaves these null but we set them explicitly so
+    // JSON shape matches across runtimes that serialize the error.
+    this.source = null;
+    this.positions = null;
+    this.locations = null;
   }
+}
+
+class NonErrorThrown extends Error {
+  constructor(thrownValue) {
+    super("Unexpected error value");
+    this.name = "NonErrorThrown";
+    this.thrownValue = thrownValue;
+  }
+}
+
+// graphql-js/jsutils/toError.mjs — promote a raw thrown value to an
+// Error instance so catch-side code can rely on a stable API.
+function toError(thrownValue) {
+  if (thrownValue instanceof Error) {
+    return thrownValue;
+  }
+  return new NonErrorThrown(thrownValue);
+}
+
+// graphql-js/error/syntaxError.mjs — convenience GraphQLError ctor
+// for parse-time syntax errors.
+function syntaxError(source, position, description) {
+  return new GraphQLError("Syntax Error: " + description, {
+    nodes: null,
+  });
+}
+
+// graphql-js/error/locatedError.mjs — wraps a downstream error with
+// AST location info; preserves an already-located GraphQLError.
+function locatedError(rawOriginalError, nodes, path) {
+  var originalError = toError(rawOriginalError);
+  if (originalError instanceof GraphQLError
+      && originalError.path !== null
+      && originalError.path !== undefined) {
+    return originalError;
+  }
+  return new GraphQLError(originalError.message, {
+    nodes: nodes,
+    path: path,
+    originalError: originalError,
+  });
 }
 
 // =====================================================================
@@ -491,15 +566,39 @@ function parse(_source) {
 // ValidationContext
 // =====================================================================
 class ValidationContext {
-  constructor(schema, ast, typeInfo) {
+  constructor(schema, ast, typeInfo, maxErrors, abortObj) {
     this._schema = schema;
     this._ast = ast;
     this._typeInfo = typeInfo;
     this._errors = [];
     this._typeStack = [];
     this._fieldDefStack = [];
+    // graphql-js's validate.mjs caps the error list at 100 by default and
+    // throws a sentinel object (`abortObj`) when the cap is hit, which the
+    // top-level `validate()` catches to short-circuit the visitor pass.
+    // We propagate the same two pieces of state into ValidationContext so
+    // `reportError` can decide whether to throw the sentinel.
+    this._maxErrors = maxErrors;
+    this._abortObj = abortObj;
   }
-  reportError(error) { this._errors.push(error); }
+  // Mirrors graphql-js's anonymous `error => { ... }` callback in
+  // validate.mjs — once errors.length hits maxErrors, push a synthetic
+  // GraphQLError telling the host the limit was reached and throw the
+  // sentinel so the surrounding `validate()` try/catch can stop the
+  // visitor early. The throw target is a frozen object reference,
+  // intentionally NOT a GraphQLError, so the catch handler can do
+  // identity comparison (`e !== abortObj`) to distinguish the abort
+  // path from real errors that need to propagate.
+  reportError(error) {
+    if (this._errors.length >= this._maxErrors) {
+      this._errors.push(new GraphQLError(
+        "Too many validation errors, error limit reached. Validation aborted.",
+        null,
+      ));
+      throw this._abortObj;
+    }
+    this._errors.push(error);
+  }
   getErrors() { return this._errors; }
   getSchema() { return this._schema; }
   getDocument() { return this._ast; }
@@ -891,12 +990,56 @@ class TypeInfo {
 
 // =====================================================================
 // validate — orchestrator
+//
+// Mirrors graphql-js/validation/validate.mjs:
+//
+//   const errors = [];
+//   const abortObj = Object.freeze({});
+//   const context = new ValidationContext(..., (error) => {
+//     if (errors.length >= maxErrors) {
+//       errors.push(new GraphQLError('Too many ...'));
+//       throw abortObj;
+//     }
+//     errors.push(error);
+//   });
+//   try {
+//     visit(documentAST, ..., visitor);
+//   } catch (e) {
+//     if (e !== abortObj) throw e;
+//   }
+//   return errors;
+//
+// Two same-function exception flows:
+//   1. abortObj escape — a reportError call deep inside the visitor
+//      throws `abortObj`. The throw walks up through the visitor frame
+//      tree (visit → enter → rule → context.reportError → throw) and
+//      lands in validate's own catch handler. Spec exercise of cross-
+//      function throw → same-function catch.
+//   2. Rethrow — if any non-abortObj error escapes (e.g. a TypeError
+//      from a bad cast), validate re-throws so the host sees it. Spec
+//      exercise of `throw e` from a catch body.
+//
+// We hoist `abortObj` to module scope rather than declaring it inside
+// validate() because Porffor can't capture function-local bindings in
+// the closure passed to ValidationContext (see PORFFOR-NOTES.md bug 1).
+// The semantics are identical — abortObj is a frozen sentinel object
+// that's compared with identity (`e !== abortObj`).
 // =====================================================================
+var __validateAbortObj = Object.freeze({});
+
 function validate(schema, documentAST, rules, options, typeInfo) {
   var actualRules = rules ? rules : specifiedRules;
   var actualTypeInfo = typeInfo ? typeInfo : new TypeInfo(schema);
+  // graphql-js default. Allows the cap to be tuned per-call (we don't
+  // expose that knob here but pass a value so ValidationContext has it).
+  var maxErrors =
+    options !== undefined && options !== null
+      && options.maxErrors !== undefined && options.maxErrors !== null
+      ? options.maxErrors
+      : 100;
 
-  var context = new ValidationContext(schema, documentAST, actualTypeInfo);
+  var context = new ValidationContext(
+    schema, documentAST, actualTypeInfo, maxErrors, __validateAbortObj);
 
   // Build rule visitors via `new` (NOT rules.map(rule => rule(context)) —
   // both `map` w/ closure and the factory pattern violate Porffor bug 1).
@@ -907,7 +1050,20 @@ function validate(schema, documentAST, rules, options, typeInfo) {
 
   var merged = visitInParallel(visitors);
 
-  visit(documentAST, merged, context);
+  try {
+    visit(documentAST, merged, context);
+  } catch (e) {
+    // graphql-js: `if (e !== abortObj) throw e;`
+    // Two states the catch can land in:
+    //   - e === abortObj: the maxErrors cap fired, swallow and return
+    //     the (now capped) errors list.
+    //   - otherwise: an unexpected error escaped the visitor pipeline
+    //     (probably a TypeError from a malformed schema/document);
+    //     re-raise it so the host surfaces it as a fatal trap.
+    if (e !== __validateAbortObj) {
+      throw e;
+    }
+  }
 
   return context.getErrors();
 }

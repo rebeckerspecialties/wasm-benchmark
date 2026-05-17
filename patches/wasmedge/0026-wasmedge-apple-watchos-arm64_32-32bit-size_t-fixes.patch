@@ -1,0 +1,34 @@
+diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
+index 42ec43cb..54120c9c 100644
+--- a/include/runtime/instance/function.h
++++ b/include/runtime/instance/function.h
+@@ -159,12 +159,12 @@ public:
+ 
+     struct FuncTypeKeyHash {
+       size_t operator()(const FuncTypeKey &Key) const noexcept {
+-        size_t Hash = 1469598103934665603ULL;
++        uint64_t Hash = 1469598103934665603ULL;
+         for (const auto Word : Key.Words) {
+-          Hash ^= static_cast<size_t>(Word);
++          Hash ^= static_cast<uint64_t>(Word);
+           Hash *= 1099511628211ULL;
+         }
+-        return Hash;
++        return static_cast<size_t>(Hash);
+       }
+     };
+ 
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index 467e942d..1407324e 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -336,7 +336,8 @@ public:
+     if (unlikely(!checkAccessBound(Offset, Size))) {
+       return {};
+     }
+-    return {reinterpret_cast<const char *>(&DataPtr[Offset]), Size};
++    return {reinterpret_cast<const char *>(&DataPtr[Offset]),
++            static_cast<size_t>(Size)};
+   }
+ 
+   /// Template of loading bytes and convert to a value.

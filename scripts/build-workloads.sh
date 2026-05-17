@@ -25,11 +25,18 @@ for src in "${SRC}"/*.rs; do
   name=$(basename "${src}" .rs)
   out="${OUT}/${name}.wasm"
   echo "==> ${name}.wasm"
-  # `+simd128` enables vanilla wasm SIMD (v128). `+relaxed-simd` enables
-  # the relaxed-simd proposal — gives us access to `f32x4_relaxed_madd`
-  # etc., which Pulley lowers to its `Vfma32x4`/`Vfma64x2` bytecodes.
-  # Existing workloads call only explicit simd128 intrinsics, so adding
-  # `+relaxed-simd` doesn't auto-rewrite them; new workloads can opt in.
+
+  # Canonical feature set: every workload is compiled with the full
+  # wasm-3.0-ish proposal stack. Runtimes that can't handle a given
+  # feature surface ERROR rows in the harness — that's the
+  # cross-runtime signal we want, not a per-workload neutering.
+  # (Earlier this script gated `+simd128` to matmul-only so that
+  # wasm3 wouldn't choke on auto-vectorizer-emitted v128 locals;
+  # patches/wasm3/0001-wasm3-accept-v128-as-opaque-slot.patch makes
+  # wasm3 accept those slots without executing SIMD ops, so we can
+  # restore the canonical `+simd128 +relaxed-simd` for every
+  # workload without re-introducing the iPhone-side wasmz SIGBUS.)
+  #
   # `-C panic=abort` avoids the unwinding personality function.
   rustc \
     --target wasm32-unknown-unknown \

@@ -1,0 +1,152 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5327ce405541c582363d4bf3f4c5b492a8e0dba3..86581743f9caf3e87909cec2c7025fe0ec54e081 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -65,6 +65,7 @@ option(WASMEDGE_BUILD_FUZZING "Generate fuzzing test tools. Couldn't build with
+ option(WASMEDGE_BUILD_PLUGINS "Generate plugins." ON)
+ option(WASMEDGE_BUILD_EXAMPLE "Generate examples." OFF)
+ option(WASMEDGE_BUILD_WASI_NN_RPC "Generate WASI-NN RPC." OFF)
++option(WASMEDGE_ENABLE_WASI_NN_AUTOLOAD "Enable built-in WASI-NN VM autoloading and C API helper integration." ON)
+ option(WASMEDGE_USE_LLVM "Enable WasmEdge LLVM-based compilation runtime." ON)
+ if(WASMEDGE_BUILD_AOT_RUNTIME)
+   message(WARNING "WASMEDGE_BUILD_AOT_RUNTIME option was renamed to WASMEDGE_USE_LLVM.")
+diff --git a/lib/api/CMakeLists.txt b/lib/api/CMakeLists.txt
+index cfc8cbc2cd60b91d6beaea9aaf9705014b74cf69..c8d92f5a4dd348b7e104b67f3362591380013f12 100644
+--- a/lib/api/CMakeLists.txt
++++ b/lib/api/CMakeLists.txt
+@@ -89,6 +89,13 @@ wasmedge_add_library(wasmedgeCAPI OBJECT
+   wasmedge.cpp
+ )
+ 
++if(WASMEDGE_ENABLE_WASI_NN_AUTOLOAD)
++  target_compile_definitions(wasmedgeCAPI
++    PRIVATE
++    -DWASMEDGE_ENABLE_WASI_NN_AUTOLOAD
++  )
++endif()
++
+ target_link_libraries(wasmedgeCAPI
+   PUBLIC
+   wasmedgeVM
+diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
+index 5a4cf0130125e086560514f0b30950915fe3a7a2..c8ea89c8c0e668f7a020c73df9445d094dc8ae82 100644
+--- a/lib/api/wasmedge.cpp
++++ b/lib/api/wasmedge.cpp
+@@ -3877,6 +3877,7 @@ WASMEDGE_CAPI_EXPORT void
+ WasmEdge_PluginInitWASINN(const char *const *NNPreloads,
+                           const uint32_t PreloadsLen) noexcept {
+   try {
++#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
+     using namespace std::literals::string_view_literals;
+     if (const auto *Plugin = WasmEdge::Plugin::Plugin::find("wasi_nn"sv)) {
+       PO::ArgumentParser Parser;
+@@ -3885,6 +3886,10 @@ WasmEdge_PluginInitWASINN(const char *const *NNPreloads,
+           "nn-preload"sv,
+           std::vector<std::string>(NNPreloads, NNPreloads + PreloadsLen));
+     }
++#else
++    (void)NNPreloads;
++    (void)PreloadsLen;
++#endif
+   } catch (...) {
+     handleCAPIError();
+   }
+diff --git a/lib/executor/CMakeLists.txt b/lib/executor/CMakeLists.txt
+index aa773fb934fdb25a27b6c359765a61bfd6c0ca50..0c32de09a4c40823a1004916934712ac1d6f1dde 100644
+--- a/lib/executor/CMakeLists.txt
++++ b/lib/executor/CMakeLists.txt
+@@ -34,6 +34,13 @@ wasmedge_add_library(wasmedgeExecutor
+   coredump.cpp
+ )
+ 
++if(WASMEDGE_ENABLE_WASI_NN_AUTOLOAD)
++  target_compile_definitions(wasmedgeExecutor
++    PRIVATE
++    -DWASMEDGE_ENABLE_WASI_NN_AUTOLOAD
++  )
++endif()
++
+ target_link_libraries(wasmedgeExecutor
+   PUBLIC
+   wasmedgeCommon
+diff --git a/lib/executor/instantiate/import.cpp b/lib/executor/instantiate/import.cpp
+index e653469fc8ee4acf4392069be606118d8253a0ce..6b0b0a90443b94c4eee3e19d88ca068312569d13 100644
+--- a/lib/executor/instantiate/import.cpp
++++ b/lib/executor/instantiate/import.cpp
+@@ -127,10 +127,12 @@ Expect<void> Executor::instantiate(
+       if (ModName == "wasi_snapshot_preview1"sv) {
+         spdlog::error("    This is a WASI related import. Please ensure that "
+                       "you've turned on the WASI configuration."sv);
++#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
+       } else if (ModName == "wasi_nn"sv) {
+         spdlog::error("    This is a WASI-NN related import. Please ensure "
+                       "that you've turned on the WASI-NN configuration and "
+                       "installed the WASI-NN plug-in."sv);
++#endif
+       } else if (ModName == "wasi_crypto_common"sv ||
+                  ModName == "wasi_crypto_asymmetric_common"sv ||
+                  ModName == "wasi_crypto_kx"sv ||
+diff --git a/lib/vm/CMakeLists.txt b/lib/vm/CMakeLists.txt
+index fc55ecd0b2d05e32649276b425ebbf5e97706e9a..2c3e96f5687a89b5f320f4727c87814b651a5baa 100644
+--- a/lib/vm/CMakeLists.txt
++++ b/lib/vm/CMakeLists.txt
+@@ -5,6 +5,13 @@ wasmedge_add_library(wasmedgeVM
+   vm.cpp
+ )
+ 
++if(WASMEDGE_ENABLE_WASI_NN_AUTOLOAD)
++  target_compile_definitions(wasmedgeVM
++    PRIVATE
++    -DWASMEDGE_ENABLE_WASI_NN_AUTOLOAD
++  )
++endif()
++
+ target_link_libraries(wasmedgeVM
+   PUBLIC
+   wasmedgeCommon
+diff --git a/lib/vm/vm.cpp b/lib/vm/vm.cpp
+index 9ac64fccd4aefa39e2cb00313c715c07440c1cd8..05254057049fe1cf6974648b65d0e14853821892 100644
+--- a/lib/vm/vm.cpp
++++ b/lib/vm/vm.cpp
+@@ -13,7 +13,9 @@
+ 
+ #include "host/mock/wasi_crypto_module.h"
+ #include "host/mock/wasi_logging_module.h"
++#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
+ #include "host/mock/wasi_nn_module.h"
++#endif
+ #include "host/mock/wasmedge_image_module.h"
+ #include "host/mock/wasmedge_process_module.h"
+ #include "host/mock/wasmedge_stablediffusion_module.h"
+@@ -101,8 +103,10 @@ void VM::unsafeLoadPlugInHosts() {
+   using namespace std::literals::string_view_literals;
+   PlugInModInsts.clear();
+ 
++#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
+   PlugInModInsts.push_back(
+       createPluginModule<Host::WasiNNModuleMock>("wasi_nn"sv, "wasi_nn"sv));
++#endif
+   PlugInModInsts.push_back(createPluginModule<Host::WasiCryptoCommonModuleMock>(
+       "wasi_crypto"sv, "wasi_crypto_common"sv));
+   PlugInModInsts.push_back(
+@@ -139,7 +143,7 @@ void VM::unsafeLoadPlugInHosts() {
+     }
+     // Skip wasi_crypto, wasi_nn, wasi_logging, WasmEdge_Process,
+     // WasmEdge_Tensorflow, WasmEdge_TensorflowLite, and WasmEdge_Image.
+-    if (Plugin.name() == "wasi_crypto"sv || Plugin.name() == "wasi_nn"sv ||
++    if (Plugin.name() == "wasi_crypto"sv ||
+         Plugin.name() == "wasi_logging"sv ||
+         Plugin.name() == "wasmedge_process"sv ||
+         Plugin.name() == "wasmedge_tensorflow"sv ||
+@@ -148,6 +152,11 @@ void VM::unsafeLoadPlugInHosts() {
+         Plugin.name() == "wasmedge_stablediffusion"sv) {
+       continue;
+     }
++#ifdef WASMEDGE_ENABLE_WASI_NN_AUTOLOAD
++    if (Plugin.name() == "wasi_nn"sv) {
++      continue;
++    }
++#endif
+     for (const auto &Module : Plugin.modules()) {
+       PlugInModInsts.push_back(Module.create());
+     }

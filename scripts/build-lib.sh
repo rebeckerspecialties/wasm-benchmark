@@ -10,6 +10,11 @@
 #   watchos        Apple Watch SE2 device (arm64_32-apple-watchos) — Tier 3,
 #                  needs build-std with nightly-2026-01-25.
 #   ios            iPhone XS device (aarch64-apple-ios) — Tier 2, has rust-std.
+#   tvos           Apple TV 4K (aarch64-apple-tvos) — Tier 3, needs build-std
+#                  with nightly-2026-01-25.
+#   tvos-sim       Apple TV simulator on Apple Silicon
+#                  (aarch64-apple-tvos-sim) — Tier 3, needs build-std with
+#                  nightly-2026-01-25.
 #
 # Per the project brief: minimum CPU is apple-a12 (iPhone XS chip).
 # For consistency the same -mcpu is set on the macOS dev build too, so any
@@ -114,12 +119,34 @@ build_ios_sim() {
   )
 }
 
+build_tvos() {
+  echo "==> tvOS device (aarch64-apple-tvos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
+  ( prepend_toolchain_path "${NIGHTLY_TC}"
+    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    cargo build --release -p benchmark-core --lib \
+      -Z build-std=std,panic_abort \
+      --target aarch64-apple-tvos
+  )
+}
+
+build_tvos_sim() {
+  echo "==> tvOS simulator (aarch64-apple-tvos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
+  ( prepend_toolchain_path "${NIGHTLY_TC}"
+    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    cargo build --release -p benchmark-core --lib \
+      -Z build-std=std,panic_abort \
+      --target aarch64-apple-tvos-sim
+  )
+}
+
 case "${WHICH}" in
   macos)        build_macos ;;
   ios)          build_ios ;;
   ios-sim)      build_ios_sim ;;
   watchos-sim)  build_watchos_sim ;;
   watchos)      build_watchos ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos_sim && build_watchos ;;
+  tvos)         build_tvos ;;
+  tvos-sim)     build_tvos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos_sim && build_watchos && build_tvos && build_tvos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

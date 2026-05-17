@@ -1,0 +1,84 @@
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index 1407324e..eb4222b7 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -99,7 +99,7 @@ public:
+         MemType.getLimit().getMin(), ReservationPageCount,
+         MemType.getLimit().is32(), RequestedGuardPageBytes,
+         &GuardPageBoundsCheck, &GuardedReservationBytes);
+-#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)
+     std::fprintf(
+         stderr,
+         "Warning: Memory Instance: Apple-mobile allocation result "
+diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
+index 5a17ace9..b2a6526d 100644
+--- a/lib/system/allocator.cpp
++++ b/lib/system/allocator.cpp
+@@ -27,11 +27,11 @@ static inline constexpr const uint64_t kPageSize = UINT64_C(65536);
+     (defined(HAVE_MMAP) &&                                                      \
+      (defined(__x86_64__) ||                                                    \
+       (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__) ||        \
+-      (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM)))
++      (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__))))
+ static inline constexpr const uint64_t k4G = UINT64_C(0x100000000);
+ static inline constexpr const uint64_t k12G = UINT64_C(0x300000000);
+ #endif
+-#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)
+ uint64_t alignGuardPageBytes(uint64_t GuardPageBytes) noexcept {
+   if (GuardPageBytes == 0) {
+     return 0;
+@@ -130,7 +130,7 @@ uint8_t *allocateGuardedStable(uint64_t PageCount) noexcept {
+ #elif defined(HAVE_MMAP) &&                                                     \
+     (defined(__x86_64__) ||                                                     \
+      (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__) ||         \
+-     (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM))
++     (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)))
+ uint8_t *allocateGuardedStable(uint64_t PageCount) noexcept {
+   auto *Reserved = reinterpret_cast<uint8_t *>(
+       mmap(nullptr, k12G, PROT_NONE,
+@@ -169,7 +169,7 @@ Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,
+ #if WASMEDGE_OS_WINDOWS
+     Result = allocateGuardedStable(PageCount);
+     UsedGuardPageBoundsCheck = Result != nullptr;
+-#elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++#elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)
+     if (GuardPageBytes != 0) {
+       Result = allocateGuardedAppleMobile(PageCount, ReservedPageCount,
+                                           GuardPageBytes, &ReservedBytes);
+@@ -178,7 +178,7 @@ Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,
+ #elif defined(HAVE_MMAP) &&                                                     \
+     (defined(__x86_64__) ||                                                     \
+      (defined(__riscv) && __riscv_xlen == 64) || defined(__s390x__) ||         \
+-     (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM))
++     (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)))
+     Result = allocateGuardedStable(PageCount);
+     UsedGuardPageBoundsCheck = Result != nullptr;
+ #endif
+@@ -188,7 +188,7 @@ Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,
+     Result = allocateFallback(PageCount);
+     UsedGuardPageBoundsCheck = false;
+   }
+-#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)
+   std::fprintf(stderr,
+                "Warning: Allocator: Apple-mobile memory request "
+                "(page_count=%llu, reserved_page_count=%llu, "
+@@ -251,13 +251,14 @@ Allocator::release(uint8_t *Pointer, bool GuardPageBoundsCheck,
+ #if WASMEDGE_OS_WINDOWS
+     winapi::VirtualFree(Pointer - k4G, 0, winapi::MEM_RELEASE_);
+     return;
+-#elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
++#elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)
+     if (GuardedReservationBytes != 0) {
+       munmap(Pointer, GuardedReservationBytes);
+     }
+     return;
+ #elif defined(HAVE_MMAP) &&                                                     \
+-    ((defined(__x86_64__) || defined(__aarch64__) ||                            \
++    ((defined(__x86_64__) ||                                                    \
++      (defined(__aarch64__) && !WASMEDGE_APPLE_MOBILE_VM && defined(__LP64__)) || \
+       (defined(__riscv) && __riscv_xlen == 64)) || defined(__s390x__))
+     munmap(Pointer - k4G, k12G);
+     return;

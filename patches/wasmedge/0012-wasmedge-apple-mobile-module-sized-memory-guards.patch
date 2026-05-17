@@ -1,0 +1,524 @@
+diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
+index 463e0001480b4d1258e7d6d8560d7aa995fd76c5..25a8a33f0061e45313e4159f4943af749abac699 100644
+--- a/include/runtime/instance/memory.h
++++ b/include/runtime/instance/memory.h
+@@ -48,12 +48,17 @@ public:
+   MemoryInstance(MemoryInstance &&Inst) noexcept
+       : MemType(Inst.MemType), DataPtr(Inst.DataPtr),
+         PageLimit(Inst.PageLimit),
+-        GuardPageBoundsCheck(Inst.GuardPageBoundsCheck) {
++        GuardPageBoundsCheck(Inst.GuardPageBoundsCheck),
++        RequestedGuardPageBytes(Inst.RequestedGuardPageBytes),
++        GuardedReservationBytes(Inst.GuardedReservationBytes) {
+     Inst.DataPtr = nullptr;
+     Inst.GuardPageBoundsCheck = false;
++    Inst.RequestedGuardPageBytes = 0;
++    Inst.GuardedReservationBytes = 0;
+   }
+   MemoryInstance(const AST::MemoryType &MType,
+-                 uint64_t PageLim = kPageLimit64) noexcept
++                 uint64_t PageLim = kPageLimit64,
++                 uint64_t GuardBytes = 0) noexcept
+       : MemType(MType), PageLimit(PageLim) {
+     using namespace std::literals;
+     if (MemType.getLimit().is32() && PageLimit > kPageLimit32) {
+@@ -71,9 +76,20 @@ public:
+                     PageLimit);
+       MemType.getLimit().setMin(PageLimit);
+     }
+-    DataPtr = Allocator::allocate(MemType.getLimit().getMin(),
+-                                  MemType.getLimit().is32(),
+-                                  &GuardPageBoundsCheck);
++    uint64_t ReservationPageCount =
++        MemType.getLimit().is32() ? kPageLimit32 : kPageLimit64;
++    assuming(ReservationPageCount >= MemType.getLimit().getMin());
++    if (MemType.getLimit().hasMax()) {
++      ReservationPageCount =
++          std::min(ReservationPageCount, MemType.getLimit().getMax());
++    }
++    ReservationPageCount = std::min(ReservationPageCount, PageLimit);
++
++    RequestedGuardPageBytes = GuardBytes;
++    DataPtr = Allocator::allocate(
++        MemType.getLimit().getMin(), ReservationPageCount,
++        MemType.getLimit().is32(), RequestedGuardPageBytes,
++        &GuardPageBoundsCheck, &GuardedReservationBytes);
+     if (DataPtr == nullptr) {
+       spdlog::error("Memory Instance: Unable to find usable memory address."sv);
+       MemType.getLimit().setMin(0U);
+@@ -81,8 +97,7 @@ public:
+     }
+   }
+   ~MemoryInstance() noexcept {
+-    Allocator::release(DataPtr, MemType.getLimit().getMin(),
+-                       GuardPageBoundsCheck);
++    Allocator::release(DataPtr, GuardPageBoundsCheck, GuardedReservationBytes);
+   }
+ 
+   bool isShared() const noexcept { return MemType.getLimit().isShared(); }
+@@ -461,6 +476,8 @@ private:
+   uint8_t *DataPtr = nullptr;
+   uint64_t PageLimit;
+   bool GuardPageBoundsCheck = false;
++  uint64_t RequestedGuardPageBytes = 0;
++  uint64_t GuardedReservationBytes = 0;
+   std::mutex WaiterMapMutex;
+   std::unordered_multimap<uint64_t, Waiter> WaiterMap;
+   /// @}
+diff --git a/include/runtime/instance/module.h b/include/runtime/instance/module.h
+index 11dd3ef41d92fc345bbdd4ec752dc60b927ea9f3..b9915c9e483072893f930f1e831f3a548c742059 100644
+--- a/include/runtime/instance/module.h
++++ b/include/runtime/instance/module.h
+@@ -228,6 +228,27 @@ public:
+     return std::forward<CallbackT>(CallBack)(ExpGlobals);
+   }
+ 
++  void reserveMemoryGuardPageBytes(uint32_t Count) {
++    std::unique_lock Lock(Mutex);
++    MemoryGuardPageBytes.resize(Count, 0U);
++  }
++
++  void noteMemoryGuardPageBytes(uint32_t Idx, uint64_t GuardBytes) {
++    std::unique_lock Lock(Mutex);
++    if (Idx >= MemoryGuardPageBytes.size()) {
++      MemoryGuardPageBytes.resize(static_cast<size_t>(Idx) + 1U, 0U);
++    }
++    MemoryGuardPageBytes[Idx] = std::max(MemoryGuardPageBytes[Idx], GuardBytes);
++  }
++
++  uint64_t getMemoryGuardPageBytes(uint32_t Idx) const noexcept {
++    std::shared_lock Lock(Mutex);
++    if (Idx >= MemoryGuardPageBytes.size()) {
++      return 0;
++    }
++    return MemoryGuardPageBytes[Idx];
++  }
++
+ protected:
+   friend class Executor::Executor;
+   friend class ComponentInstance;
+@@ -575,6 +596,7 @@ protected:
+   std::vector<GlobalInstance *> GlobInsts;
+   std::vector<ElementInstance *> ElemInsts;
+   std::vector<DataInstance *> DataInsts;
++  std::vector<uint64_t> MemoryGuardPageBytes;
+ 
+   /// Imported instances counts.
+   uint32_t ImpGlobalNum = 0;
+diff --git a/include/system/allocator.h b/include/system/allocator.h
+index 0c6555db1493f51ff5958f063995ced13a7ca2a8..b6464f7f05f5d8990b3b02b54f414df267088e89 100644
+--- a/include/system/allocator.h
++++ b/include/system/allocator.h
+@@ -43,17 +43,19 @@ public:
+ #endif
+ 
+   WASMEDGE_EXPORT static uint8_t *
+-  allocate(uint64_t PageCount, bool AllowGuardPageBoundsCheck,
+-           bool *GuardPageBoundsCheck = nullptr) noexcept;
++  allocate(uint64_t PageCount, uint64_t ReservedPageCount,
++           bool AllowGuardPageBoundsCheck, uint64_t GuardPageBytes = 0,
++           bool *GuardPageBoundsCheck = nullptr,
++           uint64_t *GuardedReservationBytes = nullptr) noexcept;
+ 
+   WASMEDGE_EXPORT static uint8_t *resize(uint8_t *Pointer,
+                                          uint64_t OldPageCount,
+                                          uint64_t NewPageCount,
+                                          bool GuardPageBoundsCheck) noexcept;
+ 
+-  WASMEDGE_EXPORT static void release(uint8_t *Pointer,
+-                                      uint64_t PageCount,
+-                                      bool GuardPageBoundsCheck) noexcept;
++  WASMEDGE_EXPORT static void
++  release(uint8_t *Pointer, bool GuardPageBoundsCheck,
++          uint64_t GuardedReservationBytes = 0) noexcept;
+ 
+   static uint8_t *allocate_chunk(uint64_t Size) noexcept;
+   static void release_chunk(uint8_t *Pointer, uint64_t Size) noexcept;
+diff --git a/lib/executor/instantiate/function.cpp b/lib/executor/instantiate/function.cpp
+index a8679a92f7664e64eccaa63c3e45954b12238efc..24df6d3ed40da6b7b1a466f05c333fdc3bcd35de 100644
+--- a/lib/executor/instantiate/function.cpp
++++ b/lib/executor/instantiate/function.cpp
+@@ -4,11 +4,164 @@
+ #include "executor/executor.h"
+ 
+ #include <cstdint>
++#include <limits>
+ #include <utility>
+ 
+ namespace WasmEdge {
+ namespace Executor {
+ 
++namespace {
++
++uint64_t getMemoryAccessSize(const AST::Instruction &Instr) noexcept {
++  switch (Instr.getOpCode()) {
++  case OpCode::I32__load:
++  case OpCode::F32__load:
++  case OpCode::I32__store:
++  case OpCode::F32__store:
++  case OpCode::V128__load32_zero:
++  case OpCode::V128__load32_splat:
++  case OpCode::V128__load32_lane:
++  case OpCode::V128__store32_lane:
++  case OpCode::Memory__atomic__notify:
++  case OpCode::Memory__atomic__wait32:
++  case OpCode::I32__atomic__load:
++  case OpCode::I64__atomic__load32_u:
++  case OpCode::I32__atomic__store:
++  case OpCode::I64__atomic__store32:
++  case OpCode::I32__atomic__rmw__add:
++  case OpCode::I64__atomic__rmw32__add_u:
++  case OpCode::I32__atomic__rmw__sub:
++  case OpCode::I64__atomic__rmw32__sub_u:
++  case OpCode::I32__atomic__rmw__and:
++  case OpCode::I64__atomic__rmw32__and_u:
++  case OpCode::I32__atomic__rmw__or:
++  case OpCode::I64__atomic__rmw32__or_u:
++  case OpCode::I32__atomic__rmw__xor:
++  case OpCode::I64__atomic__rmw32__xor_u:
++  case OpCode::I32__atomic__rmw__xchg:
++  case OpCode::I64__atomic__rmw32__xchg_u:
++  case OpCode::I32__atomic__rmw__cmpxchg:
++  case OpCode::I64__atomic__rmw32__cmpxchg_u:
++    return 4U;
++  case OpCode::I64__load:
++  case OpCode::I64__load32_s:
++  case OpCode::I64__load32_u:
++  case OpCode::F64__load:
++  case OpCode::I64__store:
++  case OpCode::I64__store32:
++  case OpCode::F64__store:
++  case OpCode::V128__load8x8_s:
++  case OpCode::V128__load8x8_u:
++  case OpCode::V128__load16x4_s:
++  case OpCode::V128__load16x4_u:
++  case OpCode::V128__load32x2_s:
++  case OpCode::V128__load32x2_u:
++  case OpCode::V128__load64_splat:
++  case OpCode::V128__load64_zero:
++  case OpCode::V128__load64_lane:
++  case OpCode::V128__store64_lane:
++  case OpCode::Memory__atomic__wait64:
++  case OpCode::I64__atomic__load:
++  case OpCode::I64__atomic__store:
++  case OpCode::I64__atomic__rmw__add:
++  case OpCode::I64__atomic__rmw__sub:
++  case OpCode::I64__atomic__rmw__and:
++  case OpCode::I64__atomic__rmw__or:
++  case OpCode::I64__atomic__rmw__xor:
++  case OpCode::I64__atomic__rmw__xchg:
++  case OpCode::I64__atomic__rmw__cmpxchg:
++    return 8U;
++  case OpCode::V128__load:
++  case OpCode::V128__store:
++    return 16U;
++  case OpCode::I32__load16_s:
++  case OpCode::I32__load16_u:
++  case OpCode::I32__store16:
++  case OpCode::I64__load16_s:
++  case OpCode::I64__load16_u:
++  case OpCode::I64__store16:
++  case OpCode::V128__load16_splat:
++  case OpCode::V128__load16_lane:
++  case OpCode::V128__store16_lane:
++  case OpCode::I32__atomic__load16_u:
++  case OpCode::I32__atomic__store16:
++  case OpCode::I32__atomic__rmw16__add_u:
++  case OpCode::I32__atomic__rmw16__sub_u:
++  case OpCode::I32__atomic__rmw16__and_u:
++  case OpCode::I32__atomic__rmw16__or_u:
++  case OpCode::I32__atomic__rmw16__xor_u:
++  case OpCode::I32__atomic__rmw16__xchg_u:
++  case OpCode::I32__atomic__rmw16__cmpxchg_u:
++  case OpCode::I64__atomic__load16_u:
++  case OpCode::I64__atomic__store16:
++  case OpCode::I64__atomic__rmw16__add_u:
++  case OpCode::I64__atomic__rmw16__sub_u:
++  case OpCode::I64__atomic__rmw16__and_u:
++  case OpCode::I64__atomic__rmw16__or_u:
++  case OpCode::I64__atomic__rmw16__xor_u:
++  case OpCode::I64__atomic__rmw16__xchg_u:
++  case OpCode::I64__atomic__rmw16__cmpxchg_u:
++    return 2U;
++  case OpCode::I32__load8_s:
++  case OpCode::I32__load8_u:
++  case OpCode::I32__store8:
++  case OpCode::I64__load8_s:
++  case OpCode::I64__load8_u:
++  case OpCode::I64__store8:
++  case OpCode::V128__load8_splat:
++  case OpCode::V128__load8_lane:
++  case OpCode::V128__store8_lane:
++  case OpCode::I32__atomic__load8_u:
++  case OpCode::I32__atomic__store8:
++  case OpCode::I32__atomic__rmw8__add_u:
++  case OpCode::I32__atomic__rmw8__sub_u:
++  case OpCode::I32__atomic__rmw8__and_u:
++  case OpCode::I32__atomic__rmw8__or_u:
++  case OpCode::I32__atomic__rmw8__xor_u:
++  case OpCode::I32__atomic__rmw8__xchg_u:
++  case OpCode::I32__atomic__rmw8__cmpxchg_u:
++  case OpCode::I64__atomic__load8_u:
++  case OpCode::I64__atomic__store8:
++  case OpCode::I64__atomic__rmw8__add_u:
++  case OpCode::I64__atomic__rmw8__sub_u:
++  case OpCode::I64__atomic__rmw8__and_u:
++  case OpCode::I64__atomic__rmw8__or_u:
++  case OpCode::I64__atomic__rmw8__xor_u:
++  case OpCode::I64__atomic__rmw8__xchg_u:
++  case OpCode::I64__atomic__rmw8__cmpxchg_u:
++    return 1U;
++  default:
++    return 0U;
++  }
++}
++
++void noteMemoryGuardPageBytes(Runtime::Instance::ModuleInstance &ModInst,
++                              AST::InstrView Instrs) {
++  for (const auto &Instr : Instrs) {
++    const uint64_t AccessSize = getMemoryAccessSize(Instr);
++    if (AccessSize == 0U) {
++      continue;
++    }
++    uint64_t GuardBytes = 0;
++#if defined(_MSC_VER) && !defined(__clang__)
++    if (std::numeric_limits<uint64_t>::max() - Instr.getMemoryOffset() <
++        AccessSize) {
++      GuardBytes = std::numeric_limits<uint64_t>::max();
++    } else {
++      GuardBytes = Instr.getMemoryOffset() + AccessSize;
++    }
++#else
++    if (__builtin_add_overflow(Instr.getMemoryOffset(), AccessSize,
++                               &GuardBytes)) {
++      GuardBytes = std::numeric_limits<uint64_t>::max();
++    }
++#endif
++    ModInst.noteMemoryGuardPageBytes(Instr.getTargetIndex(), GuardBytes);
++  }
++}
++
++} // namespace
++
+ // Instantiate function instance. See "include/executor/executor.h".
+ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
+                                    const AST::FunctionSection &FuncSec,
+@@ -18,6 +171,10 @@ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
+   auto TypeIdxs = FuncSec.getContent();
+   auto CodeSegs = CodeSec.getContent();
+ 
++  for (const auto &CodeSeg : CodeSegs) {
++    noteMemoryGuardPageBytes(ModInst, CodeSeg.getExpr().getInstrs());
++  }
++
+   if (CodeSegs.size() == 0) {
+     return {};
+   }
+diff --git a/lib/executor/instantiate/memory.cpp b/lib/executor/instantiate/memory.cpp
+index a5369e6df1f34b1cfdc85aedbc2821b51f415955..341447a3a4e0dcf9e5b94f2d18d60e85f42a8368 100644
+--- a/lib/executor/instantiate/memory.cpp
++++ b/lib/executor/instantiate/memory.cpp
+@@ -11,12 +11,13 @@ namespace Executor {
+ // Instantiate memory instance. See "include/executor/executor.h".
+ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
+                                    const AST::MemorySection &MemSec) {
++  const uint32_t ImportedMemoryCount = ModInst.getMemoryNum();
++  const auto &MemTypes = MemSec.getContent();
+   // Prepare pointers vector for compiled functions.
+-  ModInst.MemoryPtrs.resize(ModInst.getMemoryNum() +
+-                            MemSec.getContent().size());
++  ModInst.MemoryPtrs.resize(ImportedMemoryCount + MemTypes.size());
+ 
+   // Set the memory pointers of imported memories.
+-  for (uint32_t I = 0; I < ModInst.getMemoryNum(); ++I) {
++  for (uint32_t I = 0; I < ImportedMemoryCount; ++I) {
+ #if WASMEDGE_ALLOCATOR_IS_STABLE
+     ModInst.MemoryPtrs[I] = (*ModInst.getMemory(I))->getDataPtr();
+ #else
+@@ -25,10 +26,11 @@ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
+   }
+ 
+   // Iterate through the memory types to instantiate memory instances.
+-  for (const auto &MemType : MemSec.getContent()) {
++  for (uint32_t I = 0; I < MemTypes.size(); ++I) {
++    const uint32_t Index = ImportedMemoryCount + I;
+     // Create and add the memory instance into the module instance.
+-    ModInst.addMemory(MemType, Conf.getRuntimeConfigure().getMaxMemoryPage());
+-    const auto Index = ModInst.getMemoryNum() - 1;
++    ModInst.addMemory(MemTypes[I], Conf.getRuntimeConfigure().getMaxMemoryPage(),
++                      ModInst.getMemoryGuardPageBytes(Index));
+     Runtime::Instance::MemoryInstance *MemInst = *ModInst.getMemory(Index);
+     // Set the memory pointers of instantiated memories.
+ #if WASMEDGE_ALLOCATOR_IS_STABLE
+diff --git a/lib/executor/instantiate/module.cpp b/lib/executor/instantiate/module.cpp
+index ae84525bacd2c4144903fa066510cf0377733e42..4d9ea88fccff8e37a35aab350e4e1094d8713130 100644
+--- a/lib/executor/instantiate/module.cpp
++++ b/lib/executor/instantiate/module.cpp
+@@ -75,6 +75,11 @@ Executor::instantiate(Runtime::StoreManager &StoreMgr, const AST::Module &Mod,
+                    *ModInst, ImportSec)
+                    .map_error(ReportError(ASTNodeAttr::Sec_Import)));
+ 
++  // Prepare memory guard metadata before function analysis and instantiation.
++  const AST::MemorySection &MemSec = Mod.getMemorySection();
++  ModInst->reserveMemoryGuardPageBytes(ModInst->getMemoryNum() +
++                                       MemSec.getContent().size());
++
+   // Instantiate Functions in module. (FunctionSec, CodeSec)
+   const AST::FunctionSection &FuncSec = Mod.getFunctionSection();
+   const AST::CodeSection &CodeSec = Mod.getCodeSection();
+@@ -82,7 +87,6 @@ Executor::instantiate(Runtime::StoreManager &StoreMgr, const AST::Module &Mod,
+   instantiate(*ModInst, FuncSec, CodeSec);
+ 
+   // Instantiate MemorySection (MemorySec)
+-  const AST::MemorySection &MemSec = Mod.getMemorySection();
+   // This function will always success.
+   instantiate(*ModInst, MemSec);
+ 
+diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
+index 40fba9fabc3843d4e19bf9ddbdd1f99297f3eea8..47ff171942324859422e8fd111a77a0dd1c9fc42 100644
+--- a/lib/system/allocator.cpp
++++ b/lib/system/allocator.cpp
+@@ -10,6 +10,7 @@
+ #include <algorithm>
+ #include <cstdlib>
+ #include <cstring>
++#include <limits>
+ 
+ #if WASMEDGE_OS_WINDOWS
+ #include "system/winapi.h"
+@@ -30,7 +31,50 @@ static inline constexpr const uint64_t k4G = UINT64_C(0x100000000);
+ static inline constexpr const uint64_t k12G = UINT64_C(0x300000000);
+ #endif
+ #if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
+-static inline constexpr const uint64_t k8G = UINT64_C(0x200000000);
++uint64_t alignGuardPageBytes(uint64_t GuardPageBytes) noexcept {
++  if (GuardPageBytes == 0) {
++    return 0;
++  }
++  const uint64_t Remainder = GuardPageBytes % kPageSize;
++  if (Remainder == 0) {
++    return GuardPageBytes;
++  }
++  return GuardPageBytes + (kPageSize - Remainder);
++}
++
++uint8_t *allocateGuardedAppleMobile(uint64_t PageCount,
++                                    uint64_t ReservedPageCount,
++                                    uint64_t GuardPageBytes,
++                                    uint64_t *GuardedReservationBytes) noexcept {
++  const uint64_t AlignedGuardPageBytes = alignGuardPageBytes(GuardPageBytes);
++  uint64_t ReservationBytes = 0;
++  if (ReservedPageCount > std::numeric_limits<uint64_t>::max() / kPageSize) {
++    return nullptr;
++  }
++  ReservationBytes = ReservedPageCount * kPageSize;
++  if (std::numeric_limits<uint64_t>::max() - ReservationBytes <
++      AlignedGuardPageBytes) {
++    return nullptr;
++  }
++  ReservationBytes += AlignedGuardPageBytes;
++  auto *Reserved = reinterpret_cast<uint8_t *>(
++      mmap(nullptr, ReservationBytes, PROT_NONE,
++           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
++  if (Reserved == MAP_FAILED) {
++    return nullptr;
++  }
++  if (PageCount != 0 &&
++      mmap(Reserved, PageCount * kPageSize, PROT_READ | PROT_WRITE,
++           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1,
++           0) == MAP_FAILED) {
++    munmap(Reserved, ReservationBytes);
++    return nullptr;
++  }
++  if (GuardedReservationBytes != nullptr) {
++    *GuardedReservationBytes = ReservationBytes;
++  }
++  return Reserved;
++}
+ #endif
+ 
+ inline uint64_t allocateBytes(uint64_t PageCount) noexcept {
+@@ -107,41 +151,26 @@ uint8_t *allocateGuardedStable(uint64_t PageCount) noexcept {
+ }
+ #endif
+ 
+-#if defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
+-uint8_t *allocateGuardedAppleMobile(uint64_t PageCount) noexcept {
+-  auto *Reserved = reinterpret_cast<uint8_t *>(
+-      mmap(nullptr, k8G, PROT_NONE,
+-           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0));
+-  if (Reserved == MAP_FAILED) {
+-    return nullptr;
+-  }
+-  if (PageCount == 0) {
+-    return Reserved;
+-  }
+-  if (mmap(Reserved, PageCount * kPageSize, PROT_READ | PROT_WRITE,
+-           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1,
+-           0) == MAP_FAILED) {
+-    munmap(Reserved, k8G);
+-    return nullptr;
+-  }
+-  return Reserved;
+-}
+-#endif
+-
+ } // namespace
+ 
+ WASMEDGE_EXPORT uint8_t *
+-Allocator::allocate(uint64_t PageCount, bool AllowGuardPageBoundsCheck,
+-                    bool *GuardPageBoundsCheck) noexcept {
++Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,
++                    bool AllowGuardPageBoundsCheck, uint64_t GuardPageBytes,
++                    bool *GuardPageBoundsCheck,
++                    uint64_t *GuardedReservationBytes) noexcept {
+   bool UsedGuardPageBoundsCheck = false;
+   uint8_t *Result = nullptr;
++  uint64_t ReservedBytes = 0;
+ 
+   if (AllowGuardPageBoundsCheck) {
+ #if WASMEDGE_OS_WINDOWS
+     Result = allocateGuardedStable(PageCount);
+     UsedGuardPageBoundsCheck = Result != nullptr;
+ #elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
+-    Result = allocateGuardedAppleMobile(PageCount);
++    if (GuardPageBytes != 0) {
++      Result = allocateGuardedAppleMobile(PageCount, ReservedPageCount,
++                                          GuardPageBytes, &ReservedBytes);
++    }
+     UsedGuardPageBoundsCheck = Result != nullptr;
+ #elif defined(HAVE_MMAP) &&                                                     \
+     (defined(__x86_64__) ||                                                     \
+@@ -159,6 +188,9 @@ Allocator::allocate(uint64_t PageCount, bool AllowGuardPageBoundsCheck,
+   if (GuardPageBoundsCheck != nullptr) {
+     *GuardPageBoundsCheck = UsedGuardPageBoundsCheck;
+   }
++  if (GuardedReservationBytes != nullptr) {
++    *GuardedReservationBytes = UsedGuardPageBoundsCheck ? ReservedBytes : 0U;
++  }
+   return Result;
+ }
+ 
+@@ -192,8 +224,9 @@ WASMEDGE_EXPORT uint8_t *Allocator::resize(uint8_t *Pointer,
+   return resizeFallback(Pointer, OldPageCount, NewPageCount);
+ }
+ 
+-WASMEDGE_EXPORT void Allocator::release(uint8_t *Pointer, uint64_t,
+-                                        bool GuardPageBoundsCheck) noexcept {
++WASMEDGE_EXPORT void
++Allocator::release(uint8_t *Pointer, bool GuardPageBoundsCheck,
++                   uint64_t GuardedReservationBytes) noexcept {
+   if (Pointer == nullptr) {
+     return;
+   }
+@@ -202,7 +235,9 @@ WASMEDGE_EXPORT void Allocator::release(uint8_t *Pointer, uint64_t,
+     winapi::VirtualFree(Pointer - k4G, 0, winapi::MEM_RELEASE_);
+     return;
+ #elif defined(HAVE_MMAP) && defined(__aarch64__) && WASMEDGE_APPLE_MOBILE_VM
+-    munmap(Pointer, k8G);
++    if (GuardedReservationBytes != 0) {
++      munmap(Pointer, GuardedReservationBytes);
++    }
+     return;
+ #elif defined(HAVE_MMAP) &&                                                     \
+     ((defined(__x86_64__) || defined(__aarch64__) ||                            \

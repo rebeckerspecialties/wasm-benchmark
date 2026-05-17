@@ -1,0 +1,41 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a4447548ebcc5c3499c98788e98223495aaf9446..5327ce405541c582363d4bf3f4c5b492a8e0dba3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -73,6 +73,7 @@ if(WASMEDGE_BUILD_AOT_RUNTIME)
+ endif()
+ option(WASMEDGE_USE_CXX11_ABI "Enable cxx11 abi when building WasmEdge." ON)
+ option(WASMEDGE_FORCE_DISABLE_LTO "Forcefully disable link time optimization when linking even in Release/RelWithDeb build." OFF)
++option(WASMEDGE_STATIC_LIB_ENABLE_LTO "Allow link time optimization when building WasmEdge static libraries." OFF)
+ option(WASMEDGE_LINK_LLVM_STATIC "Statically link the LLVM library into the WasmEdge tools and libraries." OFF)
+ option(WASMEDGE_LINK_TOOLS_STATIC "Statically link the wasmedge and wasmedgec tools. Will forcefully link the LLVM library statically." OFF)
+ option(WASMEDGE_ENABLE_UB_SANITIZER "Enable undefined behavior sanitizer." OFF)
+@@ -134,8 +135,10 @@ if(WASMEDGE_BUILD_TESTS AND WASMEDGE_BUILD_FUZZING)
+   message(FATAL_ERROR "unit tests and fuzzing tool are exclusive options.")
+ endif()
+ 
+-# Static library will forcefully turn off the LTO.
+-if(WASMEDGE_BUILD_STATIC_LIB)
++# Static library builds historically forcefully turned off LTO. Keep that
++# behavior as the default, but allow explicit opt-in when the final link also
++# wants to consume LLVM bitcode from the archive members.
++if(WASMEDGE_BUILD_STATIC_LIB AND NOT WASMEDGE_STATIC_LIB_ENABLE_LTO)
+   set(WASMEDGE_FORCE_DISABLE_LTO ON)
+ endif()
+ 
+diff --git a/cmake/Helper.cmake b/cmake/Helper.cmake
+index b3bcfdc5ea7d521492f65db2ee205f2a75d48332..7e3b73b277d89ea0db4dcb2d00e5819f474878b8 100644
+--- a/cmake/Helper.cmake
++++ b/cmake/Helper.cmake
+@@ -284,8 +284,9 @@ if((WASMEDGE_LINK_LLVM_STATIC OR WASMEDGE_BUILD_STATIC_LIB) AND WASMEDGE_USE_LLV
+     list(APPEND WASMEDGE_LLVM_LINK_SHARED_COMPONENTS
+       rt
+     )
+-    if(WASMEDGE_BUILD_STATIC_LIB)
+-      # Static library will forcefully turn off the LTO.
++    if(WASMEDGE_BUILD_STATIC_LIB AND NOT WASMEDGE_STATIC_LIB_ENABLE_LTO)
++      # When the static library disables LTO, libz and libtinfo can be
++      # statically linked directly.
+       # Therefore, libz and libtinfo can be statically linked.
+       find_package(ZLIB REQUIRED)
+       get_filename_component(ZLIB_PATH "${ZLIB_LIBRARIES}" DIRECTORY)

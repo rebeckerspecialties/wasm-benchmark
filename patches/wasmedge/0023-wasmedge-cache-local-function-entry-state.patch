@@ -1,0 +1,153 @@
+diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
+index e30ae71..42ec43c 100644
+--- a/include/runtime/instance/function.h
++++ b/include/runtime/instance/function.h
+@@ -110,6 +110,13 @@ public:
+     return std::get_if<WasmFunction>(&Data)->Locals;
+   }
+ 
++  Span<const ValVariant> getDefaultLocals() const noexcept {
++    if (const auto *WasmFunc = std::get_if<WasmFunction>(&Data)) {
++      return {WasmFunc->DefaultLocals.data(), WasmFunc->DefaultLocals.size()};
++    }
++    return {};
++  }
++
+   /// Getter of function local number.
+   uint32_t getLocalNum() const noexcept {
+     return std::get_if<WasmFunction>(&Data)->LocalNum;
+@@ -221,6 +228,7 @@ private:
+     const std::vector<std::pair<uint32_t, ValType>> Locals;
+     const uint32_t LocalNum;
+     const uint32_t MaxValueStackHeight;
++    std::vector<ValVariant> DefaultLocals;
+     AST::InstrVec Instrs;
+     WasmFunction(Span<const std::pair<uint32_t, ValType>> Locs,
+                  AST::InstrView Expr, uint32_t MaxStackHeight) noexcept
+@@ -231,6 +239,12 @@ private:
+                                 return N + Pair.first;
+                               })),
+           MaxValueStackHeight(MaxStackHeight) {
++      DefaultLocals.reserve(LocalNum);
++      for (const auto &Def : Locals) {
++        for (uint32_t I = 0; I < Def.first; ++I) {
++          DefaultLocals.push_back(ValueFromType(Def.second));
++        }
++      }
+       // FIXME: Modify the capacity to prevent from connection of 2 vectors.
+       Instrs.reserve(Expr.size() + 1);
+       Instrs.assign(Expr.begin(), Expr.end());
+diff --git a/include/runtime/stackmgr.h b/include/runtime/stackmgr.h
+index 877a068..3456052 100644
+--- a/include/runtime/stackmgr.h
++++ b/include/runtime/stackmgr.h
+@@ -84,6 +84,10 @@ public:
+     ValueStack.insert(ValueStack.end(), ValVec.begin(), ValVec.end());
+   }
+ 
++  void pushValSpan(Span<const Value> Values) {
++    ValueStack.insert(ValueStack.end(), Values.begin(), Values.end());
++  }
++
+   void reserveAdditionalValues(size_t Additional) {
+     const size_t Required = ValueStack.size() + Additional;
+     if (ValueStack.capacity() < Required) {
+diff --git a/lib/executor/helper.cpp b/lib/executor/helper.cpp
+index 1851b05..6454888 100644
+--- a/lib/executor/helper.cpp
++++ b/lib/executor/helper.cpp
+@@ -7,6 +7,7 @@
+ #include "system/fault.h"
+ #include "system/stacktrace.h"
+ 
++#include <array>
+ #include <cstdint>
+ #include <utility>
+ #include <vector>
+@@ -14,6 +15,22 @@
+ namespace WasmEdge {
+ namespace Executor {
+ 
++namespace {
++
++constexpr size_t kInlineReturnValueCount = 4U;
++
++Span<ValVariant> makeReturnStorage(
++    std::array<ValVariant, kInlineReturnValueCount> &InlineRets,
++    std::vector<ValVariant> &HeapRets, uint32_t Count) {
++  if (Count <= InlineRets.size()) {
++    return {InlineRets.data(), Count};
++  }
++  HeapRets.resize(Count);
++  return {HeapRets.data(), HeapRets.size()};
++}
++
++} // namespace
++
+ Executor::SavedThreadLocal::SavedThreadLocal(
+     Executor &Ex, Runtime::StackManager &StackMgr,
+     const Runtime::Instance::FunctionInstance &Func) noexcept {
+@@ -101,7 +118,9 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+       Stat->startRecordHost();
+     }
+ 
+-    std::vector<ValVariant> Rets(RetsN);
++    std::array<ValVariant, kInlineReturnValueCount> InlineRets{};
++    std::vector<ValVariant> HeapRets;
++    Span<ValVariant> Rets = makeReturnStorage(InlineRets, HeapRets, RetsN);
+     auto Ret = [&]() {
+       Fault::SignalTrapSuspend TrapSuspend;
+ 
+@@ -160,7 +179,9 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+ 
+     // Prepare arguments.
+     Span<ValVariant> Args = StackMgr.getTopSpan(ArgsN);
+-    std::vector<ValVariant> Rets(RetsN);
++    std::array<ValVariant, kInlineReturnValueCount> InlineRets{};
++    std::vector<ValVariant> HeapRets;
++    Span<ValVariant> Rets = makeReturnStorage(InlineRets, HeapRets, RetsN);
+     SavedThreadLocal Saved(*this, StackMgr, Func);
+ 
+     ErrCode Err;
+@@ -203,8 +224,8 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+     }
+ 
+     // Push returns back to stack.
+-    for (uint32_t I = 0; I < Rets.size(); ++I) {
+-      StackMgr.push(Rets[I]);
++    for (auto &R : Rets) {
++      StackMgr.push(std::move(R));
+     }
+ 
+     // For compiled function case, the continuation will be the continuation
+@@ -212,15 +233,15 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+     return StackMgr.popFrame();
+   } else {
+     // Native function case: Jump to the start of the function body.
++    const auto InitialLocals = Func.getDefaultLocals();
++    const auto Instrs = Func.getInstrs();
+ 
+     StackMgr.reserveAdditionalValues(
+-        static_cast<size_t>(Func.getLocalNum()) + Func.getMaxValueStackHeight());
++        static_cast<size_t>(InitialLocals.size()) +
++        Func.getMaxValueStackHeight());
+ 
+-    // Push local variables into the stack.
+-    for (auto &Def : Func.getLocals()) {
+-      for (uint32_t I = 0; I < Def.first; I++) {
+-        StackMgr.push(ValueFromType(Def.second));
+-      }
++    if (!InitialLocals.empty()) {
++      StackMgr.pushValSpan(InitialLocals);
+     }
+ 
+     // Push frame.
+@@ -235,7 +256,7 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+ 
+     // For native function case, the continuation will be the start of the
+     // function body.
+-    return Func.getInstrs().begin();
++    return Instrs.begin();
+   }
+ }
+ 

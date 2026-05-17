@@ -315,17 +315,23 @@ static REGISTER_ONCE: Once = Once::new();
 
 fn ensure_porf_natives_registered() {
     REGISTER_ONCE.call_once(|| {
-        // These must outlive every module load, so leak them.
+        // These must outlive every module load — WAMR's
+        // wasm_runtime_register_natives stores the NativeSymbol array
+        // pointer in a global linked list and dereferences it later
+        // at module-load time. If we pass a stack-local array, the
+        // pointer dangles after this function returns. So leak both
+        // the strings AND the symbol array.
         let module = std::ffi::CString::new("").unwrap().into_raw() as *const c_char;
         let symbol = std::ffi::CString::new("b").unwrap().into_raw() as *const c_char;
         let signature = std::ffi::CString::new("(F)").unwrap().into_raw() as *const c_char;
-        let mut sym = NativeSymbol {
+        let sym_box = Box::new(NativeSymbol {
             symbol,
             func_ptr: porf_b_native as *mut c_void,
             signature,
             attachment: std::ptr::null_mut(),
-        };
-        let _ = unsafe { wasm_runtime_register_natives(module, &mut sym, 1) };
+        });
+        let sym_ptr: *mut NativeSymbol = Box::leak(sym_box);
+        let _ok = unsafe { wasm_runtime_register_natives(module, sym_ptr, 1) };
     });
 }
 
@@ -355,10 +361,15 @@ pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> 
     // sized generously (4 MiB) because Porffor allocates without GC.
     let cname_m = std::ffi::CString::new("m")?;
     let run_once = |timed: bool, err_buf: &mut [i8; 256]| -> Result<Duration> {
+        // 1 MB wasm operand stack — Porffor compiles JS to deeply
+        // recursive wasm with no inlining, so the per-frame slot
+        // allocations add up across the graphql-validation call tree.
+        // 8 KB / 64 KB both overflow mid-validation with
+        // "wasm operand stack overflow".
         let module_inst = unsafe {
             wasm_runtime_instantiate(
                 module,
-                8 * 1024,
+                1024 * 1024,
                 4 * 1024 * 1024,
                 err_buf.as_mut_ptr(),
                 err_buf.len() as u32,
@@ -375,7 +386,11 @@ pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> 
             unsafe { wasm_runtime_deinstantiate(module_inst) };
             return Err(anyhow!("export `m` not found"));
         }
-        let exec_env = unsafe { wasm_runtime_create_exec_env(module_inst, 8 * 1024) };
+        // 1 MB exec-env wasm stack — same reasoning as the
+        // wasm_runtime_instantiate call above. The stack here is what
+        // backs the per-frame slot allocations across the recursive
+        // call chain.
+        let exec_env = unsafe { wasm_runtime_create_exec_env(module_inst, 1024 * 1024) };
         if exec_env.is_null() {
             unsafe { wasm_runtime_deinstantiate(module_inst) };
             return Err(anyhow!("wasm_runtime_create_exec_env failed"));

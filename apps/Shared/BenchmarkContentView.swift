@@ -86,6 +86,102 @@ let WORKLOADS: [Workload] = [
     Workload(id: 34, label: "[ WAMR ] vtable_bi (200K)",    run: { bench_run_vtable_bi_wamr() }),
     Workload(id: 35, label: "[ WAMR ] vtable_poly4 (200K)", run: { bench_run_vtable_poly4_wamr() }),
     Workload(id: 36, label: "[ WAMR ] vtable_poly6 (200K)", run: { bench_run_vtable_poly6_wamr() }),
+    // wasm3 (pure C interpreter) variants. wasm3 doesn't implement
+    // SIMD, wasm exceptions, or WASI, so matmul_simd / matmul_fma /
+    // graphql-validation Porffor will fail at load — the row reports
+    // ERROR with wasm3's error string. xmrsplayer uses `return_call`,
+    // which wasm3 *does* implement, so it should run (subject to the
+    // 256 KiB wasm3 stack budget; see crates/benchmark-core/src/wasm3.rs).
+    Workload(id: 37, label: "[wasm3 ] fib(30)",                        run: { bench_run_fib_wasm3(30) }),
+    Workload(id: 38, label: "[wasm3 ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_wasm3(100000) }),
+    Workload(id: 39, label: "[wasm3 ] factorial(20)",                  run: { bench_run_factorial_wasm3(20) }),
+    Workload(id: 40, label: "[wasm3 ] sieve(10000)",                   run: { bench_run_sieve_wasm3(10000) }),
+    Workload(id: 41, label: "[wasm3 ] crc32(64KB)",                    run: { bench_run_crc32_wasm3() }),
+    Workload(id: 42, label: "[wasm3 ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wasm3() }),
+    Workload(id: 43, label: "[wasm3 ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wasm3() }),
+    Workload(id: 44, label: "[wasm3 ] convolution 256×256",            run: { bench_run_convolution_wasm3() }),
+    Workload(id: 45, label: "[wasm3 ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_wasm3() }),
+    Workload(id: 46, label: "[wasm3 ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_wasm3() }),
+    Workload(id: 47, label: "[wasm3 ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_wasm3() }),
+    Workload(id: 48, label: "[wasm3 ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_wasm3() }),
+    Workload(id: 49, label: "[wasm3 ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_wasm3() }),
+    Workload(id: 50, label: "[wasm3 ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_wasm3() }),
+    Workload(id: 51, label: "[wasm3 ] vtable_mono (200K)",             run: { bench_run_vtable_mono_wasm3() }),
+    Workload(id: 52, label: "[wasm3 ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasm3() }),
+    Workload(id: 53, label: "[wasm3 ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasm3() }),
+    Workload(id: 54, label: "[wasm3 ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasm3() }),
+    // WasmEdge variants. WasmEdge is the incumbent production runtime
+    // (the WatchOS audio app ships it). Built with
+    // WASMEDGE_USE_LLVM=OFF + the 27-patch Apple-mobile enablement
+    // stack — pure-interpreter, App-Store-eligible. SIMD + wasm-
+    // exceptions are both enabled in the same build (WAMR can't do
+    // this), so graphql-validation Porffor loads successfully on this
+    // path (it traps at run-time on the missing host import — same
+    // shape as Pulley would without the host stub).
+    Workload(id: 55, label: "[WE    ] fib(30)",                        run: { bench_run_fib_wasmedge(30) }),
+    Workload(id: 56, label: "[WE    ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_wasmedge(100000) }),
+    Workload(id: 57, label: "[WE    ] factorial(20)",                  run: { bench_run_factorial_wasmedge(20) }),
+    Workload(id: 58, label: "[WE    ] sieve(10000)",                   run: { bench_run_sieve_wasmedge(10000) }),
+    Workload(id: 59, label: "[WE    ] crc32(64KB)",                    run: { bench_run_crc32_wasmedge() }),
+    Workload(id: 60, label: "[WE    ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wasmedge() }),
+    Workload(id: 61, label: "[WE    ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wasmedge() }),
+    Workload(id: 62, label: "[WE    ] convolution 256×256",            run: { bench_run_convolution_wasmedge() }),
+    Workload(id: 63, label: "[WE    ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_wasmedge() }),
+    Workload(id: 64, label: "[WE    ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_wasmedge() }),
+    Workload(id: 65, label: "[WE    ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_wasmedge() }),
+    Workload(id: 66, label: "[WE    ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_wasmedge() }),
+    Workload(id: 67, label: "[WE    ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_wasmedge() }),
+    Workload(id: 68, label: "[WE    ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_wasmedge() }),
+    Workload(id: 69, label: "[WE    ] vtable_mono (200K)",             run: { bench_run_vtable_mono_wasmedge() }),
+    Workload(id: 70, label: "[WE    ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmedge() }),
+    Workload(id: 71, label: "[WE    ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmedge() }),
+    Workload(id: 72, label: "[WE    ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmedge() }),
+    // zwasm (clojurewasm/zwasm, Zig) variants. Built `-Djit=false`
+    // so it's pure-interpreter / App-Store-eligible. Zig 0.16 has no
+    // arm64_32 target → device-watch rows return ERROR ("zwasm not
+    // linked into this build") — treat as data, not a regression.
+    Workload(id: 73, label: "[zwasm ] fib(30)",                        run: { bench_run_fib_zwasm(30) }),
+    Workload(id: 74, label: "[zwasm ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_zwasm(100000) }),
+    Workload(id: 75, label: "[zwasm ] factorial(20)",                  run: { bench_run_factorial_zwasm(20) }),
+    Workload(id: 76, label: "[zwasm ] sieve(10000)",                   run: { bench_run_sieve_zwasm(10000) }),
+    Workload(id: 77, label: "[zwasm ] crc32(64KB)",                    run: { bench_run_crc32_zwasm() }),
+    Workload(id: 78, label: "[zwasm ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_zwasm() }),
+    Workload(id: 79, label: "[zwasm ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_zwasm() }),
+    Workload(id: 80, label: "[zwasm ] convolution 256×256",            run: { bench_run_convolution_zwasm() }),
+    Workload(id: 81, label: "[zwasm ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_zwasm() }),
+    Workload(id: 82, label: "[zwasm ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_zwasm() }),
+    Workload(id: 83, label: "[zwasm ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_zwasm() }),
+    Workload(id: 84, label: "[zwasm ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_zwasm() }),
+    Workload(id: 85, label: "[zwasm ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_zwasm() }),
+    Workload(id: 86, label: "[zwasm ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_zwasm() }),
+    Workload(id: 87, label: "[zwasm ] vtable_mono (200K)",             run: { bench_run_vtable_mono_zwasm() }),
+    Workload(id: 88, label: "[zwasm ] vtable_bi (200K)",               run: { bench_run_vtable_bi_zwasm() }),
+    Workload(id: 89, label: "[zwasm ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_zwasm() }),
+    Workload(id: 90, label: "[zwasm ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_zwasm() }),
+    // wasmz (Ray-D-Song/wasmz, Zig) variants. Pure interpreter, no
+    // JIT — same App-Store-eligibility profile as zwasm. Ported to
+    // Zig 0.16 via patches/wasmz/ because the upstream-pinned 0.15.2
+    // build runner segfaults on macOS 26 Tahoe. Same arm64_32-watchOS
+    // caveat as zwasm — device-watch rows return ERROR ("wasmz not
+    // linked into this build") and that's signal, not noise.
+    Workload(id: 91,  label: "[wasmz ] fib(30)",                        run: { bench_run_fib_wasmz(30) }),
+    Workload(id: 92,  label: "[wasmz ] fib_tail(100000) [return_call]", run: { bench_run_fib_tail_wasmz(100000) }),
+    Workload(id: 93,  label: "[wasmz ] factorial(20)",                  run: { bench_run_factorial_wasmz(20) }),
+    Workload(id: 94,  label: "[wasmz ] sieve(10000)",                   run: { bench_run_sieve_wasmz(10000) }),
+    Workload(id: 95,  label: "[wasmz ] crc32(64KB)",                    run: { bench_run_crc32_wasmz() }),
+    Workload(id: 96,  label: "[wasmz ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wasmz() }),
+    Workload(id: 97,  label: "[wasmz ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wasmz() }),
+    Workload(id: 98,  label: "[wasmz ] convolution 256×256",            run: { bench_run_convolution_wasmz() }),
+    Workload(id: 99,  label: "[wasmz ] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp_wasmz() }),
+    Workload(id: 100, label: "[wasmz ] bulk_memory (memory.copy/fill)", run: { bench_run_bulk_memory_wasmz() }),
+    Workload(id: 101, label: "[wasmz ] call_indirect (200K dispatches)",run: { bench_run_call_indirect_wasmz() }),
+    Workload(id: 102, label: "[wasmz ] xmrsplayer (1024-frame buffer)", run: { bench_run_xmrsplayer_wasmz() }),
+    Workload(id: 103, label: "[wasmz ] graphql-validation (AS)",        run: { bench_run_graphql_validation_as_wasmz() }),
+    Workload(id: 104, label: "[wasmz ] graphql-validation (Porffor)",   run: { bench_run_graphql_validation_porf_wasmz() }),
+    Workload(id: 105, label: "[wasmz ] vtable_mono (200K)",             run: { bench_run_vtable_mono_wasmz() }),
+    Workload(id: 106, label: "[wasmz ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmz() }),
+    Workload(id: 107, label: "[wasmz ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmz() }),
+    Workload(id: 108, label: "[wasmz ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmz() }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -103,22 +199,66 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR")
+                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz")
                     .font(.title3.bold())
-                Text("workload set • \(WORKLOADS.count) cases")
-                    .font(.caption)
-                if running {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("running \(currentLabel)…")
+                // Status line — when the run is in progress, shows
+                // "running <workload>". When the run completes,
+                // flips to a winner summary computed from per-workload
+                // medians (see `winnerSummary(_:)` below). This is the
+                // at-a-glance answer users tune in for; before this we
+                // shipped the data as a ~120-row scrollable dump and
+                // expected viewers to import to a spreadsheet to see
+                // who actually won.
+                Group {
+                    if running {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("running \(currentLabel)…")
+                        }
+                    } else if !results.isEmpty {
+                        Text(winnerSummary(results))
+                            .font(.caption.bold())
+                            .foregroundColor(.green)
+                    } else {
+                        Text("workload set • \(WORKLOADS.count) cases")
                     }
-                    .font(.caption)
                 }
+                .font(.caption)
                 Button(running ? "Running…" : "Run all") { runAll() }
                     .disabled(running)
+                // tvOS-specific: rows must be intrinsically focusable
+                // AND siblings of a properly-sized scroll container so
+                // the Siri Remote's 5-way clicks + swipe-up/swipe-down
+                // gestures both navigate the list. The canonical
+                // pattern is `Button { } label: { ... }` because
+                // Buttons are well-tested focus stops with the focus
+                // engine's auto-scroll. A bare `.focusable(true)` on
+                // a VStack passes the focus check but breaks
+                // auto-scroll: after the first move, the focused row
+                // ends up off-screen and the engine reports "no
+                // focusable target" with a beep on every subsequent
+                // direction press. The cardless `.buttonStyle(.plain)`
+                // (where it exists) preserves the current VStack
+                // layout; otherwise the standard tvOS button
+                // highlight takes over (still readable).
+                //
+                // On non-tvOS targets the bare WorkloadRow is fine —
+                // touch / mouse / Digital Crown drives scroll without
+                // a focus engine in the way.
+                #if os(tvOS)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(results) { r in
+                        Button(action: {}) {
+                            WorkloadRow(result: r)
+                        }
+                        .buttonStyle(.card)
+                    }
+                }
+                #else
                 ForEach(results) { r in
                     WorkloadRow(result: r)
                 }
+                #endif
             }
             .padding()
         }
@@ -135,6 +275,23 @@ struct BenchmarkContentView: View {
         // didn't link in libiwasm.a (e.g. older device libs).
         let wamrOk = bench_init_wamr() == 1
         FileHandle.standardError.write(Data("wamr init: \(wamrOk ? "ok" : "unavailable")\n".utf8))
+        // wasm3 has no process-global state, but we call its init
+        // symmetrically so all three runtimes' availability is logged
+        // up-front in the same line shape.
+        let wasm3Ok = bench_init_wasm3() == 1
+        FileHandle.standardError.write(Data("wasm3 init: \(wasm3Ok ? "ok" : "unavailable")\n".utf8))
+        // WasmEdge — same shape; reports "unavailable" if libwasmedge.a
+        // wasn't linked in (e.g. host-only build before
+        // scripts/build-wasmedge.sh has run for this target).
+        let wasmedgeOk = bench_init_wasmedge() == 1
+        FileHandle.standardError.write(Data("wasmedge init: \(wasmedgeOk ? "ok" : "unavailable")\n".utf8))
+        let zwasmOk = bench_init_zwasm() == 1
+        FileHandle.standardError.write(Data("zwasm init: \(zwasmOk ? "ok" : "unavailable")\n".utf8))
+        // wasmz — patched to Zig 0.16; reports "unavailable" if libwasmz.a
+        // wasn't linked in (e.g. arm64_32 watchOS or host-only build
+        // before scripts/build-wasmz.sh has run for this target).
+        let wasmzOk = bench_init_wasmz() == 1
+        FileHandle.standardError.write(Data("wasmz init: \(wasmzOk ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -146,11 +303,12 @@ struct BenchmarkContentView: View {
         // Optional `WORKLOADS` env-var filter (comma-separated, case-
         // insensitive substring match against the workload label).
         // Optional `RUNTIMES` env-var filter (comma-separated; valid
-        // values are `pulley` and `wamr`) to keep only the matching
-        // runtime — useful for PMU traces where you want to isolate
-        // signal from one runtime without WAMR's identical-across-
-        // builds dispatch overhead diluting the trace aggregate.
-        // Without filters, all 25 workloads run on both runtimes.
+        // values are `pulley`, `wamr`, `wasm3`) to keep only the
+        // matching runtime — useful for PMU traces where you want to
+        // isolate signal from one runtime without the others'
+        // identical-across-builds dispatch overhead diluting the trace
+        // aggregate. Without filters, every workload runs on every
+        // runtime that supports it.
         let workloads: [Workload] = {
             // watchOS doesn't propagate `devicectl --environment-variables`
             // to ProcessInfo (verified empirically — iOS does, watchOS
@@ -192,14 +350,22 @@ struct BenchmarkContentView: View {
                 let runtimeOk = runtimes.isEmpty
                     || runtimes.contains(where: { rt in
                         // Labels look like `[Pulley] call_indirect ...`
-                        // or `[ WAMR ] call_indirect ...`. Case-
-                        // insensitive substring on the prefix is
-                        // unambiguous.
+                        // or `[ WAMR ] call_indirect ...` or
+                        // `[wasm3 ] call_indirect ...`. Case-insensitive
+                        // substring on the prefix is unambiguous.
                         switch rt {
                         case "pulley":
                             return lc.contains("[pulley]")
                         case "wamr":
                             return lc.contains("[ wamr ]")
+                        case "wasm3", "m3":
+                            return lc.contains("[wasm3 ]")
+                        case "wasmedge", "we":
+                            return lc.contains("[we    ]")
+                        case "zwasm":
+                            return lc.contains("[zwasm ]")
+                        case "wasmz":
+                            return lc.contains("[wasmz ]")
                         default:
                             return false
                         }
@@ -243,6 +409,13 @@ struct BenchmarkContentView: View {
             DispatchQueue.main.async {
                 running = false
                 currentLabel = ""
+                // Also emit the winner string to stderr so headless
+                // launches via devicectl --console see the verdict
+                // even when we can't take a screenshot of the
+                // top-of-view status text.
+                FileHandle.standardError.write(
+                    Data((winnerSummary(results) + "\n").utf8)
+                )
             }
         }
     }
@@ -291,6 +464,10 @@ struct WorkloadRow: View {
                 .foregroundColor(result.report.ok == 1 ? .primary : .red)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Note: focus-engine integration on tvOS is handled at the
+        // call site by wrapping each row in `Button { } label: { ... }`
+        // with `.buttonStyle(.card)`. That gives auto-scroll behaviour
+        // the Siri Remote expects. See `BenchmarkContentView.body`.
     }
 
     private var detail: String {
@@ -305,5 +482,104 @@ struct WorkloadRow: View {
             result.report.result, result.report.iterations,
             medMs, p99Ms, rssKB
         )
+    }
+}
+
+// =====================================================================
+// Winner summary
+// =====================================================================
+//
+// Walks the per-(runtime, workload) result list and tallies how many
+// workloads each runtime wins (lowest median time). Returns a one-
+// line summary suitable for the status line at the top of the view.
+//
+// Semantics:
+//   * A row is a "candidate" only if it completed with `ok == 1` AND
+//     has at least one peer (same workload, different runtime) that
+//     also completed — otherwise the workload isn't a comparison.
+//   * Within each comparable workload, the winner is the runtime
+//     with the smallest `run_ns_median`. Ties (medians within 1 % of
+//     each other) count as half-wins for each tied runtime.
+//   * The runtime-with-the-most-wins is the "overall winner". If the
+//     gap between #1 and #2 is ≤ 1 workload, we call it a tie
+//     between the two; the user almost-certainly wants to read the
+//     individual rows in that case.
+//
+// Workload-label format (set by the entries in `WORKLOADS`):
+//   "[Pulley] fib(30)"          → runtime="pulley",  workload="fib(30)"
+//   "[ WAMR ] fib(30)"          → runtime="wamr",    workload="fib(30)"
+//   "[wasm3 ] fib(30)"          → runtime="wasm3",   workload="fib(30)"
+//   "[WE    ] fib(30)"          → runtime="wasmedge", workload="fib(30)"
+//   "[zwasm ] fib(30)"          → runtime="zwasm",   workload="fib(30)"
+//   "[wasmz ] fib(30)"          → runtime="wasmz",   workload="fib(30)"
+// =====================================================================
+
+fileprivate func runtimeAndWorkload(from label: String) -> (runtime: String, workload: String)? {
+    // Expect leading `[<rt>] <workload>` where `<rt>` is padded.
+    guard label.hasPrefix("["), let closeBracket = label.firstIndex(of: "]") else {
+        return nil
+    }
+    let rtRaw = label[label.index(after: label.startIndex)..<closeBracket]
+        .trimmingCharacters(in: .whitespaces)
+        .lowercased()
+    // Normalise the "WE" abbreviation to "wasmedge" so the summary
+    // matches the same runtime names we use in the rest of the harness
+    // (lib.rs, the bench logs, the cross-runtime table in AGENTS.md).
+    let rt = rtRaw == "we" ? "wasmedge" : rtRaw
+    // Skip the closing bracket + the space after it.
+    let wlStart = label.index(closeBracket, offsetBy: 2, limitedBy: label.endIndex)
+        ?? label.endIndex
+    let workload = String(label[wlStart...])
+    return (rt, workload)
+}
+
+fileprivate func winnerSummary(_ results: [WorkloadResult]) -> String {
+    // (workload → [runtime: median_ns]) for ok rows only.
+    var byWorkload: [String: [String: UInt64]] = [:]
+    for r in results where r.report.ok == 1 {
+        guard let parsed = runtimeAndWorkload(from: r.label) else { continue }
+        byWorkload[parsed.workload, default: [:]][parsed.runtime] = r.report.run_ns_median
+    }
+    // For each workload with ≥2 ok runtimes, award a win (or half-win
+    // on a near-tie) to the runtime with the smallest median.
+    var wins: [String: Double] = [:]
+    var comparableWorkloads = 0
+    for (_, medians) in byWorkload where medians.count >= 2 {
+        comparableWorkloads += 1
+        // Find the smallest median + any other runtimes within 1 %.
+        let minMed = medians.values.min()!
+        let tieThreshold = Double(minMed) * 1.01
+        let topRuntimes = medians.filter { Double($0.value) <= tieThreshold }
+        let share = 1.0 / Double(topRuntimes.count)
+        for rt in topRuntimes.keys {
+            wins[rt, default: 0.0] += share
+        }
+    }
+    guard comparableWorkloads > 0 else {
+        return "No comparable workloads yet (need at least one workload completed on ≥2 runtimes)."
+    }
+    // Sort by wins descending.
+    let ranked = wins.sorted { $0.value > $1.value }
+    guard let first = ranked.first else {
+        return "No comparable workloads yet."
+    }
+    let second = ranked.count >= 2 ? ranked[1] : nil
+    // Outright winner if the lead over #2 is > 1 workload.
+    let isOutright: Bool
+    if let s = second {
+        isOutright = (first.value - s.value) > 1.0
+    } else {
+        isOutright = true
+    }
+    func fmt(_ x: Double) -> String {
+        // Drop the fraction when it's an integer (a clean win).
+        x == x.rounded() ? String(Int(x)) : String(format: "%.1f", x)
+    }
+    if isOutright {
+        return "🏆 \(first.key) wins \(fmt(first.value)) / \(comparableWorkloads) workloads"
+    } else if let s = second {
+        return "🤝 tie: \(first.key) & \(s.key) both ≈ \(fmt(max(first.value, s.value))) / \(comparableWorkloads) workloads"
+    } else {
+        return "🏆 \(first.key) wins \(fmt(first.value)) / \(comparableWorkloads) workloads"
     }
 }

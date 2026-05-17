@@ -11,10 +11,10 @@
 **/DerivedData*/
 *.dSYM/
 
-# --- wasmtime working clone ---
-# 47 GB working clone, not a submodule (multiple active branches, too heavy
-# for fresh-clone reproducibility). Set up per AGENTS.md → wasmtime section.
-/wasmtime/
+# --- wasmtime is a submodule now (rebeckerspecialties/wasmtime) ---
+# Build artifacts inside wasmtime/ stay gitignored — only `target/` is
+# the offender (~70 GB on a populated build). The .git itself is ~170 MB.
+/wasmtime/target/
 
 # --- Experiment outputs (large, mostly machine-generated) ---
 # All raw trace bundles, large XML exports, run logs, and intermediate
@@ -51,3 +51,17 @@ Launch_*
 # as a reference for vtable_dispatch.rs design. Not part of any build path.
 /StarlingMonkey/
 /scripts/__pycache__/
+
+# --- Per-target build dirs inside submodules ---
+# Created by scripts/build-{wamr,wasm3,wasmedge,zwasm}.sh; output
+# static libs land here. Reproducible from the patched submodule HEAD
+# + the build script, so no need to track them.
+/wasm-micro-runtime/product-mini/platforms/*/build*/
+/wasm3/build*/
+/WasmEdge/build*/
+/zwasm/build*/
+/zwasm/zig-out/
+/zwasm/.zig-cache/
+/wasmz/build*/
+/wasmz/zig-out/
+/wasmz/.zig-cache/

@@ -1,0 +1,34 @@
+diff --git a/lib/host/wasi/macos.mm b/lib/host/wasi/macos.mm
+index b26ec1ea..0483582f 100644
+--- a/lib/host/wasi/macos.mm
++++ b/lib/host/wasi/macos.mm
+@@ -13,21 +13,24 @@ bool darwinAvailable(unsigned int Major, unsigned int Minor,
+                      unsigned int Patch) noexcept {
+   NSOperatingSystemVersion Version =
+       NSProcessInfo.processInfo.operatingSystemVersion;
+-  if (Version.majorVersion < Major) {
++  // NSInteger is `int` on 32-bit ABIs (arm64_32-apple-watchos) and
++  // `long` on 64-bit. Cast to a common signed type to avoid
++  // signed/unsigned `-Werror` comparison failures on the 32-bit path.
++  if (static_cast<long long>(Version.majorVersion) < Major) {
+     return false;
+   }
+-  if (Version.majorVersion > Major) {
++  if (static_cast<long long>(Version.majorVersion) > Major) {
+     return true;
+   }
+ 
+-  if (Version.minorVersion < Minor) {
++  if (static_cast<long long>(Version.minorVersion) < Minor) {
+     return false;
+   }
+-  if (Version.minorVersion > Minor) {
++  if (static_cast<long long>(Version.minorVersion) > Minor) {
+     return true;
+   }
+ 
+-  if (Version.patchVersion < Patch) {
++  if (static_cast<long long>(Version.patchVersion) < Patch) {
+     return false;
+   }
+   return true;

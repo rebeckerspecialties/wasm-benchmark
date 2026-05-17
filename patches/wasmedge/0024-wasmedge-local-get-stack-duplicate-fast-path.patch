@@ -1,0 +1,46 @@
+diff --git a/include/runtime/stackmgr.h b/include/runtime/stackmgr.h
+index 3456052..9fe5d59 100644
+--- a/include/runtime/stackmgr.h
++++ b/include/runtime/stackmgr.h
+@@ -16,7 +16,9 @@
+ #include "ast/instruction.h"
+ #include "runtime/instance/module.h"
+ 
++#include <cstring>
+ #include <optional>
++#include <type_traits>
+ #include <vector>
+ 
+ namespace WasmEdge {
+@@ -79,6 +81,18 @@ public:
+     ValueStack.push_back(std::forward<T>(Val));
+   }
+ 
++  void duplicateTopN(uint32_t Offset) {
++    assuming(0 < Offset && Offset <= ValueStack.size());
++    static_assert(std::is_trivially_copyable_v<Value>);
++    const size_t SrcIndex = ValueStack.size() - Offset;
++    reserveAdditionalValues(1);
++    ValueStack.emplace_back();
++    // `local.get` frequently duplicates an existing in-stack `ValVariant`.
++    // Keeping that as an indexed self-copy avoids the libc++ append helper that
++    // showed up under `runLocalGetOp` in active-driving M4 traces.
++    std::memcpy(&ValueStack.back(), &ValueStack[SrcIndex], sizeof(Value));
++  }
++
+   /// Push a vector of value to stack
+   void pushValVec(const std::vector<Value> &ValVec) {
+     ValueStack.insert(ValueStack.end(), ValVec.begin(), ValVec.end());
+diff --git a/lib/executor/engine/variableInstr.cpp b/lib/executor/engine/variableInstr.cpp
+index cb0c25c..ae4fc91 100644
+--- a/lib/executor/engine/variableInstr.cpp
++++ b/lib/executor/engine/variableInstr.cpp
+@@ -253,7 +253,7 @@ Expect<void> Executor::runLocalGetLocalGetI32StoreOp(
+ 
+ Expect<void> Executor::runLocalGetOp(Runtime::StackManager &StackMgr,
+                                      uint32_t StackOffset) const noexcept {
+-  StackMgr.push(StackMgr.getTopN(StackOffset));
++  StackMgr.duplicateTopN(StackOffset);
+   return {};
+ }
+ 
