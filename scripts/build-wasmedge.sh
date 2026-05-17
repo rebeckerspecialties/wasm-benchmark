@@ -47,6 +47,14 @@ COMMON_DEFS=(
 )
 
 COMMON_CFLAGS="-Os -DNDEBUG -mcpu=apple-a12 -flto=full -fembed-bitcode"
+
+# Debug-build flags for diagnosing the arm64_32 instantiate trap.
+# Triggered by the `watchos-debug` target; identical to COMMON_CFLAGS
+# minus `-DNDEBUG` and `-flto=full`, plus `-g` for symbol-name backtraces.
+# Leaves `assuming(R)` as `assert(expr)` so the first failing predicate
+# in `lib/executor/instantiate/*.cpp` prints a useful message to stderr
+# instead of dropping straight into `brk #1`.
+DEBUG_CFLAGS="-Os -mcpu=apple-a12 -fembed-bitcode"
 # WasmEdge requires C++17 (its CMakeLists adds it conditionally for
 # Apple). Optional: bump to C++20 once upstream's spdlog version is
 # happy with it; the proven recipe sticks with C++17.
@@ -72,21 +80,36 @@ apply_patches_once() {
 # $6 = CMAKE_OSX_ARCHITECTURES override (e.g. arm64 / arm64_32)
 build_target() {
   local OUTDIR="$1" SYSNAME="$2" SDK="$3" DEPMIN="$4" EXTRA="$5" ARCH="$6"
+  local FLAGS_OVERRIDE="${7:-}"
   apply_patches_once
   local DIR="${WE_SRC}/${OUTDIR}"
   local SYSROOT
   SYSROOT="$(xcrun --sdk "${SDK}" --show-sdk-path)"
   rm -rf "${DIR}"
+  local CFLAGS_USE="${FLAGS_OVERRIDE:-${COMMON_CFLAGS}}"
+  # Debug builds use BUILD_TYPE=Debug so cmake picks Debug compile
+  # flags (no -DNDEBUG inserted automatically), and skip the LTO
+  # interproc opt that defeats inlined assertion messages.
+  local BUILD_TYPE="MinSizeRel"
+  local IPO_FLAG=ON
+  if [[ -n "${FLAGS_OVERRIDE}" ]]; then
+    BUILD_TYPE="Debug"
+    IPO_FLAG=OFF
+  fi
   cmake -S "${WE_SRC}" -B "${DIR}" -G Ninja \
     "${COMMON_DEFS[@]}" \
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DCMAKE_SYSTEM_NAME="${SYSNAME}" \
     -DCMAKE_OSX_SYSROOT="${SYSROOT}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="${DEPMIN}" \
     -DCMAKE_OSX_ARCHITECTURES="${ARCH}" \
-    -DCMAKE_C_FLAGS_MINSIZEREL="${COMMON_CFLAGS} ${EXTRA}" \
-    -DCMAKE_CXX_FLAGS_MINSIZEREL="${COMMON_CFLAGS} ${EXTRA}" \
-    -DCMAKE_OBJCXX_FLAGS_MINSIZEREL="${COMMON_CFLAGS} ${EXTRA}" \
-    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL=ON
+    -DCMAKE_C_FLAGS_MINSIZEREL="${CFLAGS_USE} ${EXTRA}" \
+    -DCMAKE_CXX_FLAGS_MINSIZEREL="${CFLAGS_USE} ${EXTRA}" \
+    -DCMAKE_OBJCXX_FLAGS_MINSIZEREL="${CFLAGS_USE} ${EXTRA}" \
+    -DCMAKE_C_FLAGS_DEBUG="${CFLAGS_USE} ${EXTRA}" \
+    -DCMAKE_CXX_FLAGS_DEBUG="${CFLAGS_USE} ${EXTRA}" \
+    -DCMAKE_OBJCXX_FLAGS_DEBUG="${CFLAGS_USE} ${EXTRA}" \
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL=${IPO_FLAG}
   # The proven webgpu-caps recipe builds the default target (the patch
   # series wires the static lib in as a default product) and then
   # copies lib/api/libwasmedge.a into the top of the build dir for the
@@ -107,6 +130,11 @@ build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"     iOS      ip
 # wall, we punt to "wasmedge unavailable on this target" rather than
 # blocking the watch app's main flow.
 build_watchos()     { build_target "build-arm64_32-apple-watchos"    watchOS  watchos           11.0 ""                                               arm64_32; }
+# Debug variant of watchos build for diagnosing the arm64_32
+# WasmEdge_VMInstantiate trap. Drops -DNDEBUG so `assuming(R)` prints
+# the first failing predicate via `assert()` instead of falling into
+# `__builtin_unreachable() → brk #1`. Larger / slower / no LTO.
+build_watchos_debug() { build_target "build-arm64_32-apple-watchos-debug" watchOS watchos 11.0 "" arm64_32 "${DEBUG_CFLAGS}"; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim" watchOS  watchsimulator    11.0 "-target arm64-apple-watchos11.0-simulator"      arm64; }
 build_tvos()        { build_target "build-aarch64-apple-tvos"        tvOS     appletvos         26.0 ""                                               arm64; }
 build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"    tvOS     appletvsimulator  26.0 "-target arm64-apple-tvos26.0-simulator"         arm64; }
@@ -115,7 +143,8 @@ case "${WHICH}" in
   macos)        build_macos ;;
   ios)          build_ios ;;
   ios-sim)      build_ios_sim ;;
-  watchos)      build_watchos ;;
+  watchos)        build_watchos ;;
+  watchos-debug)  build_watchos_debug ;;
   watchos-sim)  build_watchos_sim ;;
   tvos)         build_tvos ;;
   tvos-sim)     build_tvos_sim ;;
