@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		0A3CAE8DE8274BBED8806A0A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		73AEF8A899C43E13D4749926 /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		841007E9BE0E08A8AC56951E /* WasmBenchmarkTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */; };
 		91D868C194B46C7FE2C6B118 /* WasmBenchmarkWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */; };
 		96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
 		AA519B5FAF6C2FC0E2DC0B84 /* WasmBenchmarkMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */; };
@@ -23,10 +25,14 @@
 		561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WasmBenchmarkWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WasmBenchmarkMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80A2256EBE9E5C827158390A /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		8D809F4231632C31528ED992 /* WasmBenchmarkTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WasmBenchmarkTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkContentView.swift; sourceTree = "<group>"; };
+		A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkTVApp.swift; sourceTree = "<group>"; };
 		A61CE5226A028A476906857E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkIOSApp.swift; sourceTree = "<group>"; };
 		D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkMacApp.swift; sourceTree = "<group>"; };
+		E24BDDA753B6A0987CC5D659 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E852CA026B32F19F50C3F78D /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		F1EBAC630F2DC423319A70CD /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		FB29EEA25936F3A106630767 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -48,6 +54,7 @@
 				DA557852C358E2E3B73D4641 /* Shared */,
 				29DE85AD501C878B38D7EB91 /* WasmBenchmarkIOS */,
 				9945B4BC77502B5E74D0B0EB /* WasmBenchmarkMac */,
+				C010B1176B512BA544F49153 /* WasmBenchmarkTV */,
 				B80AE15C6D6B38D9421B14AE /* WasmBenchmarkWatch */,
 				B2EEA60BB9078F8C73B573D1 /* Products */,
 			);
@@ -68,6 +75,7 @@
 			children = (
 				03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */,
 				7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */,
+				8D809F4231632C31528ED992 /* WasmBenchmarkTV.app */,
 				561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */,
 			);
 			name = Products;
@@ -81,6 +89,16 @@
 				21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */,
 			);
 			path = WasmBenchmarkWatch;
+			sourceTree = "<group>";
+		};
+		C010B1176B512BA544F49153 /* WasmBenchmarkTV */ = {
+			isa = PBXGroup;
+			children = (
+				E852CA026B32F19F50C3F78D /* BridgingHeader.h */,
+				E24BDDA753B6A0987CC5D659 /* Info.plist */,
+				A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */,
+			);
+			path = WasmBenchmarkTV;
 			sourceTree = "<group>";
 		};
 		DA557852C358E2E3B73D4641 /* Shared */ = {
@@ -145,6 +163,23 @@
 			productReference = 03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		E3EA256856DC2200EB2BD4DD /* WasmBenchmarkTV */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1B6908360EFCF8A34E36A19B /* Build configuration list for PBXNativeTarget "WasmBenchmarkTV" */;
+			buildPhases = (
+				FFDC0CA636757375B037E250 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WasmBenchmarkTV;
+			packageProductDependencies = (
+			);
+			productName = WasmBenchmarkTV;
+			productReference = 8D809F4231632C31528ED992 /* WasmBenchmarkTV.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -159,6 +194,10 @@
 						ProvisioningStyle = Automatic;
 					};
 					C165E7DBC883D8F08378864C = {
+						DevelopmentTeam = 4GWK4YU2PW;
+						ProvisioningStyle = Automatic;
+					};
+					E3EA256856DC2200EB2BD4DD = {
 						DevelopmentTeam = 4GWK4YU2PW;
 						ProvisioningStyle = Automatic;
 					};
@@ -180,6 +219,7 @@
 			targets = (
 				C165E7DBC883D8F08378864C /* WasmBenchmarkIOS */,
 				4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */,
+				E3EA256856DC2200EB2BD4DD /* WasmBenchmarkTV */,
 				8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */,
 			);
 		};
@@ -210,6 +250,15 @@
 			files = (
 				96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */,
 				AA519B5FAF6C2FC0E2DC0B84 /* WasmBenchmarkMacApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFDC0CA636757375B037E250 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				73AEF8A899C43E13D4749926 /* BenchmarkContentView.swift in Sources */,
+				841007E9BE0E08A8AC56951E /* WasmBenchmarkTVApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -467,6 +516,33 @@
 			};
 			name = Debug;
 		};
+		EBF912895BF1D69C17A7CE68 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkTV/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=appletvos*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-tvos/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-tvos-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.tv;
+				SDKROOT = appletvos;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkTV/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
 		F7A354026C8D853793663957 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -490,6 +566,33 @@
 			};
 			name = Release;
 		};
+		FF066244A2A45D7D9F9FF26B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
+				INFOPLIST_FILE = WasmBenchmarkTV/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=appletvos*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-tvos/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-tvos-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.tv;
+				SDKROOT = appletvos;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkTV/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -498,6 +601,15 @@
 			buildConfigurations = (
 				6C626B1C4C37A18331872F97 /* Debug */,
 				0EA759930420FB6E2CE84A20 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1B6908360EFCF8A34E36A19B /* Build configuration list for PBXNativeTarget "WasmBenchmarkTV" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EBF912895BF1D69C17A7CE68 /* Debug */,
+				FF066244A2A45D7D9F9FF26B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

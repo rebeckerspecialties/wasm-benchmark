@@ -111,6 +111,8 @@ build_ios()         { build_target "build-aarch64-apple-ios"          darwin  "a
 build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"      darwin  "arm64"    iphonesimulator AARCH64 "-miphoneos-version-min=18.0 -target arm64-apple-ios18.0-simulator"; }
 build_watchos()     { build_target "build-arm64_32-apple-watchos"     darwin  "arm64_32" watchos         AARCH64 "-mwatchos-version-min=11.0"; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim"  darwin  "arm64"    watchsimulator  AARCH64 "-mwatchos-version-min=11.0 -target arm64-apple-watchos11.0-simulator"; }
+build_tvos()        { build_target "build-aarch64-apple-tvos"         darwin  "arm64"    appletvos       AARCH64 "-mtvos-version-min=26.0"; }
+build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     darwin  "arm64"    appletvsimulator AARCH64 "-mtvos-version-min=26.0 -target arm64-apple-tvos26.0-simulator"; }
 
 case "${WHICH}" in
   macos)        build_macos ;;
@@ -118,6 +120,8 @@ case "${WHICH}" in
   ios-sim)      build_ios_sim ;;
   watchos)      build_watchos ;;
   watchos-sim)  build_watchos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim ;;
+  tvos)         build_tvos ;;
+  tvos-sim)     build_tvos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim && build_tvos && build_tvos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

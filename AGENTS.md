@@ -3,9 +3,10 @@
 This is a WebAssembly-interpreter benchmark harness targeting Apple Silicon
 deployment platforms (App-Store-eligible: no JIT, no MAP_JIT, no
 copy-and-patch) — primarily arm64_32-apple-watchos, aarch64-apple-ios,
-and aarch64-apple-darwin. The harness compares Pulley (wasmtime's
-interpreter) against WAMR (WebAssembly Micro Runtime) and was set up
-to drive a per-table-mutability optimization stack upstream (see
+aarch64-apple-tvos, and aarch64-apple-darwin. The harness compares
+Pulley (wasmtime's interpreter) against WAMR (WebAssembly Micro
+Runtime) and was set up to drive a per-table-mutability optimization
+stack upstream (see
 [PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
 
 ## Project goal & current state
@@ -110,6 +111,9 @@ installed — wasm32-unknown-unknown is Tier-1, so 1.94.1 works fine.
 - `wasm32-wasip1` (for wasmtime's own `cargo test --test disas` — used
   by `crates/test-programs/artifacts/build.rs`; install with
   `rustup target add wasm32-wasip1`)
+- `aarch64-apple-tvos` and `arm64_32-apple-watchos` are Tier-3 — no
+  rustup target install; the nightly build-std path provides std for
+  both (see `scripts/build-lib.sh`'s `tvos` / `watchos` arms).
 
 **Footgun**: `rustup run nightly` resolves to a newer dated nightly
 (e.g. `1.97.0-nightly`) that is **not** LLVM-bitcode-compatible with
@@ -176,6 +180,8 @@ docs/                    project docs
 ./scripts/build-lib.sh ios          # iPhone (aarch64-apple-ios)
 ./scripts/build-lib.sh watchos      # arm64_32-apple-watchos
 ./scripts/build-lib.sh watchos-sim  # aarch64-apple-watchos-sim
+./scripts/build-lib.sh tvos         # Apple TV 4K (aarch64-apple-tvos)
+./scripts/build-lib.sh tvos-sim     # aarch64-apple-tvos-sim
 ./scripts/build-lib.sh all          # build everything
 
 # M4 host runner (used for E-core PMU + taskpolicy -b)
@@ -197,6 +203,13 @@ xcodebuild -project apps/WasmBenchmark.xcodeproj \
   -allowProvisioningUpdates \
   ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO \
   build
+
+# tvOS app (Apple TV 4K, tvOS 26+).
+xcodebuild -project apps/WasmBenchmark.xcodeproj \
+  -scheme WasmBenchmarkTV -configuration Release \
+  -destination "generic/platform=tvOS" \
+  -derivedDataPath apps/build/DerivedData-tv \
+  -allowProvisioningUpdates build
 ```
 
 ## Workload registration pattern
@@ -238,6 +251,11 @@ To add a workload:
   `devicectl device process launch --console --terminate-existing
   --environment-variables ...` with the workload + iter-budget filter.
   `.utility` QoS pins to E-cores (set in `BenchmarkContentView.swift`).
+- **Apple TV 4K (A12 / A15)**: same `devicectl` launch flow, bundle ID
+  `com.rebeckerspecialties.wasmbench.tv`. tvOS reads
+  `devicectl --environment-variables` into Swift `ProcessInfo` the same
+  way iOS does (unlike watchOS), so the `WORKLOADS` / `RUNTIMES` env
+  filters work normally. tvOS 26+ deployment target.
 - **Apple Watch SE2 (S8)**: same `devicectl` launch flow, bundle ID
   `com.rebeckerspecialties.wasmbench.watch`. **xcodebuild requires
   `ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO`** since Xcode 26 defaults to

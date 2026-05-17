@@ -96,6 +96,36 @@ targets:
         CODE_SIGN_STYLE: Automatic
 
   # --------------------------------------------------------------
+  # tvOS app — Apple TV 4K (A12 / A15), tvOS 26+.
+  # Aarch64-apple-tvos is a Rust Tier-3 target, so the Rust lib is
+  # built with nightly + `-Z build-std` (same flow as watchOS). The
+  # Apple TV remote launches the app as a fullscreen scene; we reuse
+  # the iOS/macOS BenchmarkContentView verbatim.
+  # --------------------------------------------------------------
+  WasmBenchmarkTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: WasmBenchmarkTV
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.tv
+        INFOPLIST_FILE: WasmBenchmarkTV/Info.plist
+        TARGETED_DEVICE_FAMILY: "3"
+        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkTV/BridgingHeader.h
+        "LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-tvos-sim/release
+        "LIBRARY_SEARCH_PATHS[sdk=appletvos*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-tvos/release
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
+        # Hardcoded so device/sim builds work out of the box. Override at the
+        # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
+        DEVELOPMENT_TEAM: 4GWK4YU2PW
+        CODE_SIGN_STYLE: Automatic
+
+  # --------------------------------------------------------------
   # macOS app — local M4 dev host, macOS 26+.
   # --------------------------------------------------------------
   WasmBenchmarkMac:

@@ -40,7 +40,9 @@ fn main() {
         "aarch64-apple-ios"
         | "aarch64-apple-ios-sim"
         | "arm64_32-apple-watchos"
-        | "aarch64-apple-watchos-sim" => wamr_root.join(format!("build-{}", target)),
+        | "aarch64-apple-watchos-sim"
+        | "aarch64-apple-tvos"
+        | "aarch64-apple-tvos-sim" => wamr_root.join(format!("build-{}", target)),
         _ => wamr_root.join("build"),
     };
     let iwasm_a = wamr_dir.join("libiwasm.a");
