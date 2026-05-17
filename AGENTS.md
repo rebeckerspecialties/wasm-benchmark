@@ -12,6 +12,49 @@ enablement stack), and **zwasm** (clojurewasm's Zig runtime built
 optimization stack upstream (see
 [PR #2](https://github.com/rebeckerspecialties/wasmtime/pull/2)).
 
+## Next session starting points
+
+Pick this up cold without re-deriving state:
+
+- **Working branch**: `claude/wasm-benchmark-continue-wuuPd` on
+  `rebeckerspecialties/wasm-benchmark`. CI workflow `build.yml`
+  reproduces a clean checkout end-to-end (last green sha: `2fc46a6`).
+- **Latest wasmtime fork branch**: `accurate-graphql-needs-legacy-
+  exceptions` (one commit on top of PR #4 → PR #2 → upstream main).
+  Submodule `wasmtime/` pins this branch.
+- **WAMR fork branch**: `feat/legacy-eh-fast-interp-throw` on
+  `rebeckerspecialties/wasm-micro-runtime` — extracted as
+  `patches/wasm-micro-runtime/0001-feat-interpreter-legacy-exception-
+  handling-throw-only-for-fast-interp.patch`. Open as fork [PR #1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
+- **Integration test wasm for the next-session WAMR EH PR**:
+  [`workloads/graphql-validation-porf-accurate.wasm`](workloads/graphql-validation-porf-accurate.wasm)
+  (150 KB, 1 `try` + 1 `catch 0` + 605 throws) — Porffor-compiled JS
+  that mirrors real graphql-js's `GraphQLError extends Error`
+  hierarchy with `try { visit(...) } catch (e) { if (e !== abortObj)
+  throw e; }`. Already loads cleanly on Pulley with the legacy-
+  exceptions gate, but Pulley's codegen still says
+  `Unsupported feature: operator Try` — that's the bug to fix when
+  this work resumes (Pulley side) and the bug WAMR full-spec EH
+  needs to clear (WAMR side). The currently-shipped throw-only
+  variant lives at [`workloads/graphql-validation-porf.wasm`](workloads/graphql-validation-porf.wasm).
+- **Scope** for the full-spec WAMR EH work: see
+  `### Open follow-up — WAMR fast-interp legacy exception handling
+  (full spec)` later in this doc. ~720 LOC + wast tests. 1-3 focused
+  days. The design risk is the slot allocator interaction —
+  fast-interp doesn't have a runtime control-stack-pointer, so the
+  CATCH transfer has to be IP-based with pre-computed slot offsets.
+  Classic-interp's `find_a_catch_handler` (`core/iwasm/interpreter/
+  wasm_interp_classic.c:1753`) is the porting template.
+- **Open fork PRs** awaiting upstream review:
+  - [`rebeckerspecialties/wasm3#1`](https://github.com/rebeckerspecialties/wasm3/pull/1) — v128 opaque slot
+  - [`rebeckerspecialties/wasm-micro-runtime#1`](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1) — throw-only legacy EH
+  - [`rebeckerspecialties/wasmtime#2`](https://github.com/rebeckerspecialties/wasmtime/pull/2) — table-mutability tracking (11 commits)
+  - [`rebeckerspecialties/wasmtime#4`](https://github.com/rebeckerspecialties/wasmtime/pull/4) — Pulley fusion stack (12 commits)
+- **Hot tools to remember**:
+  - `./scripts/run_fusion_n10.sh` (N=10 launcher with EXPECTED_LINES)
+  - `./scripts/aggregate_4way.py <n10dir>` (cross-device wallclock table)
+  - `./scripts/run_per_workload_pmu.sh` / `run_m4_per_workload_pmu.sh`
+
 ## Project goal & current state
 
 **Motivation**: A WatchOS audio app (incumbent: WasmEdge with custom
@@ -169,8 +212,11 @@ scripts/                 build-workloads.sh, build-lib.sh, build-wamr.sh,
                          run_per_workload_pmu.sh (iPhone PMU),
                          run_m4_per_workload_pmu.sh (M4 host PMU),
                          m4_phase4_bucket_shares.py
-wasmtime/                working clone of bytecodealliance/wasmtime
-                         (gitignored; see PR #2's table-mutability-tracking branch)
+wasmtime/                git submodule pointing at rebeckerspecialties/
+                         wasmtime, branch `accurate-graphql-needs-
+                         legacy-exceptions` (stacks fusion PR #4 → table-
+                         mutability PR #2 → upstream main). Only
+                         wasmtime/target/ is gitignored (build artifacts).
 wasm3/                   wasm3 submodule (m3 pure-C interp). Built into
                          libm3.a via scripts/build-wasm3.sh; per-target
                          output dirs (build / build-aarch64-apple-ios / ...)
@@ -486,7 +532,10 @@ Current patch series under `patches/`:
     enablement (PR #1 in our WAMR fork).
   * `wasm3/0001-wasm3-accept-v128-as-opaque-slot.patch` — applied
     by `scripts/build-wasm3.sh`. Lets wasm3 parse Rust-vectorized
-    modules with v128 LOCAL declarations (upstreamed as wasm3#559).
+    modules with v128 LOCAL declarations. Open as both
+    [wasm3#559](https://github.com/wasm3/wasm3/pull/559) (upstream)
+    and [rebeckerspecialties/wasm3#1](https://github.com/rebeckerspecialties/wasm3/pull/1)
+    (fork — for downstream pinning while upstream review proceeds).
   * `wasmedge/0001-0028-*.patch` (27 patches) — applied by
     `scripts/build-wasmedge.sh`. Apple-mobile guarded-memory
     fallbacks + interpreter super-instructions + arm64_32 size_t
