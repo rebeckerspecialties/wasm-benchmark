@@ -41,13 +41,19 @@ jobs:
           # Tier-1/2 targets we cross-build for. wasm32-unknown-unknown
           # has to land on the 1.93.1 toolchain too because that's what
           # build-workloads.sh uses by default.
-          for tc in 1.94.1 1.93.1; do
+          # The Apple device + sim targets need to be added on every
+          # toolchain we'll actually `cargo build --target=...` against.
+          # build-lib.sh routes ios / ios-sim through the nightly (for
+          # the Pulley `become`-based dispatch), and routes macos host
+          # through nightly too — but workloads and the staticlib build
+          # against 1.94.1 in other places. So add to all three.
+          for tc in 1.94.1 1.93.1 nightly-2026-01-25; do
             rustup target add --toolchain "$tc" \
               aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim \
               wasm32-unknown-unknown
           done
           # Tier-3 watchOS/tvOS use build-std on the nightly; nothing to
-          # add via target.
+          # add via `rustup target`.
 
       - name: Install build deps (cmake, ninja, zig 0.16)
         run: |
