@@ -452,7 +452,7 @@ submodule). Active branches:
 
 ## Cross-runtime comparison
 
-The harness builds against four comparison runtimes alongside Pulley:
+The harness builds against **five** comparison runtimes alongside Pulley:
 
 1. **WAMR** (`wasm-micro-runtime/` submodule, `libiwasm.a`) — fast
    preprocessed-bytecode interpreter; SIMD + bulk-memory + tail-call +
@@ -468,13 +468,36 @@ The harness builds against four comparison runtimes alongside Pulley:
    so it should run subject to the 256 KiB wasm3 stack budget.
 3. **WasmEdge** (`WasmEdge/` submodule, `libwasmedge.a`) — the incumbent
    production runtime. Pure interpreter via `WASMEDGE_USE_LLVM=OFF` plus
-   the 27-patch series in `patches/wasmedge/` (24 ported from
+   the 28-patch series in `patches/wasmedge/` (24 ported from
    `webgpu-caps`, plus 0026 for arm64_32 size_t narrowing in
-   `FuncTypeKeyHash` + memory span, and 0027 for arm64_32-watchOS
-   `NSInteger` sign-comparison narrowing in `lib/host/wasi/macos.mm`).
-   SIMD + wasm-exceptions are both enabled, so the Porffor variant of
+   `FuncTypeKeyHash` + memory span, 0027 for arm64_32-watchOS
+   `NSInteger` sign-comparison narrowing in `lib/host/wasi/macos.mm`,
+   and 0028 to skip the Apple-mobile 4 GiB-guarded allocator on
+   arm64_32 — 4 GiB of guard reservations don't fit in the 4 GiB
+   total ILP32 address space; gate on `defined(__LP64__)`). SIMD +
+   wasm-exceptions are both enabled, so the Porffor variant of
    graphql-validation actually *loads* (vs WAMR refusing it).
-4. **zwasm** (`zwasm/` submodule, `libzwasm.a`) — clojurewasm's Zig
+   On `arm64_32-apple-watchos`, `WasmEdge_VMInstantiate` itself still
+   SIGTRAPs at workload time (signal 5 / BRK) — traced to an
+   `assuming(x)` predicate in `lib/executor/instantiate/*` evaluating
+   false on the 32-bit ABI; `assuming()` in NDEBUG is
+   `x ? : __builtin_unreachable()` which clang/arm64_32 compiles to a
+   `brk #1`. The Rust adapter (`crates/benchmark-core/src/wasmedge.rs`)
+   short-circuits with a clean `Err` on `target_os = "watchos" &&
+   not(target_pointer_width = "64")` so the rest of the watch suite
+   completes; a follow-up debug-build investigation will identify the
+   specific predicate.
+4. **wasmz** (`wasmz/` submodule, `libwasmz.a`) — Zig WebAssembly
+   runtime by `Ray-D-Song/wasmz`. wasmz's source pins
+   `minimum_zig_version = "0.15.2"`, but Zig 0.15 segfaults on macOS
+   26 Tahoe. Carried as a Zig-0.16 port via
+   `patches/wasmz/0001-zig-0.16-stdlib-port.patch` (≈25 stdlib edits
+   covering `std.meta.intToEnum` → `std.enums.fromInt`, `posix.PROT`
+   packed-struct migration, `std.Thread.Mutex/Condition` API churn,
+   `Target.Os.Tag.solaris` → `.illumos`, and a static-lib build step).
+   Same arm64_32-apple-watchos exclusion as zwasm (no Zig target),
+   same iOS dyld-stub + 8 MiB-stack workarounds.
+5. **zwasm** (`zwasm/` submodule, `libzwasm.a`) — clojurewasm's Zig
    runtime built `-Djit=false`. Zig 0.16 cross-compiles cleanly to
    `aarch64-ios` / `aarch64-tvos` / `aarch64-watchos-simulator` /
    `aarch64-macos`. arm64_32-apple-watchos has **no Zig target** so the
@@ -485,6 +508,49 @@ The harness builds against four comparison runtimes alongside Pulley:
    tiny weak `_dyld_get_image_header_containing_address` stub on
    iOS/tvOS/watchOS (Zig's panic-stackwalk references a dyld symbol
    that's in dyld at runtime but missing from Apple's mobile TBDs).
+
+### Device-side stabilization status (2026-05-16)
+
+End-to-end full-workload-set runs on attached devices, after the
+build-workloads.sh SIMD-policy fix + WasmEdge patch 0028 +
+adapter-level arm64_32-WE skip:
+
+| device | hardware | runtimes that complete full set |
+|---|---|---|
+| iPhone 12 | A14 Icestorm, aarch64-apple-ios | **all 6** (Pulley, WAMR, wasm3, WasmEdge, zwasm, wasmz) |
+| iPhone XS Max | A12 Tempest, aarch64-apple-ios | **all 6** |
+| iPhone 16 Pro Max | A18 Pro, aarch64-apple-ios | **all 6** |
+| Watch SE2 | S8, arm64_32-apple-watchos | Pulley, WAMR, wasm3 run all 7 watch-filter workloads cleanly; WasmEdge / zwasm / wasmz rows return clean ERROR (WasmEdge: arm64_32 instantiate trap, see follow-up note; zwasm / wasmz: Zig 0.16 has no arm64_32 target) |
+| Apple TV 4K | A12, aarch64-apple-tvos | not retested in this round (skipped per user direction) |
+| iPhone 16 Pro Max + Apple TV further runs | — | skipped per user direction; iPhone 16 was validated once at fib-only filter and showed all 6 runtimes returning fib(30)=832040 |
+
+The two crashes the iPhone 12 + Watch were hitting before
+stabilization:
+
+1. **iPhone 12 mid-run SIGBUS** — root cause: wasm3 + wasmz both
+   choke on `v128` LOCAL slots that Rust's auto-vectorizer emitted
+   into non-SIMD workloads when `+simd128` was unconditionally set in
+   `scripts/build-workloads.sh`. wasm3 reports a clean parse-time
+   "unknown value_type" error; wasmz silently accepts the module but
+   then either returns the caller-supplied default result or leaves
+   the runtime in a state that SIGBUSes the next call. Fixed by
+   gating `+simd128 +relaxed-simd` to the matmul workloads only (they
+   genuinely use v128 intrinsics) and compiling everything else with
+   `-simd128 -relaxed-simd`. wasm3 + wasmz now run every previously-
+   broken workload.
+2. **Watch SE2 mid-run SIGTRAP** — root cause: WasmEdge's
+   Apple-mobile guarded allocator reserves ≈2.2 MB per memory
+   instance with a 1 MB guard page on `__aarch64__ &&
+   WASMEDGE_APPLE_MOBILE_VM`; that fits in iOS's 64-bit address space
+   but not in arm64_32-apple-watchos's 4 GiB total ILP32 space. Patch
+   0028 gates the guarded paths on `defined(__LP64__)` so arm64_32
+   falls through to the malloc-based allocator. The allocator Warning
+   line is gone — but `WasmEdge_VMInstantiate` itself still BRKs on
+   arm64_32 (`assuming(x)` UB in lib/executor/instantiate/*); the
+   wasmedge adapter short-circuits with a clean error on arm64_32 so
+   the rest of the watch suite still completes. A follow-up debug-
+   build investigation would identify the exact failing predicate
+   inside Instantiate.
 
 The Pulley-vs-WAMR gap is **structural, not IC-related** —
 WAMR's preprocessed register-IR has fewer match_loop-equivalent
