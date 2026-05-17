@@ -538,7 +538,7 @@ adapter-level arm64_32-WE skip:
 | iPhone XS Max | A12 Tempest, aarch64-apple-ios | **all 6** |
 | iPhone 16 Pro Max | A18 Pro, aarch64-apple-ios | **all 6** |
 | Watch SE2 | S8, arm64_32-apple-watchos | Pulley, WAMR, wasm3 run all 7 watch-filter workloads cleanly; **wasmz + zwasm init: ok** on device (verified 2026-05-16 via WatchKit app + new patches) and contribute their adapter rows; WasmEdge row still returns clean ERROR (`brk #1` inside `WasmEdge_VMInstantiate` on arm64_32 — adapter short-circuits; debug-build follow-up pending) |
-| Apple TV 4K | A12, aarch64-apple-tvos | not retested in this round (skipped per user direction) |
+| Apple TV 4K | A12, aarch64-apple-tvos | **all 6 init: ok** on tvOS 26 (verified 2026-05-17); Pulley + WAMR + WasmEdge + zwasm complete the full workload set; wasmz crashes mid-run on the deterministic `factorial(20)` miscompile (same upstream bug as iPhone; tracked at [Ray-D-Song/wasmz#1+#2](https://github.com/Ray-D-Song/wasmz/issues/1)). Pulley A12 is ~1.8× faster on tvOS than the same A12 in iPhone XS Max (sustained-clock difference: TV stays plugged in / no thermal envelope). graphql-validation (Porffor) row works for Pulley + WAMR (via the throw-only EH PR) + WasmEdge + zwasm. |
 | iPhone 16 Pro Max + Apple TV further runs | — | skipped per user direction; iPhone 16 was validated once at fib-only filter and showed all 6 runtimes returning fib(30)=832040 |
 
 The two crashes the iPhone 12 + Watch were hitting before
@@ -613,15 +613,23 @@ structural disadvantage.
 
 **Current phase-4 Pulley/WAMR wallclock ratios (lower = closer)**:
 
-| workload | iPhone 12 A14 | iPhone XS A12 | Watch SE2 S8 |
-|---|---:|---:|---:|
-| xmrsplayer | 1.33× | 1.22× | **1.16×** |
-| graphql-validation (AS) | 1.56× | 1.58× | 1.24× |
-| call_indirect | 1.67× | 1.49× | 1.46× |
-| vtable_bi | 1.65× | 1.48× | 1.48× |
-| vtable_poly4 | 1.58× | 1.42× | 1.36× |
-| vtable_poly6 | 1.61× | 1.48× | 1.42× |
-| vtable_mono | 1.74× | 1.45× | 1.54× |
+| workload | iPhone 12 A14 | iPhone XS A12 | Watch SE2 S8 | Apple TV 4K A12 |
+|---|---:|---:|---:|---:|
+| xmrsplayer | 1.33× | 1.22× | **1.16×** | 1.28× |
+| graphql-validation (AS) | 1.56× | 1.58× | 1.24× | 1.91× |
+| call_indirect | 1.67× | 1.49× | 1.46× | 1.78× |
+| vtable_bi | 1.65× | 1.48× | 1.48× | 1.77× |
+| vtable_poly4 | 1.58× | 1.42× | 1.36× | 1.54× |
+| vtable_poly6 | 1.61× | 1.48× | 1.42× | 1.65× |
+| vtable_mono | 1.74× | 1.45× | 1.54× | 1.81× |
+
+Apple TV 4K runs the SAME A12 chip as iPhone XS Max but sustains higher
+clocks (no thermal envelope; plugged-in power). On `fib(30)`, the TV
+finishes Pulley in 71 ms vs the iPhone XS's 128 ms — a 1.8× sustained-
+clock advantage on identical silicon. The Pulley/WAMR RATIO is closer
+to phone-A14 than phone-A12, indicating Pulley scales linearly with
+clock on this microarchitecture while WAMR fast-interp's overhead
+relative to Pulley is consistent across both.
 
 Watch SE2 has the tightest ratios for the production-shaped workloads
 (xmrsplayer 1.16×, graphql-AS 1.24×) — meaningful because the watch
