@@ -795,6 +795,45 @@ next session doesn't relearn them):
      eh_count = 0` line in `call_func_from_entry`, the hook fires
      on every call return with stale memory and turns every
      program into "wasm exception thrown (tag N)" for random N.
+  5. **WAMR's `wasm_runtime_load` does NOT copy the input wasm
+     bytes** — it stores a pointer into the caller-owned buffer for
+     the lifetime of the module. Drop the buffer too early and every
+     export lookup silently returns NULL (no exception set; the
+     module pointer remains valid but its internal section indexes
+     point at freed memory). Surfaces only when wasm is built with
+     a custom name section (e.g. `wat::parse_str`'s default emit)
+     because that section was at the location overwritten by
+     allocator reuse first. Workaround in test harness: keep the
+     wasm `Vec<u8>` alive alongside the module in the owning struct
+     — see the `_bytes` field on
+     `crates/benchmark-core/tests/eh_correctness.rs::Module`.
+
+**Test infrastructure**: 20 integration-test cases in
+[`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs)
+cover same-function dispatch (typed catch / catch_all / no-throw
+fall-through), inter-function unwind (3+ frame chains, deep
+recursion to 50), nested try-regions (2 + 3 levels), throw-inside-
+catch outward propagation, multiple catches with tag matching,
+catch_all-as-fallback, uncaught throws, try-inside-loop/if, sequential
+try-regions in one function, repeated invocation of a try-bearing
+function, and a 6-tag stress check. Each test compiles inline wat
+via `wat::parse_str` and runs against the same WAMR build the
+benchmarks use. Run with `cargo test -p benchmark-core --test
+eh_correctness`. The probe binary
+`crates/benchmark-core/src/bin/probe_eh_void.rs` is retained as a
+faster smoke check.
+
+**Wat parser caveats** worth remembering when extending the suite:
+
+  * Rust's `wast` parser only accepts the LINEAR `try / instr* /
+    catch $tag / instr* / catch_all / instr* / end` form for
+    legacy-EH. The wabt-style folded `(try (do ...) (catch ...))`
+    syntax does NOT parse.
+  * Inside a linear try/catch body, push operands BEFORE the
+    consuming op (`i32.const 99` then `global.set $g`), not the
+    folded `(global.set $g (i32.const 99))` — the folded form
+    parses as two separate sequential ops in linear context and
+    trips a stack-mismatch validation error.
 
 **Failure mode (precise)**: with the throw-only patch applied,
 `workloads/graphql-validation-porf-accurate.wasm` (1 `try`, 1
