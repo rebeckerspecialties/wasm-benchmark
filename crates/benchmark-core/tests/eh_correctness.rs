@@ -960,13 +960,16 @@ fn tag_two_i32_params() {
 }
 
 /* ------------------------------------------------------------------ */
-/* DELEGATE (not yet implemented — keep doc tests for spec recovery). */
+/* DELEGATE — `try ... delegate N` forwards to the Nth outer block.   */
 /* ------------------------------------------------------------------ */
 
-/// `try ... delegate N` forwards the exception to the Nth outer
-/// block. Currently routed through the "unsupported opcode" stub.
+/// Baseline: inner try delegates a throw to the outer try.
+///
+/// At the eh-table level this exercises the simplest delegate
+/// dispatch — `delta = 0` (no try-blocks strictly between the
+/// inner try and the outer try) — so the walker's "mark consumed,
+/// continue to next eh-stack entry" path is the one under test.
 #[test]
-#[ignore = "delegate: WASM_OP_DELEGATE not yet implemented in fast-interp runtime"]
 fn delegate_forwards_to_outer() {
     let m = Module::from_wat(
         r#"
@@ -987,6 +990,261 @@ fn delegate_forwards_to_outer() {
     )
     .unwrap();
     assert_eq!(m.call_i32("t").unwrap(), 88);
+}
+
+/// Normal-flow path through `delegate`: the try body doesn't throw,
+/// so the DELEGATE runtime handler runs (popping the eh-stack
+/// entry) instead of the throw walker. A second try-region
+/// immediately after proves the pop landed in the right slot —
+/// otherwise the new TRY's push would overlap stale state.
+#[test]
+fn delegate_normal_flow_pops_eh_stack() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      ;; no throw — fall through delegate
+      nop
+    delegate 0
+    ;; A second try-region in the same function. If the first
+    ;; region's eh-stack entry weren't popped, this TRY's push
+    ;; would land on top of stale state and the throw below
+    ;; would find the wrong catch index.
+    try
+      throw $err
+    catch $err
+      i32.const 55
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 55);
+}
+
+/// `delegate N` with `N > 0` — the delegate's try is nested
+/// inside a non-try block on its way to the target outer try.
+/// `delta` is still 0 (the block in between isn't a try), so the
+/// walker's behaviour is identical to depth=0, but the loader
+/// must correctly handle `csp_num - 1 > N` for the depth check.
+#[test]
+fn delegate_through_block_to_outer_try() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      block
+        try
+          throw $err
+        delegate 1  ;; skip the (block), land in outer try
+      end
+    catch $err
+      i32.const 77
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 77);
+}
+
+/// `delegate` SKIPS a nested try-with-catches between the
+/// delegate and the target. The skipped try has a catch for the
+/// thrown tag, but spec semantics say it doesn't get to see the
+/// throw — only the outermost try (the delegate's target) does.
+///
+/// This is the test that proves the walker's `i -= delta`
+/// short-circuit is correct: if delta were wrong (or zero), the
+/// middle try's catch would fire and the result would be 22.
+#[test]
+fn delegate_skips_middle_try() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        try
+          throw $err
+        delegate 1   ;; target = outer try; middle try is skipped
+      catch $err
+        ;; This must NOT fire — delegate forwarded past us.
+        i32.const 22
+        global.set $g
+      end
+    catch $err
+      ;; This is where the spec says the throw lands.
+      i32.const 99
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 99);
+}
+
+/// `delegate` targeting the function block — exception escapes
+/// the function. The walker's "delta + 1 >= i" guard fires here
+/// (all active try-blocks are inside the delegate's reach, so
+/// there's no eh-stack entry to fall onto) and we return-with-
+/// exception out to the host.
+#[test]
+fn delegate_to_function_block_escapes() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (func (export "t") (result i32)
+    try
+      throw $err
+    delegate 0   ;; target = function block — escapes to host
+    i32.const 1))
+"#,
+    )
+    .unwrap();
+    let err = m.call_i32("t").unwrap_err().to_string();
+    assert!(
+        err.contains("wasm exception thrown") || err.contains("uncaught"),
+        "expected uncaught-exception trap, got: {err}"
+    );
+}
+
+/// Delegate from a CALLEE — uncaught exception in the callee
+/// (its delegate targets a non-try function block, so the
+/// exception escapes the callee) is caught by the CALLER's try
+/// surrounding the call. Exercises the interaction between
+/// delegate-forwarding and the caller-frame return_func hook
+/// (find_a_catch_handler's "prev_frame && prev_frame->ip" path).
+#[test]
+fn delegate_in_callee_caught_by_caller() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func $inner
+    try
+      throw $err
+    delegate 0)  ;; target = function block → escapes $inner
+  (func (export "t") (result i32)
+    try
+      call $inner
+    catch $err
+      i32.const 44
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 44);
+}
+
+/// Nested delegates — three layers, each `delegate 0`. Tests that
+/// the walker correctly chains through consecutive delegate
+/// entries (each "mark consumed + advance"); only the outermost
+/// non-delegate try should match.
+#[test]
+fn nested_delegates_chain() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        try
+          try
+            throw $err
+          delegate 0  ;; layer 3 forwards to layer 2
+        delegate 0    ;; layer 2 forwards to layer 1
+      delegate 0      ;; layer 1 forwards to outermost
+    catch $err
+      i32.const 17
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 17);
+}
+
+/// Delegate forwards to a `catch_all` (no typed catch). Exercises
+/// the walker's fall-through from "no typed match" to
+/// `entry->catch_all_pc` in the outer try after the inner
+/// delegate consumes its entry.
+#[test]
+fn delegate_forwards_to_catch_all() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        throw $err
+      delegate 0
+    catch_all
+      i32.const 33
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 33);
+}
+
+/// Delegate appears inside a CATCH body — the catch is handling
+/// an earlier throw, and then a fresh try-delegate inside the
+/// catch's body forwards a new exception outward. Verifies that
+/// the EH_TRY_CATCH_STATE_BIT (set on the outer entry when its
+/// catch first matched) still suppresses re-match after the
+/// delegate consumes the inner entry, so the second throw
+/// escapes the function instead of looping back into the outer
+/// catch.
+#[test]
+fn delegate_inside_catch_body_escapes() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (func (export "t") (result i32)
+    try
+      throw $err
+    catch $err
+      ;; we're now inside the outer catch — its eh-stack entry
+      ;; has EH_TRY_CATCH_STATE_BIT set.
+      try
+        throw $err
+      delegate 0   ;; target = the catch body's surrounding block,
+                   ;; which is the (already-consumed) outer try.
+                   ;; Walker should NOT re-match it; exception
+                   ;; must escape the function.
+    end
+    i32.const 1))
+"#,
+    )
+    .unwrap();
+    let err = m.call_i32("t").unwrap_err().to_string();
+    assert!(
+        err.contains("wasm exception thrown") || err.contains("uncaught"),
+        "expected uncaught-exception trap, got: {err}"
+    );
 }
 
 /* ------------------------------------------------------------------ */

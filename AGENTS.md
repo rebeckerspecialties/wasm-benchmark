@@ -707,14 +707,19 @@ structural disadvantage.
 **Status (2026-05-17 late-EOD)**: throw-only legacy EH landed in
 [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
 Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1
-through 5** of the full-spec successor — loader EH metadata table,
+through 6** of the full-spec successor — loader EH metadata table,
 runtime EH-frame stack push/pop, WASM_OP_THROW catch-walk with the
-return_func exception hook, and WASM_OP_RETHROW re-raise via per-
-entry caught-tag storage. `workloads/graphql-validation-porf-
-accurate.wasm` runs end-to-end at ~11.3 ms median (no regression on
-AS / porf-fast either). The five committed patches now live in
-`patches/wasm-micro-runtime/` as `0001-…` through `0005-…`, applied
-on top of the upstream pin `cd390ea0`.
+return_func exception hook, WASM_OP_RETHROW re-raise via per-entry
+caught-tag storage, and WASM_OP_DELEGATE forward-to-outer dispatch
+(loader counts try/catch/catch_all blocks between the delegate's
+try and the target block → `delegate_target_depth = delta`; runtime
+walker reads `delta` off the eh-table entry and does
+`i -= delta; continue` so the next eh-stack entry examined is the
+first one strictly outside the target block). `workloads/graphql-
+validation-porf-accurate.wasm` runs end-to-end at ~17.8 ms median
+(no regression on AS / porf-fast either). The six committed patches
+now live in `patches/wasm-micro-runtime/` as `0001-…` through
+`0006-…`, applied on top of the upstream pin `cd390ea0`.
 
 The runtime eh-stack entry is `EH_ENTRY_CELLS = 2` cells wide as of
 commit 5. Cell 0 packs `eh_idx | EH_TRY_CATCH_STATE_BIT`; cell 1
@@ -816,7 +821,7 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 27 integration-test cases (23 active + 4
+**Test infrastructure**: 39 integration-test cases (36 active + 3
 ignored placeholders for known gaps) in
 [`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs).
 The active suite covers same-function dispatch (typed catch /
@@ -827,12 +832,17 @@ throw-inside-catch outward propagation, multiple catches with tag
 matching, catch_all-as-fallback, uncaught throws, try-inside-loop/
 if/catch-body, sequential try-regions in one function (10 and 32
 deep), repeated invocation of a try-bearing function, a 6-tag stress
-check, and three `rethrow` cases (depth 0 in-frame, depth 1 across
-nested catches, tag-preservation across rethrow). Four `#[ignore]`
+check, three `rethrow` cases (depth 0 in-frame, depth 1 across
+nested catches, tag-preservation across rethrow), and eight
+`delegate` cases (basic forward, normal-flow eh-stack pop,
+forwarding through a non-try block, skipping a middle try-with-
+catches, forwarding to function-block-as-escape, callee-side
+delegate caught by caller's try, 3-level nested delegates, and
+catch-body-internal delegate that must escape rather than
+re-match an already-consumed outer catch). Three `#[ignore]`
 cases document the remaining gaps as runnable tests that should
 pass once each follow-up lands: `tag_single_i32_param` /
-`tag_two_i32_params` (tag-with-params walker copy),
-`delegate_forwards_to_outer` (WASM_OP_DELEGATE dispatch), and
+`tag_two_i32_params` (tag-with-params walker copy), and
 `br_out_of_try_pops_eh_stack` (br across try-region boundary).
 Each test compiles inline wat via `wat::parse_str` and runs against
 the same WAMR build the benchmarks use. Run with `cargo test -p
@@ -902,7 +912,7 @@ EH state lives in a separate per-frame eh-stack array sized by
 | 1 | Loader: extend the existing `#if WASM_ENABLE_EXCE_HANDLING != 0` block in `wasm_loader.c` (after line 12277) — `skip_label()` for `WASM_OP_CATCH` / `CATCH_ALL` / `RETHROW` / `DELEGATE`. Add `WASMFastEHEntry` struct on `WASMFunction` with `{catch_count, catches[]={tag_index, handler_pc, frame_offset_cells}, catch_all_pc, delegate_target_depth, end_of_region_pc}`. Populate during the existing validation pass — no second walk over the bytecode. The TRY case already records `func->exception_handler_count++`; extend it to record table-index immediates for the new fast-IR ops. | `core/iwasm/interpreter/wasm.h`, `core/iwasm/interpreter/wasm_loader.c` |
 | 2 | Runtime: allocate `frame->eh_stack[exception_handler_count]` next to `frame_lp`. New fast-IR op `EXT_OP_FAST_TRY <uint32 eh_idx>` pushes one entry; `EXT_OP_FAST_END_TRY` pops. `HANDLE_OP(WASM_OP_CATCH)` / `CATCH_ALL` become "pop eh_stack + branch to pre-patched end-of-region ptr" — same shape as `WASM_OP_BR` (uses `RECOVER_BR_INFO`-style target). Hot ops (CALL/LOAD/STORE) untouched. | `core/iwasm/interpreter/wasm_interp_fast.c` |
 | 3 | THROW dispatch: extend the existing throw-only handler at line 1839 to walk `frame->eh_stack` top-down. On match → restore frame_lp to saved height, copy tag params from throw site, set frame_ip to catch handler pc, dispatch. On miss in current function → existing `got_exception` bailout, BUT extended: hook `return_func` (line 7840) so when caller resumes with `wasm_get_exception(module) != NULL`, it re-enters a new `find_a_catch_handler:` label inside the dispatch loop. Mirrors classic-interp lines 6877-6883 + 1933-1958 exactly. | `core/iwasm/interpreter/wasm_interp_fast.c` |
-| 4 | RETHROW + DELEGATE: re-raise saved tag/payload (RETHROW) or pop N eh-frames before resuming walk (DELEGATE). Porffor doesn't emit these but spec_testsuite/legacy/{rethrow,try_delegate}.wast does. | `core/iwasm/interpreter/wasm_interp_fast.c` |
+| 4 | RETHROW + DELEGATE: re-raise saved tag/payload (RETHROW) or pop N eh-frames before resuming walk (DELEGATE). Porffor doesn't emit these but spec_testsuite/legacy/{rethrow,try_delegate}.wast does. **Status as of commit 6:** RETHROW lands as commit 5, DELEGATE as commit 6 — both share the eh-stack walker's `EH_TRY_CATCH_STATE_BIT` machinery and pay zero cost in CALL / LOAD / STORE. DELEGATE additionally skips the shared `check_branch_block_for_delegate` helper (its `emit_br_info` call would write 12 bytes of dead branch metadata in the rewritten IR and shift the depth immediate past where the runtime reads it — same gotcha that bit RETHROW). | `core/iwasm/interpreter/wasm_interp_fast.c`, `core/iwasm/interpreter/wasm_loader.c` |
 
 Final cmake patch: rewrite the
 [`unsupported_combination.cmake:67-77`](wasm-micro-runtime/build-scripts/unsupported_combination.cmake#L67)
