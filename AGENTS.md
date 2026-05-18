@@ -816,21 +816,41 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 23 integration-test cases in
-[`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs)
-cover same-function dispatch (typed catch / catch_all / no-throw
-fall-through), inter-function unwind (3+ frame chains, deep
-recursion to 50), nested try-regions (2 + 3 levels), throw-inside-
-catch outward propagation, multiple catches with tag matching,
-catch_all-as-fallback, uncaught throws, try-inside-loop/if, sequential
-try-regions in one function, repeated invocation of a try-bearing
-function, a 6-tag stress check, and three `rethrow` cases (depth 0
-in-frame, depth 1 across nested catches, tag-preservation across
-rethrow). Each test compiles inline wat via `wat::parse_str` and
-runs against the same WAMR build the benchmarks use. Run with
-`cargo test -p benchmark-core --test eh_correctness`. The probe
-binary `crates/benchmark-core/src/bin/probe_eh_void.rs` is retained
-as a faster smoke check.
+**Test infrastructure**: 27 integration-test cases (23 active + 4
+ignored placeholders for known gaps) in
+[`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs).
+The active suite covers same-function dispatch (typed catch /
+catch_all / no-throw fall-through), inter-function unwind (3+
+frame chains, deep recursion to 50, 101-frame stress with throw +
+rethrow at every level), nested try-regions (2 + 3 levels),
+throw-inside-catch outward propagation, multiple catches with tag
+matching, catch_all-as-fallback, uncaught throws, try-inside-loop/
+if/catch-body, sequential try-regions in one function (10 and 32
+deep), repeated invocation of a try-bearing function, a 6-tag stress
+check, and three `rethrow` cases (depth 0 in-frame, depth 1 across
+nested catches, tag-preservation across rethrow). Four `#[ignore]`
+cases document the remaining gaps as runnable tests that should
+pass once each follow-up lands: `tag_single_i32_param` /
+`tag_two_i32_params` (tag-with-params walker copy),
+`delegate_forwards_to_outer` (WASM_OP_DELEGATE dispatch), and
+`br_out_of_try_pops_eh_stack` (br across try-region boundary).
+Each test compiles inline wat via `wat::parse_str` and runs against
+the same WAMR build the benchmarks use. Run with `cargo test -p
+benchmark-core --test eh_correctness`. The probe binary
+`crates/benchmark-core/src/bin/probe_eh_void.rs` is retained as a
+faster smoke check.
+
+**Benchmark perf baseline**: the early "~11 ms median" porf-fast /
+porf-accurate numbers in the commit-3 / commit-5 commit messages
+were single-run outliers — multi-run characterization (10 runs at
+each of three commit points: 378cc6d / e7f527a6 / 334f642c) shows
+the stable steady state is `iter≈11 median≈17.5-18.5 ms` for both
+porf-fast and porf-accurate. The number is the same at every
+commit from 3 onward, including with commit-5's
+`EH_ENTRY_CELLS = 2` allocation bump. Hot-op invariants verified:
+basic non-EH workloads (fib, sieve, crc32, matmul, convolution)
+match Pulley within ±50 % each direction with WAMR generally
+faster on dispatch-heavy patterns, unchanged by commits 1-5.
 
 **Wat parser caveats** worth remembering when extending the suite:
 

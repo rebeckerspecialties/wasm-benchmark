@@ -902,6 +902,291 @@ fn rethrow_depth_one() {
 /* Stress: many tags, many try-regions across a module.               */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Tag-with-params (currently EXPECTED to fail).                       */
+/* ------------------------------------------------------------------ */
+
+/// Tag with a single i32 param. `throw $err (i32.const 42)` should
+/// hand the value to the catch body's operand stack at entry; the
+/// catch then stores it via `local.set`. Currently the runtime
+/// walker doesn't propagate tag params, so the catch reads
+/// uninitialized stack — documenting the gap with `#[ignore]`.
+#[test]
+#[ignore = "tag-with-params: walker doesn't yet copy params from throw site to catch body"]
+fn tag_single_i32_param() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      i32.const 42
+      throw $err
+    catch $err
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 42);
+}
+
+/// Tag with two i32 params — `throw $err (i32.const 10) (i32.const 32)`.
+#[test]
+#[ignore = "tag-with-params: walker doesn't yet copy params from throw site to catch body"]
+fn tag_two_i32_params() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32 i32))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      i32.const 10
+      i32.const 32
+      throw $err
+    catch $err
+      ;; catch body sees [10, 32] with 32 on top.
+      i32.add
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 42);
+}
+
+/* ------------------------------------------------------------------ */
+/* DELEGATE (not yet implemented — keep doc tests for spec recovery). */
+/* ------------------------------------------------------------------ */
+
+/// `try ... delegate N` forwards the exception to the Nth outer
+/// block. Currently routed through the "unsupported opcode" stub.
+#[test]
+#[ignore = "delegate: WASM_OP_DELEGATE not yet implemented in fast-interp runtime"]
+fn delegate_forwards_to_outer() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        throw $err
+      delegate 0  ;; forward to the outer try
+    catch $err
+      i32.const 88
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 88);
+}
+
+/* ------------------------------------------------------------------ */
+/* BR out of a try-region — known limitation flagged in AGENTS.md.    */
+/* ------------------------------------------------------------------ */
+
+/// `br N` jumping out of a try-region — the eh-stack entry from
+/// the try-block's TRY needs to be popped before control leaves the
+/// region, otherwise a subsequent try-region in the same function
+/// inherits stale state. Currently the loader's `br` patches its
+/// target at the post-END position, bypassing the runtime END
+/// handler's pop. Documenting as a known limitation; commit 6
+/// would address by either (a) emitting a synthetic pop op before
+/// the br jump, or (b) patching `br N` to land on the END byte for
+/// EH targets so the pop runs there.
+#[test]
+#[ignore = "br across try-region boundary leaks eh-stack — see AGENTS.md follow-up"]
+fn br_out_of_try_pops_eh_stack() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    block $outer
+      try
+        br $outer  ;; jump out of the try without throwing
+      catch $err
+        i32.const 99
+        global.set $g
+      end
+    end
+    ;; Now we're past the outer block. A second try-region must
+    ;; start with a fresh eh-stack count, but the leaked entry
+    ;; from above prevents that.
+    try
+      throw $err
+    catch $err
+      i32.const 11
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 11);
+}
+
+/* ------------------------------------------------------------------ */
+/* Stress: deep recursive throws + repeated function entries.          */
+/* ------------------------------------------------------------------ */
+
+/// Drives the eh_count reset path on every function entry across a
+/// deep recursion. If `frame->eh_count = 0` were ever skipped, this
+/// would corrupt state in later calls.
+#[test]
+fn deep_recursion_with_try_and_throw() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func $rec (param $n i32)
+    try
+      ;; Throw on every level — proves the catch fires for every frame.
+      local.get $n
+      i32.eqz
+      if
+        throw $err
+      else
+        local.get $n
+        i32.const 1
+        i32.sub
+        call $rec
+      end
+    catch $err
+      global.get $g
+      i32.const 1
+      i32.add
+      global.set $g
+      ;; rethrow so the next outer frame's catch also fires
+      rethrow 0
+    end)
+  (func (export "t") (result i32)
+    try
+      i32.const 100
+      call $rec
+    catch $err
+      ;; pass — every level's catch already incremented g.
+      nop
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    // 101 frames each increment g by 1 in their catch body (the
+    // base case throws + 100 recursive callers' catches each fire),
+    // then the top-level catch absorbs the final rethrow.
+    assert_eq!(m.call_i32("t").unwrap(), 101);
+}
+
+/// Many try-regions in one function — exercises eh_idx accounting
+/// up to a moderate count.
+#[test]
+fn ten_sequential_try_regions() {
+    let mut src = String::from(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+"#,
+    );
+    for _ in 0..10 {
+        src.push_str(
+            r#"    try
+      throw $err
+    catch $err
+      global.get $g
+      i32.const 1
+      i32.add
+      global.set $g
+    end
+"#,
+        );
+    }
+    src.push_str("    global.get $g))\n");
+    let m = Module::from_wat(&src).unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 10);
+}
+
+/// 32 try-regions in one function — bigger eh_idx range; checks the
+/// 24-bit packing of eh_idx (low 31 bits, well within range) and
+/// the per-function exception_handlers[] alloc.
+#[test]
+fn thirty_two_sequential_try_regions() {
+    let mut src = String::from(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+"#,
+    );
+    for _ in 0..32 {
+        src.push_str(
+            r#"    try
+      throw $err
+    catch $err
+      global.get $g
+      i32.const 1
+      i32.add
+      global.set $g
+    end
+"#,
+        );
+    }
+    src.push_str("    global.get $g))\n");
+    let m = Module::from_wat(&src).unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 32);
+}
+
+/// Catch body that *itself* contains a try-region. Verifies the
+/// EH-frame stack push/pop pairs correctly when control enters a
+/// new try while already inside a catch handler.
+#[test]
+fn try_inside_catch_body() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      throw $err
+    catch $err
+      i32.const 1
+      global.set $g
+      ;; nested try inside the catch
+      try
+        throw $err
+      catch $err
+        global.get $g
+        i32.const 10
+        i32.add
+        global.set $g
+      end
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    // Outer catch sets g=1; inner try-catch fires; inner catch adds 10 → g=11.
+    assert_eq!(m.call_i32("t").unwrap(), 11);
+}
+
+/* ------------------------------------------------------------------ */
+/* Stress: many tags, many try-regions across a module.               */
+/* ------------------------------------------------------------------ */
+
 #[test]
 fn many_tags_match_by_index() {
     let m = Module::from_wat(
