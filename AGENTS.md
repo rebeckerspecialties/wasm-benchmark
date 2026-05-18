@@ -22,29 +22,58 @@ Pick this up cold without re-deriving state:
 - **Latest wasmtime fork branch**: `accurate-graphql-needs-legacy-
   exceptions` (one commit on top of PR #4 → PR #2 → upstream main).
   Submodule `wasmtime/` pins this branch.
-- **WAMR fork branch**: `feat/legacy-eh-fast-interp-throw` on
-  `rebeckerspecialties/wasm-micro-runtime` — extracted as
-  `patches/wasm-micro-runtime/0001-feat-interpreter-legacy-exception-
-  handling-throw-only-for-fast-interp.patch`. Open as fork [PR #1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
-- **Integration test wasm for the next-session WAMR EH PR**:
+- **WAMR fork branches**:
+  - `feat/legacy-eh-fast-interp-throw` — landed throw-only patch,
+    extracted as `patches/wasm-micro-runtime/0001-feat-interpreter-
+    legacy-exception-handling-throw-only-for-fast-interp.patch`,
+    filed as fork [PR #1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
+  - `feat/legacy-eh-fast-interp-full` — successor branch (created
+    2026-05-17 from upstream `cd390ea0`, throw-only patch in working
+    tree as the baseline). Adds same-function `try`/`catch`/
+    `catch_all`/`rethrow`/`delegate` dispatch. Replaces the
+    throw-only patch in `patches/wasm-micro-runtime/` with a
+    4-commit series when complete. **Locked design lives in the
+    `### Open follow-up — WAMR fast-interp legacy exception
+    handling (full spec)` section below.**
+- **Integration test wasm for the WAMR full-EH PR**:
   [`workloads/graphql-validation-porf-accurate.wasm`](workloads/graphql-validation-porf-accurate.wasm)
-  (150 KB, 1 `try` + 1 `catch 0` + 605 throws) — Porffor-compiled JS
-  that mirrors real graphql-js's `GraphQLError extends Error`
-  hierarchy with `try { visit(...) } catch (e) { if (e !== abortObj)
-  throw e; }`. Already loads cleanly on Pulley with the legacy-
-  exceptions gate, but Pulley's codegen still says
-  `Unsupported feature: operator Try` — that's the bug to fix when
-  this work resumes (Pulley side) and the bug WAMR full-spec EH
-  needs to clear (WAMR side). The currently-shipped throw-only
-  variant lives at [`workloads/graphql-validation-porf.wasm`](workloads/graphql-validation-porf.wasm).
-- **Scope** for the full-spec WAMR EH work: see
-  `### Open follow-up — WAMR fast-interp legacy exception handling
-  (full spec)` later in this doc. ~720 LOC + wast tests. 1-3 focused
-  days. The design risk is the slot allocator interaction —
-  fast-interp doesn't have a runtime control-stack-pointer, so the
-  CATCH transfer has to be IP-based with pre-computed slot offsets.
-  Classic-interp's `find_a_catch_handler` (`core/iwasm/interpreter/
-  wasm_interp_classic.c:1753`) is the porting template.
+  (150 KB, **1 `try` + 1 `catch 0` + 2 `throw 0`** — the throws are
+  in a callee, the catch is in the caller's try body). Porffor-
+  compiled JS that mirrors real graphql-js's `GraphQLError extends
+  Error` hierarchy with `try { visit(...) } catch (e) { if
+  (e !== abortObj) throw e; }`. With the throw-only patch in place,
+  this currently fails at runtime with
+  `Exception: unsupported opcode` — the loader auto-emits
+  `WASM_OP_CATCH` into the fast IR ([`wasm_loader.c:11974`](wasm-micro-runtime/core/iwasm/interpreter/wasm_loader.c#L11974)
+  emit_label runs for every opcode; only TRY skip_labels it at
+  line 12278-12281), and our existing diff routes CATCH to the
+  "unsupported opcode" handler in [`wasm_interp_fast.c:1869-1888`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_fast.c#L1869).
+  The catch handler is **not a no-op** — it does tag-pattern
+  dispatch, calls `call 104`, compares against global 53, and may
+  re-throw, so skipping it would silently corrupt results.
+- **Two adjacent gaps** also surfaced 2026-05-17, both
+  **explicitly NOT** part of the WAMR full-EH PR:
+  - `workloads/sqlite3.wasm` doesn't run on WAMR because the
+    benchmark harness never wired up its 10 host imports (8 WASI
+    `fd_*`/`environ_*` + 2 Sightglass `bench.*`). The wasm is
+    plain MVP (no SIMD/EH/atomics/bulk/threads); fast-interp
+    loads it fine, instantiate fails with `failed to call
+    unlinked import function (wasi_snapshot_preview1,
+    environ_sizes_get)`. **Local-only follow-up**: add
+    `wasm_runtime_register_natives` stubs in
+    `crates/benchmark-core/src/wamr.rs` + new `run_sqlite3_wamr`
+    bin. Decided 2026-05-17 to hand-roll standalone WAMR stubs
+    rather than share with the wasmtime path.
+  - `workloads/matmul_fma.wasm` uses `f32x4.relaxed_madd` (twice).
+    WAMR's `HANDLE_OP(WASM_OP_SIMD_PREFIX)` switch in
+    [`wasm_interp_fast.c:5929-7478`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_fast.c#L5929)
+    enumerates standard SIMD sub-opcodes 0x00-0xff explicitly;
+    relaxed sub-opcodes (0x100..) hit the default
+    `"unsupported SIMD opcode"` arm at line 7474. No
+    `WAMR_BUILD_RELAXED_SIMD` flag exists upstream; only a dormant
+    `WASM_FEATURE_RELAXED_SIMD` bit at `aot_runtime.h:32`.
+    **Future WAMR-fork PR-2**: 3-commit series — enum extension,
+    runtime cases in the SIMD switch, default-off cmake flag.
 - **Open fork PRs** awaiting upstream review:
   - [`rebeckerspecialties/wasm3#1`](https://github.com/rebeckerspecialties/wasm3/pull/1) — v128 opaque slot
   - [`rebeckerspecialties/wasm-micro-runtime#1`](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1) — throw-only legacy EH
@@ -675,30 +704,168 @@ structural disadvantage.
 
 ### Open follow-up — WAMR fast-interp legacy exception handling (full spec)
 
-**Status (2026-05-17)**: throw-only legacy EH landed in [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1) — modules with `throw` ops but no in-function `try`/`catch` (e.g., the original Porffor-graphql-validation wasm with 561 compiler-inserted safety throws) now run on WAMR's fast-interp.
+**Status (2026-05-17 EOD)**: throw-only legacy EH landed in
+[rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
+Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1 + 2**
+of the full-spec successor (loader EH metadata table + runtime EH-
+frame stack push/pop). `workloads/graphql-validation-porf-accurate.wasm`
+runs end-to-end on the inputs we exercise (validation passes without
+hitting a throw inside the try body): result=0 in ~11.0 ms, matching
+porf-fast's 11.0 ms (no regression on AS / porf-fast either — both
+within run-to-run variance). The two committed patches now live in
+`patches/wasm-micro-runtime/` as `0002-…` and `0003-…`.
 
-**What's missing**: in-function `try`/`catch`/`catch_all`/`rethrow`/`delegate` dispatch. The wasm reaches the loader cleanly (the tag section parses), but normal flow falling through a `CATCH` opcode currently traps with `"unsupported opcode"`.
+**Commit 3 (throw catch-walk + return_func hook) is NOT yet in**.
+The design as written hit an architectural snag uncovered while
+running my throwaway end-to-end probe `try { i32.const 42 } catch
+{ i32.const 99 } end`: the runtime returns 99 instead of 42 for
+*normal* (no-throw) flow.
 
-**Concrete failing case**: [`workloads/graphql-validation-porf.wasm`](workloads/graphql-validation-porf.wasm), commit [ed38748](https://github.com/rebeckerspecialties/wasm-benchmark/commit/ed38748). The accurate-Porffor JS source ([`workloads/graphql-validation/porffor/index.js`](workloads/graphql-validation/porffor/index.js)) mirrors real graphql-js's exception flow: `GraphQLError extends Error`, `NonErrorThrown extends Error` sibling, `validate()` wraps `visit()` in a `try { ... } catch (e) { if (e !== abortObj) throw e; }`, `ValidationContext.reportError` throws an `__validateAbortObj` sentinel when the 100-error cap is hit. Compiles to wasm with **1 `try`, 1 `catch 0`, 605 throws** (vs the old shape's 0/0/561). Wasmtime / Pulley runs it correctly; WAMR + the throw-only PR doesn't.
+Root cause: fast-interp's `i32.const` does NOT emit the value into
+the rewritten IR — `skip_label()` undoes the auto-emitted opcode
+and the value goes into the per-function const pool. The operand
+stack is tracked at load time as slot offsets in `frame_offset`.
+When the loader reaches the END of a try-region, `reserve_block_ret`
+emits a COPY from `*(frame_offset - cell)` (the *current* top of
+stack) to `block->dynamic_offset` — but `current top of stack` at
+that point is the *catch body's* last value's slot, not the try
+body's. So a single end_of_region_pc landing point can't serve
+both bodies — the COPY's source slot is fixed at load time and
+hard-codes the catch body's slot.
 
-**Scope for the spec PR**:
+**Fix for commit 3** (the real shape): at CATCH processing in the
+loader (before resetting the operand stack for the catch body),
+emit a COPY for the try body's last value into `block->dynamic_offset`
+— mirroring how `WASM_OP_ELSE` in
+[`wasm_loader.c`](wasm-micro-runtime/core/iwasm/interpreter/wasm_loader.c)
+calls `reserve_block_ret(loader_ctx, WASM_OP_ELSE, ...)` to align
+the if-body's result. Once both bodies deposit to the same slot,
+end_of_region_pc can point at the post-COPY position and both
+paths return the right value.
 
-| | LOC | notes |
-|---|---:|---|
-| Loader: per-function exception table (`WASMTryRange[] + WASMTryHandler[]`) | ~200 | record try-body IR range, catch handler IR offset + tag, payload slot offsets |
-| Loader: slot allocation for catch payload (`PUSH_OFFSET_TYPE` in the CATCH case) | ~30 | currently only `PUSH_TYPE` — payload slots aren't allocated, which is why upstream banned EH+FAST_INTERP in the first place |
-| Loader: emit branch-around-catches at end of try-body | ~50 | so normal flow doesn't fall through into CATCH op (which is what causes the current "unsupported opcode" trap) |
-| Runtime: `HANDLE_OP(WASM_OP_THROW)` walks per-function exception table by current IP, finds matching catch | ~100 | write payload values to recorded slot offsets, set `frame_ip` to handler |
-| Runtime: cross-function propagation at call return — caller checks `exception_raised`, walks ITS exception table | ~80 | mirror classic-interp's `LABEL_TYPE_FUNCTION` case in `find_a_catch_handler` |
-| Runtime: `WASM_OP_CATCH_ALL` (always matches) | ~10 | trivial extension once the above is in place |
-| Runtime: `WASM_OP_RETHROW` / `WASM_OP_DELEGATE` | ~50 | Porffor doesn't emit these — lowers `throw e` as fresh `throw 0` — but spec compliance |
-| Tests: gtest unit tests | ~300 | nested try, catch_all fallback, payload binding for i32/i64/f32/f64, throw across function boundaries, throw-with-no-catch escapes |
-| Tests: spec_testsuite/legacy/{throw,try_catch,rethrow,try_delegate}.wast passing | — | wasmtime ships these; ~667 LOC of WAST coverage |
-| **Integration test**: `graphql-validation-porf` returns `result=0` matching Pulley | — | the motivating bug |
+The runtime side of commit 3 (the THROW walker and return_func
+hook) is mechanically right; only the loader-side block-return
+alignment needs a follow-up emit at CATCH time. The throwaway
+WIP code that hit this lives in the local
+`crates/benchmark-core/src/bin/probe_eh_test.rs` shape (compile
+`/tmp/eh_test.wat` via `wat2wasm --enable-exceptions` and run);
+deleted from the tree but trivial to recreate.
 
-**Realistic effort**: 1-3 focused days. The slot-allocator interaction is the design risk — fast-interp doesn't have a runtime control-stack-pointer to walk, so the "transfer to catch handler" step has to be entirely IP-based with pre-computed slot offsets. Classic-interp's [`find_a_catch_handler`](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/core/iwasm/interpreter/wasm_interp_classic.c#L1753) is the design template (470 LOC, mostly mechanical to port; the asymmetry is that fast-interp pre-resolves block boundaries at load time, so `UNWIND_CSP` becomes a static IR transfer).
+Three other notes captured during the deep-dive (worth remembering
+for the next session):
 
-**Why this PR is worth doing** beyond just our benchmark: WAMR's `unsupported_combination.cmake:67` (`EXCE_HANDLING + FAST_INTERP`) has been a known limitation since the original [EH PR #3096](https://github.com/bytecodealliance/wasm-micro-runtime/pull/3096) (April 2024). Anyone running Porffor / AssemblyScript-with-exceptions / Emscripten C++-exceptions on WAMR fast-interp today hits this wall.
+  1. **IR encoding under `WASM_ENABLE_LABELS_AS_VALUES`** (default on
+     macOS / Linux): each "opcode" in the rewritten IR is an 8-byte
+     pointer (on 64-bit with unaligned access) into the dispatch
+     handle table, NOT a 1-byte opcode value. `emit_label(opcode)`
+     emits 8 bytes; `skip_label()` rewinds 8 bytes. This matters
+     when computing `handler_pc` offsets — my initial commit-3 mental
+     model was wrong about IR size by a large factor.
+  2. **The build script's `git reset --hard HEAD`** in
+     `scripts/build-wamr.sh` will wipe uncommitted WAMR changes
+     every time it runs. During iterative dev, either commit before
+     building or bypass the script and run `cmake/make` directly
+     in `wasm-micro-runtime/product-mini/platforms/darwin/build/`.
+  3. **`frame->exception_raised` is NOT zero-initialized by
+     `ALLOC_FRAME`** in fast-interp. If the inter-function unwind
+     hook in `return_func` reads it without first setting it to
+     false on every frame setup, the hook fires on every wasm-to-
+     wasm return with whatever stale bytes were in the slot,
+     turning every program into "wasm exception thrown (tag N)"
+     for a random N. Commit 3 needs to add
+     `frame->exception_raised = false` next to the existing
+     `frame->eh_count = 0` line in `call_func_from_entry`.
+
+**Failure mode (precise)**: with the throw-only patch applied,
+`workloads/graphql-validation-porf-accurate.wasm` (1 `try`, 1
+`catch 0`, 2 `throw 0`) traps at runtime with
+`Exception: unsupported opcode`. Cause: WAMR's loader
+auto-emits every opcode via `emit_label(opcode)` at
+[`wasm_loader.c:11974`](wasm-micro-runtime/core/iwasm/interpreter/wasm_loader.c#L11974);
+the fast-interp path explicitly `skip_label()`s for `WASM_OP_BLOCK`,
+`WASM_OP_LOOP`, `WASM_OP_NOP`, and `WASM_OP_TRY`, but **not** for
+`WASM_OP_CATCH`/`CATCH_ALL`/`RETHROW`/`DELEGATE` — so those four
+opcodes pass straight through into the rewritten IR and the runtime
+handler routes them to `"unsupported opcode"`
+([`wasm_interp_fast.c:1869-1888`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_fast.c#L1869)).
+
+The catch handler in porf-accurate is **not a no-op** — it does
+tag-pattern dispatch, calls `call 104`, compares against `global 53`,
+and may re-throw. Skipping CATCH silently corrupts results.
+
+**Cost-model rule (the maintainer pushback the fix must clear)**:
+EH must not tax `HANDLE_OP(WASM_OP_CALL)` /
+`HANDLE_OP(WASM_OP_*_LOAD_*)` / `HANDLE_OP(WASM_OP_*_STORE_*)` on
+the success path. Verified the same rule in classic-interp under
+`WASM_ENABLE_EXCE_HANDLING=1`: zero `#if WASM_ENABLE_EXCE_HANDLING`
+inside hot-op handlers; the only per-program cost is one
+`SET_LABEL_TYPE` byte store per `PUSH_CSP`
+([`wasm_interp_classic.c:518-522`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_classic.c#L518))
+and `eh_size` cells added to `max_stack_cell_num` per frame
+([`wasm_interp_classic.c:6786-6787`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_classic.c#L6786)).
+EH state lives in a separate per-frame eh-stack array sized by
+`func->exception_handler_count` — already populated by the loader
+([`wasm_loader.c:12018`](wasm-micro-runtime/core/iwasm/interpreter/wasm_loader.c#L12018)).
+
+**4-commit shape** (each commit independently mergeable upstream):
+
+| # | scope | key files |
+|---|---|---|
+| 1 | Loader: extend the existing `#if WASM_ENABLE_EXCE_HANDLING != 0` block in `wasm_loader.c` (after line 12277) — `skip_label()` for `WASM_OP_CATCH` / `CATCH_ALL` / `RETHROW` / `DELEGATE`. Add `WASMFastEHEntry` struct on `WASMFunction` with `{catch_count, catches[]={tag_index, handler_pc, frame_offset_cells}, catch_all_pc, delegate_target_depth, end_of_region_pc}`. Populate during the existing validation pass — no second walk over the bytecode. The TRY case already records `func->exception_handler_count++`; extend it to record table-index immediates for the new fast-IR ops. | `core/iwasm/interpreter/wasm.h`, `core/iwasm/interpreter/wasm_loader.c` |
+| 2 | Runtime: allocate `frame->eh_stack[exception_handler_count]` next to `frame_lp`. New fast-IR op `EXT_OP_FAST_TRY <uint32 eh_idx>` pushes one entry; `EXT_OP_FAST_END_TRY` pops. `HANDLE_OP(WASM_OP_CATCH)` / `CATCH_ALL` become "pop eh_stack + branch to pre-patched end-of-region ptr" — same shape as `WASM_OP_BR` (uses `RECOVER_BR_INFO`-style target). Hot ops (CALL/LOAD/STORE) untouched. | `core/iwasm/interpreter/wasm_interp_fast.c` |
+| 3 | THROW dispatch: extend the existing throw-only handler at line 1839 to walk `frame->eh_stack` top-down. On match → restore frame_lp to saved height, copy tag params from throw site, set frame_ip to catch handler pc, dispatch. On miss in current function → existing `got_exception` bailout, BUT extended: hook `return_func` (line 7840) so when caller resumes with `wasm_get_exception(module) != NULL`, it re-enters a new `find_a_catch_handler:` label inside the dispatch loop. Mirrors classic-interp lines 6877-6883 + 1933-1958 exactly. | `core/iwasm/interpreter/wasm_interp_fast.c` |
+| 4 | RETHROW + DELEGATE: re-raise saved tag/payload (RETHROW) or pop N eh-frames before resuming walk (DELEGATE). Porffor doesn't emit these but spec_testsuite/legacy/{rethrow,try_delegate}.wast does. | `core/iwasm/interpreter/wasm_interp_fast.c` |
+
+Final cmake patch: rewrite the
+[`unsupported_combination.cmake:67-77`](wasm-micro-runtime/build-scripts/unsupported_combination.cmake#L67)
+comment block to say "FAST_INTERP + EXCE_HANDLING is fully supported
+for the legacy proposal; `try_table`/`throw_ref` (Phase 4 EH) is the
+next gap" — and drop the throw-only restriction language.
+
+**Out of scope** for this PR: `try_table` / `throw_ref` (the
+post-Phase-3 EH proposal). Confirmed via Explore 2026-05-17 —
+classic-interp has zero matches for `try_table`/`throw_ref`/
+`WASM_OP_TRY_TABLE`/`WASM_OP_THROW_REF` in the entire WAMR tree, so
+that's a separate proposal effort, not part of fast-interp parity.
+
+**Validation gates** (must pass before opening the PR):
+- `target/release/run_graphql_validation_wamr` — the existing bin
+  already runs AS + porf-fast and (per 2026-05-17 edit) also probes
+  `GRAPHQL_VALIDATION_PORF_ACCURATE_WASM`. Expected: third block
+  switches from `ERROR: ... unsupported opcode` to a numeric
+  `result=...` matching the wasmtime/Pulley side.
+- Existing AS + porf-fast results unchanged (latency parity, same
+  iteration counts to ±5 %).
+- Apple device build: `scripts/build-wamr.sh watchos` still produces
+  a working `libiwasm.a` for arm64_32 — no new symbol that the
+  arm64_32 ILP32 ABI rejects.
+
+**Cited design references**:
+- Classic-interp `find_a_catch_handler` walk:
+  [`wasm_interp_classic.c:1753-1976`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_classic.c#L1753).
+- Classic-interp inter-function unwind via `return_func`:
+  [`wasm_interp_classic.c:6877-6883`](wasm-micro-runtime/core/iwasm/interpreter/wasm_interp_classic.c#L6877).
+- Fast-interp branch-target pre-patching (the template for
+  pre-resolving catch handler PCs at load time):
+  `emit_br_info()` + `RECOVER_BR_INFO()` in
+  `core/iwasm/interpreter/wasm_loader.c` (BR/BR_IF/BR_TABLE handlers)
+  and `core/iwasm/interpreter/wasm_interp_fast.c:971-1038`.
+
+**Realistic effort**: 1-3 focused days. The slot-allocator
+interaction is the design risk — fast-interp doesn't have a runtime
+control-stack-pointer to walk, so the "transfer to catch handler"
+step has to be entirely IP-based with pre-computed slot offsets.
+Classic-interp's `find_a_catch_handler` is the porting template; the
+asymmetry is that fast-interp pre-resolves block boundaries at load
+time, so `UNWIND_CSP` becomes a static IR transfer.
+
+**Why this PR is worth doing** beyond our benchmark: WAMR's
+`unsupported_combination.cmake:67` (`EXCE_HANDLING + FAST_INTERP`)
+has been a known limitation since the original
+[EH PR #3096](https://github.com/bytecodealliance/wasm-micro-runtime/pull/3096)
+(April 2024). Anyone running Porffor / AssemblyScript-with-
+exceptions / Emscripten C++-exceptions on WAMR fast-interp today
+hits this wall.
 
 ### Skipped runtimes (App Store / Apple-platform feasibility)
 
