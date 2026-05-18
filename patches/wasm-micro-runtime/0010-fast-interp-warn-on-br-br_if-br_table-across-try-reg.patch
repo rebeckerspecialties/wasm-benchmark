@@ -1,7 +1,7 @@
-From 0f0bdfad0847dc51639e7d781b17fbad40a06e3f Mon Sep 17 00:00:00 2001
+From 924217e63fbd299e0c5c800cc94f23c1d906e66b Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 10:29:47 -0700
-Subject: [PATCH 10/11] fast-interp: warn on br/br_if/br_table across
+Subject: [PATCH 10/12] fast-interp: warn on br/br_if/br_table across
  try-region boundary
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -48,14 +48,14 @@ with the PMU profile showing zero hot-op overhead from EH).
 `br_out_of_try_pops_eh_stack` integration test triggers the
 warning once and still passes.
 ---
- core/iwasm/interpreter/wasm_loader.c | 87 ++++++++++++++++++++++++++++
- 1 file changed, 87 insertions(+)
+ core/iwasm/interpreter/wasm_loader.c | 85 ++++++++++++++++++++++++++++
+ 1 file changed, 85 insertions(+)
 
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index e0ad66bc..f45c4550 100644
+index ba9122e4..a20cf800 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -11313,6 +11313,40 @@ fail:
+@@ -11307,6 +11307,39 @@ fail:
  }
  
  #if WASM_ENABLE_EXCE_HANDLING != 0
@@ -84,8 +84,7 @@ index e0ad66bc..f45c4550 100644
 +    BranchBlock *b;
 +    uint32 count = 0;
 +    for (b = cur_block; b >= target_block; b--) {
-+        if (b->label_type == LABEL_TYPE_TRY
-+            || b->label_type == LABEL_TYPE_CATCH
++        if (b->label_type == LABEL_TYPE_TRY || b->label_type == LABEL_TYPE_CATCH
 +            || b->label_type == LABEL_TYPE_CATCH_ALL) {
 +            count++;
 +        }
@@ -96,7 +95,7 @@ index e0ad66bc..f45c4550 100644
  static BranchBlock *
  check_branch_block_for_delegate(WASMLoaderContext *loader_ctx, uint8 **p_buf,
                                  uint8 *buf_end, char *error_buf,
-@@ -13410,6 +13444,30 @@ re_scan:
+@@ -13399,6 +13432,29 @@ re_scan:
                                               error_buf, error_buf_size)))
                      goto fail;
  
@@ -115,11 +114,10 @@ index e0ad66bc..f45c4550 100644
 +                    uint32 leaked = count_try_blocks_crossed(
 +                        loader_ctx->frame_csp - 1, frame_csp_tmp);
 +                    if (leaked > 0) {
-+                        LOG_WARNING(
-+                            "wasm fast-interp: br at func[%u] crosses "
-+                            "%u try-region(s); each leaks one "
-+                            "eh-stack entry until frame teardown",
-+                            cur_func_idx, leaked);
++                        LOG_WARNING("wasm fast-interp: br at func[%u] crosses "
++                                    "%u try-region(s); each leaks one "
++                                    "eh-stack entry until frame teardown",
++                                    cur_func_idx, leaked);
 +                    }
 +                }
 +#endif
@@ -127,7 +125,7 @@ index e0ad66bc..f45c4550 100644
                  RESET_STACK();
                  SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE(true);
                  break;
-@@ -13424,6 +13482,20 @@ re_scan:
+@@ -13413,6 +13469,20 @@ re_scan:
                                               error_buf, error_buf_size)))
                      goto fail;
  
@@ -148,7 +146,7 @@ index e0ad66bc..f45c4550 100644
                  break;
              }
  
-@@ -13490,6 +13562,21 @@ re_scan:
+@@ -13479,6 +13549,21 @@ re_scan:
                          goto fail;
                      }
  

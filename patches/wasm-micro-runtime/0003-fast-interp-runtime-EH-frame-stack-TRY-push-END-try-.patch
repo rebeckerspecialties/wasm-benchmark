@@ -1,7 +1,7 @@
-From 15ffa409abadbc4868334321d12f6be0679f94ae Mon Sep 17 00:00:00 2001
+From 5202bfabefa12eed7a88b023b92bd50f28b49009 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 16:54:29 -0700
-Subject: [PATCH 03/11] fast-interp: runtime EH-frame stack + TRY push /
+Subject: [PATCH 03/12] fast-interp: runtime EH-frame stack + TRY push /
  END(try) pop
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -59,10 +59,10 @@ escape via got_exception, matching the throw-only patch's behavior.
 porf-accurate still errors at the first throw escape (its catch
 handler does real work; full catch dispatch is the next commit).
 ---
- core/iwasm/interpreter/wasm_interp.h      |  11 +++
- core/iwasm/interpreter/wasm_interp_fast.c | 105 +++++++++++++++++++---
- core/iwasm/interpreter/wasm_loader.c      |  91 ++++++++++++-------
- 3 files changed, 165 insertions(+), 42 deletions(-)
+ core/iwasm/interpreter/wasm_interp.h      |  11 ++
+ core/iwasm/interpreter/wasm_interp_fast.c | 104 +++++++++++++++--
+ core/iwasm/interpreter/wasm_loader.c      | 134 ++++++++++++++--------
+ 3 files changed, 186 insertions(+), 63 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp.h b/core/iwasm/interpreter/wasm_interp.h
 index 14164054..8ca6fe5f 100644
@@ -87,10 +87,10 @@ index 14164054..8ca6fe5f 100644
  
  #if WASM_ENABLE_FAST_INTERP != 0
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 0e3a26c0..4ef2cadc 100644
+index 0e3a26c0..06016903 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
-@@ -1869,23 +1869,68 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -1869,23 +1869,67 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
              }
  
              HANDLE_OP(WASM_OP_TRY)
@@ -107,10 +107,9 @@ index 0e3a26c0..4ef2cadc 100644
 +                 * on a cold path; CALL / LOAD / STORE are untouched. */
 +                uint32 eh_idx = read_uint32(frame_ip);
 +                WASMFunction *cur_wasm_func = cur_func->u.func;
-+                uint32 *eh_stack =
-+                    frame_lp + cur_func->param_cell_num
-+                    + cur_func->local_cell_num
-+                    + cur_wasm_func->max_stack_cell_num;
++                uint32 *eh_stack = frame_lp + cur_func->param_cell_num
++                                   + cur_func->local_cell_num
++                                   + cur_wasm_func->max_stack_cell_num;
 +                bh_assert(frame->eh_count
 +                          < cur_wasm_func->exception_handler_count);
 +                eh_stack[frame->eh_count] = eh_idx;
@@ -171,7 +170,7 @@ index 0e3a26c0..4ef2cadc 100644
                  wasm_set_exception(module, "unsupported opcode");
                  goto got_exception;
              }
-@@ -7568,9 +7613,31 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7568,9 +7612,31 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
          HANDLE_OP(WASM_OP_GET_LOCAL)
          HANDLE_OP(WASM_OP_DROP)
          HANDLE_OP(WASM_OP_DROP_64)
@@ -203,7 +202,7 @@ index 0e3a26c0..4ef2cadc 100644
          HANDLE_OP(WASM_OP_NOP)
          HANDLE_OP(EXT_OP_BLOCK)
          HANDLE_OP(EXT_OP_LOOP)
-@@ -7776,6 +7843,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7776,6 +7842,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
               * these cells */
              local_cell_num =
                  cur_func->param_cell_num + cur_func->local_cell_num;
@@ -219,7 +218,7 @@ index 0e3a26c0..4ef2cadc 100644
  #endif
              /* param_cell_num, local_cell_num, const_cell_num and
                 max_stack_cell_num are all no larger than UINT16_MAX (checked
-@@ -7793,6 +7869,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7793,6 +7868,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
              frame_ip = wasm_get_func_code(cur_func);
              frame_ip_end = wasm_get_func_code_end(cur_func);
  
@@ -232,10 +231,10 @@ index 0e3a26c0..4ef2cadc 100644
                  frame->operand + cur_wasm_func->const_cell_num;
  
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 769a715e..0e15dac6 100644
+index f1418df4..1948efef 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12355,26 +12355,21 @@ re_scan:
+@@ -12353,26 +12353,21 @@ re_scan:
                  }
  #if WASM_ENABLE_EXCE_HANDLING != 0
                  else if (opcode == WASM_OP_TRY) {
@@ -273,7 +272,7 @@ index 769a715e..0e15dac6 100644
                      loader_ctx->cur_eh_entry_idx++;
                  }
  #endif
-@@ -12661,15 +12656,16 @@ re_scan:
+@@ -12659,15 +12654,16 @@ re_scan:
                  }
  
  #if WASM_ENABLE_FAST_INTERP != 0
@@ -299,7 +298,7 @@ index 769a715e..0e15dac6 100644
                  if (loader_ctx->p_code_compiled != NULL) {
                      uint32 eh_idx = cur_block->eh_entry_idx;
                      WASMFastEHEntry *entry;
-@@ -12677,6 +12673,7 @@ re_scan:
+@@ -12675,6 +12671,7 @@ re_scan:
                      uint64 new_size;
                      bh_assert(eh_idx < func->exception_handler_count);
                      bh_assert(func->exception_handlers != NULL);
@@ -307,7 +306,7 @@ index 769a715e..0e15dac6 100644
                      entry = &func->exception_handlers[eh_idx];
                      new_size = (uint64)sizeof(WASMFastEHCatch)
                                 * (entry->catch_count + 1);
-@@ -12743,17 +12740,20 @@ re_scan:
+@@ -12741,17 +12738,20 @@ re_scan:
                  }
  
  #if WASM_ENABLE_FAST_INTERP != 0
@@ -327,16 +326,24 @@ index 769a715e..0e15dac6 100644
                      uint32 eh_idx = cur_block->eh_entry_idx;
                      bh_assert(eh_idx < func->exception_handler_count);
                      bh_assert(func->exception_handlers != NULL);
-                     bh_assert(
-                         func->exception_handlers[eh_idx].catch_all_pc == NULL);
+                     bh_assert(func->exception_handlers[eh_idx].catch_all_pc
+                               == NULL);
 +                    emit_uint32(loader_ctx, eh_idx);
                      func->exception_handlers[eh_idx].catch_all_pc =
                          loader_ctx->p_code_compiled;
                  }
-@@ -12884,6 +12884,36 @@ re_scan:
+@@ -12882,30 +12882,62 @@ re_scan:
                  POP_CSP();
  
  #if WASM_ENABLE_FAST_INTERP != 0
+-                skip_label();
+-                /* copy the result to the block return address */
+-                if (!reserve_block_ret(loader_ctx, opcode, disable_emit,
+-                                       error_buf, error_buf_size)) {
+-                    /* it could be tmp frame_csp allocated from opcode like
+-                     * OP_BR and not counted in loader_ctx->csp_num, it won't
+-                     * be freed in wasm_loader_ctx_destroy(loader_ctx) so need
+-                     * to free the loader_ctx->frame_csp if fails */
 +#if WASM_ENABLE_EXCE_HANDLING != 0
 +                if (ending_was_eh) {
 +                    /* try-region END must execute the eh-stack pop in
@@ -359,25 +366,56 @@ index 769a715e..0e15dac6 100644
 +                        free_label_patch_list(loader_ctx->frame_csp);
 +                        goto fail;
 +                    }
-+                    free_label_patch_list(loader_ctx->frame_csp);
+                     free_label_patch_list(loader_ctx->frame_csp);
+-                    goto fail;
 +                    /* A try-region's END can never coincide with
 +                     * LABEL_TYPE_FUNCTION (the implicit function block
 +                     * is not a try); no WASM_OP_RETURN emit needed. */
-+                }
+                 }
 +                else
 +#endif /* WASM_ENABLE_EXCE_HANDLING */
 +                {
-                 skip_label();
-                 /* copy the result to the block return address */
-                 if (!reserve_block_ret(loader_ctx, opcode, disable_emit,
-@@ -12910,6 +12940,7 @@ re_scan:
-                         POP_OFFSET_TYPE(ret_type);
++                    skip_label();
++                    /* copy the result to the block return address */
++                    if (!reserve_block_ret(loader_ctx, opcode, disable_emit,
++                                           error_buf, error_buf_size)) {
++                        /* it could be tmp frame_csp allocated from opcode like
++                         * OP_BR and not counted in loader_ctx->csp_num, it
++                         * won't be freed in wasm_loader_ctx_destroy(loader_ctx)
++                         * so need to free the loader_ctx->frame_csp if fails */
++                        free_label_patch_list(loader_ctx->frame_csp);
++                        goto fail;
++                    }
+ 
+-                apply_label_patch(loader_ctx, 0, PATCH_END);
+-                free_label_patch_list(loader_ctx->frame_csp);
+-                if (loader_ctx->frame_csp->label_type == LABEL_TYPE_FUNCTION) {
+-                    int32 idx;
+-                    uint8 ret_type;
+-
+-                    emit_label(WASM_OP_RETURN);
+-                    for (idx = (int32)func->func_type->result_count - 1;
+-                         idx >= 0; idx--) {
+-                        ret_type = *(func->func_type->types
+-                                     + func->func_type->param_count + idx);
+-                        POP_OFFSET_TYPE(ret_type);
++                    apply_label_patch(loader_ctx, 0, PATCH_END);
++                    free_label_patch_list(loader_ctx->frame_csp);
++                    if (loader_ctx->frame_csp->label_type
++                        == LABEL_TYPE_FUNCTION) {
++                        int32 idx;
++                        uint8 ret_type;
++
++                        emit_label(WASM_OP_RETURN);
++                        for (idx = (int32)func->func_type->result_count - 1;
++                             idx >= 0; idx--) {
++                            ret_type = *(func->func_type->types
++                                         + func->func_type->param_count + idx);
++                            POP_OFFSET_TYPE(ret_type);
++                        }
                      }
                  }
-+                }
  #endif
-                 if (loader_ctx->csp_num > 0) {
-                     loader_ctx->frame_csp->end_addr = p - 1;
 -- 
 2.50.1 (Apple Git-155)
 

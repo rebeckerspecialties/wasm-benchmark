@@ -1,0 +1,49 @@
+From 04625e71590708636318fe06d91ad1586eb6ed5d Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Mon, 18 May 2026 16:09:03 -0700
+Subject: [PATCH 12/12] test_wamr.sh: enable wasm spec EH suite for fast-interp
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The legacy exception-handling spec test suite was previously hardcoded
+to skip every running mode except classic-interp:
+
+    if [[ "${RUNNING_MODE}" != "classic-interp" ]]; then
+        echo "support exception handling in classic-interp"
+        return 0
+    fi
+
+Now that fast-interp supports the full legacy-EH proposal (TRY / CATCH /
+CATCH_ALL / RETHROW / DELEGATE / tag-with-params), the gate should
+allow both modes. This matches the parallel `ENABLE_GC` block a few
+lines down that already lists `classic-interp` AND `fast-interp` as
+acceptable.
+
+After this change, `./test_wamr.sh -t fast-interp -m exception-handling`
+runs the upstream WebAssembly spec EH suite against the fast
+interpreter — the same suite already validated against classic
+interp.
+---
+ tests/wamr-test-suites/test_wamr.sh | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/tests/wamr-test-suites/test_wamr.sh b/tests/wamr-test-suites/test_wamr.sh
+index 97dc84d5..c4b6efa9 100755
+--- a/tests/wamr-test-suites/test_wamr.sh
++++ b/tests/wamr-test-suites/test_wamr.sh
+@@ -919,8 +919,9 @@ function do_execute_in_running_mode()
+     # keep alpha order
+ 
+     if [[ ${ENABLE_EH} -eq 1 ]]; then
+-        if [[ "${RUNNING_MODE}" != "classic-interp" ]]; then
+-            echo "support exception handling in classic-interp"
++        if [[ "${RUNNING_MODE}" != "classic-interp" \
++                && "${RUNNING_MODE}" != "fast-interp" ]]; then
++            echo "support exception handling in classic-interp and fast-interp"
+             return 0;
+         fi
+     fi
+-- 
+2.50.1 (Apple Git-155)
+

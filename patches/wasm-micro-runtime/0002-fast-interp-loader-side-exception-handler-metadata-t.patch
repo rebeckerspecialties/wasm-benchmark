@@ -1,7 +1,7 @@
-From 5cc2ae2317db5f397e6d45f413d04c50526f9f55 Mon Sep 17 00:00:00 2001
+From 91f51f38896b4a42faf88f9fc9ad72d97ed07475 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 16:19:31 -0700
-Subject: [PATCH 02/11] fast-interp: loader-side exception-handler metadata
+Subject: [PATCH 02/12] fast-interp: loader-side exception-handler metadata
  table
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -48,8 +48,8 @@ where EH-on builds carry one byte store per PUSH_CSP and a small
 per-frame allocation but leave hot ops untaxed.
 ---
  core/iwasm/interpreter/wasm.h        |  41 ++++++
- core/iwasm/interpreter/wasm_loader.c | 210 ++++++++++++++++++++++++++-
- 2 files changed, 247 insertions(+), 4 deletions(-)
+ core/iwasm/interpreter/wasm_loader.c | 208 ++++++++++++++++++++++++++-
+ 2 files changed, 245 insertions(+), 4 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm.h b/core/iwasm/interpreter/wasm.h
 index c60349d1..e18ab7ae 100644
@@ -112,10 +112,10 @@ index c60349d1..e18ab7ae 100644
  
  #if WASM_ENABLE_FAST_JIT != 0 || WASM_ENABLE_JIT != 0 \
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 4f3dcffd..769a715e 100644
+index 4f3dcffd..f1418df4 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -7360,6 +7360,25 @@ wasm_loader_unload(WASMModule *module)
+@@ -7360,6 +7360,23 @@ wasm_loader_unload(WASMModule *module)
                      wasm_runtime_free(module->functions[i]->code_compiled);
                  if (module->functions[i]->consts)
                      wasm_runtime_free(module->functions[i]->consts);
@@ -123,8 +123,7 @@ index 4f3dcffd..769a715e 100644
 +                if (module->functions[i]->exception_handlers) {
 +                    uint32 eh_idx;
 +                    for (eh_idx = 0;
-+                         eh_idx
-+                         < module->functions[i]->exception_handler_count;
++                         eh_idx < module->functions[i]->exception_handler_count;
 +                         eh_idx++) {
 +                        if (module->functions[i]
 +                                ->exception_handlers[eh_idx]
@@ -134,14 +133,13 @@ index 4f3dcffd..769a715e 100644
 +                                                  .catches);
 +                        }
 +                    }
-+                    wasm_runtime_free(
-+                        module->functions[i]->exception_handlers);
++                    wasm_runtime_free(module->functions[i]->exception_handlers);
 +                }
 +#endif /* end of WASM_ENABLE_EXCE_HANDLING */
  #endif
  #if WASM_ENABLE_FAST_JIT != 0
                  if (module->functions[i]->fast_jit_jitted_code) {
-@@ -8470,6 +8489,14 @@ typedef struct BranchBlock {
+@@ -8470,6 +8487,14 @@ typedef struct BranchBlock {
       * to copy the stack operands to the loop block's arguments in
       * wasm_loader_emit_br_info for opcode br. */
      uint16 start_dynamic_offset;
@@ -156,7 +154,7 @@ index 4f3dcffd..769a715e 100644
  #endif
  
      /* Indicate the operand stack is in polymorphic state.
-@@ -8551,6 +8578,13 @@ typedef struct WASMLoaderContext {
+@@ -8551,6 +8576,13 @@ typedef struct WASMLoaderContext {
       * than the final code_compiled_size, we record the peak size to ensure
       * there will not be invalid memory access during second traverse */
      uint32 code_compiled_peak_size;
@@ -170,7 +168,7 @@ index 4f3dcffd..769a715e 100644
  #endif
  } WASMLoaderContext;
  
-@@ -8822,6 +8856,11 @@ wasm_loader_ctx_init(WASMFunction *func, char *error_buf, uint32 error_buf_size)
+@@ -8822,6 +8854,11 @@ wasm_loader_ctx_init(WASMFunction *func, char *error_buf, uint32 error_buf_size)
  
  #if WASM_ENABLE_EXCE_HANDLING != 0
      func->exception_handler_count = 0;
@@ -182,7 +180,7 @@ index 4f3dcffd..769a715e 100644
  #endif
  
  #if WASM_ENABLE_FAST_INTERP != 0
-@@ -9344,6 +9383,12 @@ wasm_loader_push_frame_csp(WASMLoaderContext *ctx, uint8 label_type,
+@@ -9344,6 +9381,12 @@ wasm_loader_push_frame_csp(WASMLoaderContext *ctx, uint8 label_type,
  #if WASM_ENABLE_FAST_INTERP != 0
      ctx->frame_csp->dynamic_offset = ctx->dynamic_offset;
      ctx->frame_csp->patch_list = NULL;
@@ -195,7 +193,7 @@ index 4f3dcffd..769a715e 100644
  #endif
      ctx->frame_csp++;
      ctx->csp_num++;
-@@ -9567,6 +9612,13 @@ wasm_loader_ctx_reinit(WASMLoaderContext *ctx)
+@@ -9567,6 +9610,13 @@ wasm_loader_ctx_reinit(WASMLoaderContext *ctx)
      /* init preserved local offsets */
      ctx->preserved_local_offset = ctx->max_dynamic_offset;
  
@@ -209,7 +207,7 @@ index 4f3dcffd..769a715e 100644
      /* const buf is reserved */
      return true;
  }
-@@ -11961,6 +12013,27 @@ re_scan:
+@@ -11961,6 +12011,27 @@ re_scan:
                  loader_ctx->i32_const_num = k;
              }
          }
@@ -221,8 +219,8 @@ index 4f3dcffd..769a715e 100644
 +         * (zero-initialized) and reset delegate_target_depth to the
 +         * "no delegate" sentinel on every entry. */
 +        if (func->exception_handler_count > 0) {
-+            uint64 eh_size = (uint64)sizeof(WASMFastEHEntry)
-+                             * func->exception_handler_count;
++            uint64 eh_size =
++                (uint64)sizeof(WASMFastEHEntry) * func->exception_handler_count;
 +            uint32 eh_i;
 +            if (!(func->exception_handlers =
 +                      loader_malloc(eh_size, error_buf, error_buf_size))) {
@@ -237,7 +235,7 @@ index 4f3dcffd..769a715e 100644
      }
  #endif
  
-@@ -12011,11 +12084,17 @@ re_scan:
+@@ -12011,11 +12082,17 @@ re_scan:
  #if WASM_ENABLE_EXCE_HANDLING != 0
              case WASM_OP_TRY:
                  if (opcode == WASM_OP_TRY) {
@@ -259,7 +257,7 @@ index 4f3dcffd..769a715e 100644
  
                      /*
                       * try is a block
-@@ -12276,7 +12355,27 @@ re_scan:
+@@ -12276,7 +12353,27 @@ re_scan:
                  }
  #if WASM_ENABLE_EXCE_HANDLING != 0
                  else if (opcode == WASM_OP_TRY) {
@@ -287,7 +285,7 @@ index 4f3dcffd..769a715e 100644
                  }
  #endif
                  else if (opcode == WASM_OP_IF) {
-@@ -12498,6 +12597,21 @@ re_scan:
+@@ -12498,6 +12595,21 @@ re_scan:
                  uint8 label_type = cur_block->label_type;
  
                  (void)label_type;
@@ -309,7 +307,7 @@ index 4f3dcffd..769a715e 100644
                  /* DELEGATE ends the block */
                  POP_CSP();
                  break;
-@@ -12546,6 +12660,45 @@ re_scan:
+@@ -12546,6 +12658,45 @@ re_scan:
                      goto fail;
                  }
  
@@ -355,7 +353,7 @@ index 4f3dcffd..769a715e 100644
                  /*
                   * replace frame_csp by LABEL_TYPE_CATCH
                   */
-@@ -12589,6 +12742,23 @@ re_scan:
+@@ -12589,6 +12740,23 @@ re_scan:
                      goto fail;
                  }
  
@@ -369,8 +367,8 @@ index 4f3dcffd..769a715e 100644
 +                    uint32 eh_idx = cur_block->eh_entry_idx;
 +                    bh_assert(eh_idx < func->exception_handler_count);
 +                    bh_assert(func->exception_handlers != NULL);
-+                    bh_assert(
-+                        func->exception_handlers[eh_idx].catch_all_pc == NULL);
++                    bh_assert(func->exception_handlers[eh_idx].catch_all_pc
++                              == NULL);
 +                    func->exception_handlers[eh_idx].catch_all_pc =
 +                        loader_ctx->p_code_compiled;
 +                }
@@ -379,7 +377,7 @@ index 4f3dcffd..769a715e 100644
                  /* no immediates */
                  /* replace frame_csp by LABEL_TYPE_CATCH_ALL */
                  cur_block->label_type = LABEL_TYPE_CATCH_ALL;
-@@ -12672,6 +12842,22 @@ re_scan:
+@@ -12672,6 +12840,22 @@ re_scan:
              case WASM_OP_END:
              {
                  BranchBlock *cur_block = loader_ctx->frame_csp - 1;
@@ -402,7 +400,7 @@ index 4f3dcffd..769a715e 100644
  
                  /* check whether block stack matches its result type */
                  if (!check_block_stack(loader_ctx, cur_block, error_buf,
-@@ -12746,6 +12932,22 @@ re_scan:
+@@ -12746,6 +12930,22 @@ re_scan:
                  }
  #endif
  

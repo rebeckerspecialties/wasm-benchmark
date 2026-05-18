@@ -1,7 +1,7 @@
-From 7994f234e861cbe054f8c8a3f0f2e27429b54d1f Mon Sep 17 00:00:00 2001
+From 72db3ca8a2ba2c7c93f373dd489e89125cdb86a5 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 23:30:11 -0700
-Subject: [PATCH 08/11] fast-interp: tag-with-params loader bug-fix pass
+Subject: [PATCH 08/12] fast-interp: tag-with-params loader bug-fix pass
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -55,14 +55,14 @@ No hot-op cost change: all the new loader work is in the cold
 CATCH / THROW preprocess paths, and the runtime walker copy
 loop is unchanged.
 ---
- core/iwasm/interpreter/wasm_loader.c | 89 ++++++++++++++++++++++------
- 1 file changed, 71 insertions(+), 18 deletions(-)
+ core/iwasm/interpreter/wasm_loader.c | 87 ++++++++++++++++++++++------
+ 1 file changed, 69 insertions(+), 18 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 47dbab47..875a580d 100644
+index 53e0b6af..88885a27 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12531,11 +12531,29 @@ re_scan:
+@@ -12525,11 +12525,28 @@ re_scan:
                  emit_uint32(loader_ctx, tag_index);
                  emit_uint32(loader_ctx, tag_type->param_cell_num);
                  {
@@ -83,21 +83,20 @@ index 47dbab47..875a580d 100644
 +                     * matches the runtime invariant that an n-cell
 +                     * value occupies n consecutive frame_lp cells. */
 +                    uint32 pi, c, cell_so_far = 0;
-+                    int16 *base = loader_ctx->frame_offset
-+                                  - tag_type->param_cell_num;
++                    int16 *base =
++                        loader_ctx->frame_offset - tag_type->param_cell_num;
 +                    for (pi = 0; pi < tag_type->param_count; pi++) {
 +                        uint32 this_cells =
 +                            wasm_value_type_cell_num(tag_type->types[pi]);
 +                        int16 first_slot = base[cell_so_far];
 +                        for (c = 0; c < this_cells; c++) {
-+                            emit_operand(loader_ctx,
-+                                         (int16)(first_slot + c));
++                            emit_operand(loader_ctx, (int16)(first_slot + c));
 +                        }
 +                        cell_so_far += this_cells;
                      }
                  }
  #endif
-@@ -12867,11 +12885,28 @@ re_scan:
+@@ -12858,11 +12875,28 @@ re_scan:
                          j++;
                      }
  #endif
@@ -128,9 +127,9 @@ index 47dbab47..875a580d 100644
                  }
  
  #if WASM_ENABLE_FAST_INTERP != 0
-@@ -12917,22 +12952,40 @@ re_scan:
-                         uint64 dst_size = (uint64)sizeof(int16)
-                                           * func_type->param_cell_num;
+@@ -12908,22 +12942,39 @@ re_scan:
+                         uint64 dst_size =
+                             (uint64)sizeof(int16) * func_type->param_cell_num;
                          int16 *dst;
 +                        uint32 pi, c, cell_so_far = 0;
 +                        int16 *base;
@@ -168,18 +167,17 @@ index 47dbab47..875a580d 100644
 +                        base = loader_ctx->frame_offset
 +                               - func_type->param_cell_num;
 +                        for (pi = 0; pi < func_type->param_count; pi++) {
-+                            uint32 this_cells = wasm_value_type_cell_num(
-+                                func_type->types[pi]);
++                            uint32 this_cells =
++                                wasm_value_type_cell_num(func_type->types[pi]);
 +                            int16 first_slot = base[cell_so_far];
 +                            for (c = 0; c < this_cells; c++) {
-+                                dst[cell_so_far + c] =
-+                                    (int16)(first_slot + c);
++                                dst[cell_so_far + c] = (int16)(first_slot + c);
 +                            }
 +                            cell_so_far += this_cells;
 +                        }
-                         new_catches[entry->catch_count].param_dst_offsets =
-                             dst;
+                         new_catches[entry->catch_count].param_dst_offsets = dst;
                      }
+                     entry->catches = new_catches;
 -- 
 2.50.1 (Apple Git-155)
 

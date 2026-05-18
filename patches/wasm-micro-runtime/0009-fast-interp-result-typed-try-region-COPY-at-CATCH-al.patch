@@ -1,7 +1,7 @@
-From 1743fc0500e420302094ccbdaeea43b14b189b2c Mon Sep 17 00:00:00 2001
+From d481d9bc9bb0e3a5375df879affcf31b005e9807 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 08:50:15 -0700
-Subject: [PATCH 09/11] fast-interp: result-typed try-region COPY-at-CATCH
+Subject: [PATCH 09/12] fast-interp: result-typed try-region COPY-at-CATCH
  alignment
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -67,10 +67,10 @@ emitting redundant POP_OFFSET_TYPE operands).
  1 file changed, 152 insertions(+)
 
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 875a580d..e0ad66bc 100644
+index 88885a27..ba9122e4 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12823,7 +12823,88 @@ re_scan:
+@@ -12813,7 +12813,88 @@ re_scan:
                                    "Unexpected block sequence encountered.");
                      goto fail;
                  }
@@ -150,8 +150,8 @@ index 875a580d..e0ad66bc 100644
 +                    }
 +                    else if (return_count > 1) {
 +                        set_error_buf(error_buf, error_buf_size,
-+                                      "fast-interp: multi-return "
-+                                      "try-region not yet supported");
++                                      "multi-return try-region not "
++                                      "supported in fast interpreter");
 +                        goto fail;
 +                    }
 +                }
@@ -159,7 +159,7 @@ index 875a580d..e0ad66bc 100644
                  /* Emit `<eh_idx:u32>` after the auto-emitted CATCH
                   * opcode. The runtime CATCH handler reads it to find
                   * end_of_region_pc when the catch is reached via
-@@ -12845,6 +12926,23 @@ re_scan:
+@@ -12835,6 +12916,23 @@ re_scan:
                  /* RESET_STACK removes the values pushed in TRY or previous
                   * CATCH Blocks */
                  RESET_STACK();
@@ -183,7 +183,7 @@ index 875a580d..e0ad66bc 100644
  
  #if WASM_ENABLE_GC != 0
                  WASMRefType *ref_type;
-@@ -13008,7 +13106,58 @@ re_scan:
+@@ -12996,7 +13094,58 @@ re_scan:
                      goto fail;
                  }
  
@@ -233,8 +233,8 @@ index 875a580d..e0ad66bc 100644
 +                    }
 +                    else if (return_count > 1) {
 +                        set_error_buf(error_buf, error_buf_size,
-+                                      "fast-interp: multi-return "
-+                                      "try-region not yet supported");
++                                      "multi-return try-region not "
++                                      "supported in fast interpreter");
 +                        goto fail;
 +                    }
 +                }
@@ -242,7 +242,7 @@ index 875a580d..e0ad66bc 100644
                  /* Emit `<eh_idx:u32>` after the auto-emitted CATCH_ALL
                   * opcode in BOTH traverses (pass 1's size accounting
                   * must include this or pass 2 overruns
-@@ -13035,6 +13184,9 @@ re_scan:
+@@ -13023,6 +13172,9 @@ re_scan:
                  /* RESET_STACK removes the values pushed in TRY or previous
                   * CATCH Blocks */
                  RESET_STACK();

@@ -1,7 +1,7 @@
-From 2a616f0e53c9fe538c9821fc801b72d4d0adb457 Mon Sep 17 00:00:00 2001
+From 5b122fe8deb9c71bb610f99dd834b7bbf1c69efd Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 11:14:47 -0700
-Subject: [PATCH 11/11] fast-interp: __builtin_expect cold-path hints on
+Subject: [PATCH 11/12] fast-interp: __builtin_expect cold-path hints on
  CALL_INDIRECT bounds checks
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -41,7 +41,7 @@ code paths.
  1 file changed, 28 insertions(+), 6 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index b20918e1..f75e0469 100644
+index 1f587b10..f9195bef 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -1813,7 +1813,27 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,

@@ -706,9 +706,9 @@ structural disadvantage.
 
 **Status (2026-05-18)**: throw-only legacy EH landed in
 [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
-Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1
-through 9** of the full-spec successor — loader EH metadata table,
-runtime EH-frame stack push/pop, WASM_OP_THROW catch-walk with the
+Branch `feat/legacy-eh-fast-interp-full` now carries **12 commits**
+of the full-spec successor — loader EH metadata table, runtime
+EH-frame stack push/pop, WASM_OP_THROW catch-walk with the
 return_func exception hook, WASM_OP_RETHROW re-raise via per-entry
 caught-tag storage, WASM_OP_DELEGATE forward-to-outer dispatch
 (loader counts try/catch/catch_all blocks between the delegate's
@@ -719,18 +719,62 @@ first one strictly outside the target block), tag-with-params
 payload routing for same-function dispatch (loader emits cell-wise
 src offsets after THROW + records per-catch cell-wise dst offsets;
 runtime walker copies `frame_lp[dst[c]] = frame_lp[src[c]]` on
-match), and result-typed try-region COPY-at-CATCH alignment (loader
+match), result-typed try-region COPY-at-CATCH alignment (loader
 injects an EXT_OP_COPY_STACK_TOP before each CATCH/CATCH_ALL label
 so the normal-flow path deposits the try body's last value at
 `block->dynamic_offset`; mirror of `WASM_OP_ELSE`'s
 reserve_block_ret call, plus a polymorphic-flag reset on the catch
 block that closes a latent IR-alignment bug from
-`check_block_stack`'s POP_OFFSET_TYPE emit). `workloads/graphql-
-validation-porf-accurate.wasm` runs end-to-end at ~15.6 ms median
-(slight improvement from 17.3 ms; no regression on AS / porf-fast
-either). The nine committed patches now live in
-`patches/wasm-micro-runtime/` as `0001-…` through `0009-…`,
-applied on top of the upstream pin `cd390ea0`.
+`check_block_stack`'s POP_OFFSET_TYPE emit), a loader-side
+LOG_WARNING for br/br_if/br_table that crosses try-region
+boundaries, `__builtin_expect` cold-path hints on the four trap
+checks in CALL_INDIRECT, and a `test_wamr.sh` change that opens
+the legacy-EH spec test suite to fast-interp builds (previously
+classic-only). `workloads/graphql-validation-porf-accurate.wasm`
+runs end-to-end at ~15.6 ms median (slight improvement from
+17.3 ms; no regression on AS / porf-fast either). The 12
+committed patches live in `patches/wasm-micro-runtime/` as
+`0001-…` through `0012-…`, applied on top of the upstream pin
+`cd390ea0`.
+
+**Maintainer-feedback audit (2026-05-18)** anticipated and applied:
+
+  * Full `clang-format-14` pass against `cd390ea0..HEAD` —
+    reformatted per-commit so each patch in the series is style-
+    clean (CI script
+    `wasm-micro-runtime/ci/coding_guidelines_check.py` invokes
+    `git-clang-format-14 --diff <base> <head>`).
+  * `set_error_buf` strings reworded to drop the `fast-interp:`
+    prefix in `wasm_loader.c` (WAMR convention is bare lower-case
+    sentences; the runtime mode is implicit from the surrounding
+    `#if WASM_ENABLE_FAST_INTERP != 0` guard).
+  * `tests/wamr-test-suites/test_wamr.sh` EH gate extended from
+    `classic-interp` only to `classic-interp || fast-interp`,
+    matching the parallel `ENABLE_GC` block a few lines down.
+  * `bh_assert` vs `set_error_buf` discipline audited — all
+    `bh_assert` calls in the loader diff are loader-internal
+    invariants (pass-1 vs pass-2 counts, csp_num > 0 at opcode
+    handlers reached only inside a try-block); user-decoded
+    LEB depths in RETHROW / DELEGATE already use
+    `set_error_buf + goto fail` for out-of-range checks.
+  * Conditional-compilation guards in `wasm.h` follow the
+    `WASM_ENABLE_EXCE_HANDLING` outer / `WASM_ENABLE_FAST_INTERP`
+    inner ordering used by the rest of WAMR.
+  * `AOT_CURRENT_VERSION` bump verified unnecessary — `grep`
+    confirms no AOT serialization path references the new
+    `WASMFunction::exception_handlers` field.
+  * CODEOWNERS reviewer set known (`@loganek @lum1n0us @no1wudi
+    @TianlongLiang @yamt`); `@yamt` authored classic-interp EH
+    originally and is likely the deepest reviewer.
+
+Remaining items expected from maintainers but **not** in this
+patch series: a gtest-based unit-test target in
+`tests/unit/exception-handling/` that exercises throw/catch
+under `WAMR_BUILD_FAST_INTERP=1`. The external integration
+suite at `crates/benchmark-core/tests/eh_correctness.rs` covers
+60+ cases more thoroughly than would fit in a single gtest
+file; the spec-test-suite gating change above is the in-tree
+test contribution.
 
 The runtime eh-stack entry is `EH_ENTRY_CELLS = 2` cells wide as of
 commit 5. Cell 0 packs `eh_idx | EH_TRY_CATCH_STATE_BIT`; cell 1

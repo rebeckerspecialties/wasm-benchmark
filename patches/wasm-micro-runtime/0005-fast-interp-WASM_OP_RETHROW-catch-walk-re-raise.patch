@@ -1,7 +1,7 @@
-From 334f642ca0f043e2b462ea6ba8dbdd47c810050b Mon Sep 17 00:00:00 2001
+From 683a9dbee72cb7777bfd291e233ff469ce3d1949 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 20:57:10 -0700
-Subject: [PATCH 05/11] fast-interp: WASM_OP_RETHROW catch-walk re-raise
+Subject: [PATCH 05/12] fast-interp: WASM_OP_RETHROW catch-walk re-raise
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -62,12 +62,12 @@ Verified by three new cases in
     overlap the prior commit's range within run-to-run variance
     (three runs each).
 ---
- core/iwasm/interpreter/wasm_interp_fast.c | 124 ++++++++++++++++------
- core/iwasm/interpreter/wasm_loader.c      |  57 +++++++---
- 2 files changed, 135 insertions(+), 46 deletions(-)
+ core/iwasm/interpreter/wasm_interp_fast.c | 120 ++++++++++++++++------
+ core/iwasm/interpreter/wasm_loader.c      |  55 +++++++---
+ 2 files changed, 130 insertions(+), 45 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 9b19104c..c59d8df2 100644
+index f8167fea..0f13d93f 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -103,15 +103,18 @@ typedef float64 CellType_F64;
@@ -97,40 +97,39 @@ index 9b19104c..c59d8df2 100644
  #endif
  
  static inline uint32
-@@ -1905,7 +1908,8 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
-                     + cur_wasm_func->max_stack_cell_num;
-                 uint32 i;
-                 for (i = frame->eh_count; i > 0; i--) {
--                    uint32 packed = eh_stack[i - 1];
-+                    uint32 *cells = eh_stack + (i - 1) * EH_ENTRY_CELLS;
-+                    uint32 packed = cells[0];
-                     uint32 eh_idx;
-                     WASMFastEHEntry *entry;
-                     uint32 j;
-@@ -1917,14 +1921,19 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
-                     for (j = 0; j < entry->catch_count; j++) {
-                         if (entry->catches[j].tag_index
-                             == exception_tag_index) {
--                            eh_stack[i - 1] =
--                                packed | EH_TRY_CATCH_STATE_BIT;
-+                            /* Mark the entry as in-progress catch and
-+                             * stash the tag that's being handled so a
-+                             * RETHROW from this catch body can re-
-+                             * raise it. */
-+                            cells[0] = packed | EH_TRY_CATCH_STATE_BIT;
-+                            cells[1] = exception_tag_index;
-                             frame_ip = entry->catches[j].handler_pc;
-                             HANDLE_OP_END();
-                         }
-                     }
-                     if (entry->catch_all_pc) {
+@@ -1904,7 +1907,8 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                                + cur_wasm_func->max_stack_cell_num;
+             uint32 i;
+             for (i = frame->eh_count; i > 0; i--) {
+-                uint32 packed = eh_stack[i - 1];
++                uint32 *cells = eh_stack + (i - 1) * EH_ENTRY_CELLS;
++                uint32 packed = cells[0];
+                 uint32 eh_idx;
+                 WASMFastEHEntry *entry;
+                 uint32 j;
+@@ -1915,13 +1919,19 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                 entry = &cur_wasm_func->exception_handlers[eh_idx];
+                 for (j = 0; j < entry->catch_count; j++) {
+                     if (entry->catches[j].tag_index == exception_tag_index) {
 -                        eh_stack[i - 1] = packed | EH_TRY_CATCH_STATE_BIT;
++                        /* Mark the entry as in-progress catch and
++                         * stash the tag that's being handled so a
++                         * RETHROW from this catch body can re-
++                         * raise it. */
 +                        cells[0] = packed | EH_TRY_CATCH_STATE_BIT;
 +                        cells[1] = exception_tag_index;
-                         frame_ip = entry->catch_all_pc;
+                         frame_ip = entry->catches[j].handler_pc;
                          HANDLE_OP_END();
                      }
-@@ -1955,14 +1964,18 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                 }
+                 if (entry->catch_all_pc) {
+-                    eh_stack[i - 1] = packed | EH_TRY_CATCH_STATE_BIT;
++                    cells[0] = packed | EH_TRY_CATCH_STATE_BIT;
++                    cells[1] = exception_tag_index;
+                     frame_ip = entry->catch_all_pc;
+                     HANDLE_OP_END();
+                 }
+@@ -1951,14 +1961,18 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
              {
                  /* Loader emits `WASM_OP_TRY <eh_idx:u32>`. Push one
                   * entry onto the per-frame eh-stack so subsequent
@@ -154,9 +153,9 @@ index 9b19104c..c59d8df2 100644
 +                 * cold path; CALL / LOAD / STORE are untouched. */
                  uint32 eh_idx = read_uint32(frame_ip);
                  WASMFunction *cur_wasm_func = cur_func->u.func;
-                 uint32 *eh_stack =
-@@ -1971,7 +1984,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
-                     + cur_wasm_func->max_stack_cell_num;
+                 uint32 *eh_stack = frame_lp + cur_func->param_cell_num
+@@ -1966,7 +1980,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                                    + cur_wasm_func->max_stack_cell_num;
                  bh_assert(frame->eh_count
                            < cur_wasm_func->exception_handler_count);
 -                eh_stack[frame->eh_count] = eh_idx;
@@ -164,7 +163,7 @@ index 9b19104c..c59d8df2 100644
                  frame->eh_count++;
                  HANDLE_OP_END();
              }
-@@ -2003,17 +2016,60 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -1998,17 +2012,57 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
              }
  
              HANDLE_OP(WASM_OP_RETHROW)
@@ -181,15 +180,13 @@ index 9b19104c..c59d8df2 100644
 +                 * untouched. */
 +                uint32 depth = read_uint32(frame_ip);
 +                WASMFunction *cur_wasm_func = cur_func->u.func;
-+                uint32 *eh_stack =
-+                    frame_lp + cur_func->param_cell_num
-+                    + cur_func->local_cell_num
-+                    + cur_wasm_func->max_stack_cell_num;
++                uint32 *eh_stack = frame_lp + cur_func->param_cell_num
++                                   + cur_func->local_cell_num
++                                   + cur_wasm_func->max_stack_cell_num;
 +                uint32 i;
 +                uint32 catch_seen = 0;
 +                for (i = frame->eh_count; i > 0; i--) {
-+                    uint32 *cells =
-+                        eh_stack + (i - 1) * EH_ENTRY_CELLS;
++                    uint32 *cells = eh_stack + (i - 1) * EH_ENTRY_CELLS;
 +                    if (!(cells[0] & EH_TRY_CATCH_STATE_BIT))
 +                        continue;
 +                    if (catch_seen == depth) {
@@ -206,8 +203,7 @@ index 9b19104c..c59d8df2 100644
 +                 * if we got here the eh-stack is inconsistent with
 +                 * the IR (typically a runtime bug in the loader's
 +                 * eh-table population). */
-+                wasm_set_exception(module,
-+                                   "rethrow depth out of range");
++                wasm_set_exception(module, "rethrow depth out of range");
 +                goto got_exception;
 +            }
 +
@@ -232,7 +228,7 @@ index 9b19104c..c59d8df2 100644
                  wasm_set_exception(module, "unsupported opcode");
                  goto got_exception;
              }
-@@ -7928,13 +7984,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7923,13 +7977,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                  cur_func->param_cell_num + cur_func->local_cell_num;
  #endif
  #if WASM_ENABLE_EXCE_HANDLING != 0
@@ -250,16 +246,16 @@ index 9b19104c..c59d8df2 100644
 +             * cells. Mirrors classic-interp's eh_size accounting at
 +             * wasm_interp_classic.c:6786 (which also stores per-
 +             * handler pointers on the value stack). */
-+            all_cell_num += cur_wasm_func->exception_handler_count
-+                            * EH_ENTRY_CELLS;
++            all_cell_num +=
++                cur_wasm_func->exception_handler_count * EH_ENTRY_CELLS;
  #endif
              /* param_cell_num, local_cell_num, const_cell_num and
                 max_stack_cell_num are all no larger than UINT16_MAX (checked
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 69145d41..609f1eb2 100644
+index cef9db11..9ef6603d 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12557,21 +12557,52 @@ re_scan:
+@@ -12555,21 +12555,50 @@ re_scan:
              }
              case WASM_OP_RETHROW:
              {
@@ -305,11 +301,9 @@ index 69145d41..609f1eb2 100644
 +#endif
 +                        goto fail;
 +                    }
-+                    target_block =
-+                        loader_ctx->frame_csp - rethrow_depth - 1;
++                    target_block = loader_ctx->frame_csp - rethrow_depth - 1;
 +                    if (target_block->label_type != LABEL_TYPE_CATCH
-+                        && target_block->label_type
-+                               != LABEL_TYPE_CATCH_ALL) {
++                        && target_block->label_type != LABEL_TYPE_CATCH_ALL) {
 +                        /* trap according to spectest (rethrow.wast) */
 +                        set_error_buf(error_buf, error_buf_size,
 +                                      "invalid rethrow label");
