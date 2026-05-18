@@ -704,10 +704,10 @@ structural disadvantage.
 
 ### Open follow-up — WAMR fast-interp legacy exception handling (full spec)
 
-**Status (2026-05-17 late-EOD)**: throw-only legacy EH landed in
+**Status (2026-05-18)**: throw-only legacy EH landed in
 [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
 Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1
-through 8** of the full-spec successor — loader EH metadata table,
+through 9** of the full-spec successor — loader EH metadata table,
 runtime EH-frame stack push/pop, WASM_OP_THROW catch-walk with the
 return_func exception hook, WASM_OP_RETHROW re-raise via per-entry
 caught-tag storage, WASM_OP_DELEGATE forward-to-outer dispatch
@@ -715,14 +715,21 @@ caught-tag storage, WASM_OP_DELEGATE forward-to-outer dispatch
 try and the target block → `delegate_target_depth = delta`; runtime
 walker reads `delta` off the eh-table entry and does
 `i -= delta; continue` so the next eh-stack entry examined is the
-first one strictly outside the target block), and tag-with-params
+first one strictly outside the target block), tag-with-params
 payload routing for same-function dispatch (loader emits cell-wise
 src offsets after THROW + records per-catch cell-wise dst offsets;
 runtime walker copies `frame_lp[dst[c]] = frame_lp[src[c]]` on
-match). `workloads/graphql-validation-porf-accurate.wasm` runs
-end-to-end at ~17.3 ms median (no regression on AS / porf-fast
-either). The eight committed patches now live in
-`patches/wasm-micro-runtime/` as `0001-…` through `0008-…`,
+match), and result-typed try-region COPY-at-CATCH alignment (loader
+injects an EXT_OP_COPY_STACK_TOP before each CATCH/CATCH_ALL label
+so the normal-flow path deposits the try body's last value at
+`block->dynamic_offset`; mirror of `WASM_OP_ELSE`'s
+reserve_block_ret call, plus a polymorphic-flag reset on the catch
+block that closes a latent IR-alignment bug from
+`check_block_stack`'s POP_OFFSET_TYPE emit). `workloads/graphql-
+validation-porf-accurate.wasm` runs end-to-end at ~15.6 ms median
+(slight improvement from 17.3 ms; no regression on AS / porf-fast
+either). The nine committed patches now live in
+`patches/wasm-micro-runtime/` as `0001-…` through `0009-…`,
 applied on top of the upstream pin `cd390ea0`.
 
 The runtime eh-stack entry is `EH_ENTRY_CELLS = 2` cells wide as of
@@ -825,7 +832,7 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 47 integration-test cases (45 active + 2
+**Test infrastructure**: 53 integration-test cases (51 active + 2
 ignored placeholders for known gaps) in
 [`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs).
 The active suite covers same-function dispatch (typed catch /

@@ -188,6 +188,36 @@ impl Module {
         }
         Ok(argv[0] as i32)
     }
+
+    /// Call an export `fn() -> i64`. Same shape as `call_i32` but
+    /// wires through the 2-slot WAMR `argv` (low u32 in argv[0],
+    /// high in argv[1]) per WAMR's ABI for multi-cell return
+    /// values via `wasm_runtime_call_wasm`.
+    fn call_i64(&self, name: &str) -> Result<i64> {
+        unsafe { wasm_runtime_clear_exception(self.inst) };
+        let cn = CString::new(name)?;
+        let f = unsafe { wasm_runtime_lookup_function(self.inst, cn.as_ptr()) };
+        if f.is_null() {
+            return Err(anyhow!("export `{name}` not found"));
+        }
+        let mut argv = [0u32; 2];
+        let ok =
+            unsafe { wasm_runtime_call_wasm(self.exec, f, 0, argv.as_mut_ptr()) };
+        if !ok {
+            let p = unsafe { wasm_runtime_get_exception(self.inst) };
+            let m = if p.is_null() {
+                "(no exception text)".to_string()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(p) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            return Err(anyhow!("trap: {m}"));
+        }
+        let lo = argv[0] as u64;
+        let hi = argv[1] as u64;
+        Ok((lo | (hi << 32)) as i64)
+    }
 }
 
 impl Drop for Module {
@@ -1046,7 +1076,11 @@ fn multiple_catches_with_params_pick_by_tag() {
       i32.const 13
       throw $b           ;; matches the (param i32 i32) catch
     catch $a
-      i32.const 999      ;; should not fire
+      ;; should not fire — drop the would-be param so the void
+      ;; try-region's check_block_stack at the catch-to-catch
+      ;; transition sees a balanced stack
+      drop
+      i32.const 999
       global.set $g
     catch $b
       i32.add
@@ -1754,4 +1788,153 @@ fn many_tags_match_by_index() {
     )
     .unwrap();
     assert_eq!(m.call_i32("throws_3").unwrap(), 103);
+}
+
+/* ------------------------------------------------------------------ */
+/* Result-typed try-regions — `try (result T)` and `try (result T)... */
+/* catch ... end` deposit each body's value at the block's            */
+/* dynamic_offset slot. Loader injects a COPY at every CATCH /         */
+/* CATCH_ALL transition (and the existing END handler emits the       */
+/* final body's COPY).                                                */
+/* ------------------------------------------------------------------ */
+
+/// Try-region with i32 result, try body completes normally. The
+/// catch never fires, but the loader still has to align the try
+/// body's last value with the block's result slot. Tests the
+/// loader-side COPY-at-CATCH emit for the normal-flow path.
+#[test]
+fn try_result_i32_no_throw() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (func (export "t") (result i32)
+    try (result i32)
+      i32.const 7
+    catch $err
+      drop
+      i32.const 11
+    end))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 7);
+}
+
+/// Same shape but the try body throws — catch body's result
+/// (consumed-param then re-push) reaches the function return.
+/// Tests the throw-dispatch path through the catch body's END
+/// COPY.
+#[test]
+fn try_result_i32_with_throw() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (func (export "t") (result i32)
+    try (result i32)
+      i32.const 99
+      throw $err
+    catch $err
+      ;; catch param i32 already on stack; pass through
+    end))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 99);
+}
+
+/// i64 result — exercises the 2-cell COPY (EXT_OP_COPY_STACK_TOP_I64).
+#[test]
+fn try_result_i64_no_throw() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (func (export "t") (result i64)
+    try (result i64)
+      i64.const 0x1234_5678_9abc_def0
+    catch $err
+      i64.const 0
+    end))
+"#,
+    )
+    .unwrap();
+    let v = m.call_i64("t").unwrap();
+    assert_eq!(v, 0x1234_5678_9abc_def0u64 as i64);
+}
+
+/// Multiple catches with i32 result — only the second catch
+/// fires (throws $b). Each catch transition has to emit its own
+/// COPY for the previous body's last value, so the dst slot
+/// converges no matter which path runs.
+#[test]
+fn try_result_i32_multi_catch() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $a (param i32))
+  (tag $b (param i32))
+  (func (export "t") (result i32)
+    try (result i32)
+      i32.const 1
+      throw $b
+    catch $a
+      ;; param $a on stack — should NOT fire
+    catch $b
+      ;; param $b on stack — pass through (= 1)
+    end))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 1);
+}
+
+/// Try-result with catch_all — the all-catch fallback receives
+/// no params, so the body must push its own i32 result.
+#[test]
+fn try_result_i32_catch_all() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (func (export "t") (result i32)
+    try (result i32)
+      throw $err
+    catch_all
+      i32.const 33
+    end))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 33);
+}
+
+/// Try-result inside a function with locals — verifies the
+/// loader's `dynamic_offset` slot allocation interacts cleanly
+/// with the existing local-slot range (no aliasing with locals
+/// 0..N-1).
+#[test]
+fn try_result_with_locals() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (func (export "t") (result i32) (local $x i32) (local $y i32)
+    i32.const 10
+    local.set $x
+    i32.const 20
+    local.set $y
+    try (result i32)
+      local.get $x
+      local.get $y
+      i32.add
+    catch $err
+      drop
+      i32.const 0
+    end))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 30);
 }

@@ -1,7 +1,7 @@
 From 15ffa409abadbc4868334321d12f6be0679f94ae Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 16:54:29 -0700
-Subject: [PATCH 3/8] fast-interp: runtime EH-frame stack + TRY push / END(try)
+Subject: [PATCH 3/9] fast-interp: runtime EH-frame stack + TRY push / END(try)
  pop
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -379,5 +379,5 @@ index 769a715e..0e15dac6 100644
                  if (loader_ctx->csp_num > 0) {
                      loader_ctx->frame_csp->end_addr = p - 1;
 -- 
-2.54.0
+2.50.1 (Apple Git-155)
 
