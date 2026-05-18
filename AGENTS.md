@@ -869,7 +869,25 @@ commit from 3 onward, including with commit-5's
 `EH_ENTRY_CELLS = 2` allocation bump. Hot-op invariants verified:
 basic non-EH workloads (fib, sieve, crc32, matmul, convolution)
 match Pulley within ±50 % each direction with WAMR generally
-faster on dispatch-heavy patterns, unchanged by commits 1-5.
+faster on dispatch-heavy patterns, unchanged by commits 1-8.
+
+**PMU baseline (local macOS, Apple Silicon — 2026-05-18)**:
+xctrace `CPU Counters` template, 12 s P-core window via the
+`crates/benchmark-core/src/bin/pmu_wamr.rs` driver. porf-accurate
+matches porf to within 0.5 pp on every 4-bucket share (Useful
+33.35% vs 33.21%, Processing 50.04% vs 49.87%, Delivery 9.66%
+vs 9.99%, Discarded 6.95% vs 6.93%) — confirms commits 6-8 add
+zero measurable hot-op cost. `Delivery` is the L1-I / frontend
+stall proxy; `Discarded` is the branch-mispredict / bad-spec
+proxy. ASan + UBSan rebuild of WAMR (`-fsanitize=address,
+undefined -fno-sanitize=alignment`) ran clean on porf-accurate
+load + a handcrafted EH smoke wasm covering single-i32 /
+multi-cell i64 tags / 3-level delegate / rethrow-with-payload /
+catch_all-drops-payload / 51-frame recursive throw+rethrow.
+Pre-existing alignment warnings remain — they're WAMR's
+intentional unaligned-IR shape under
+`WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0` and aren't
+addressed here. Full summary: `out/eh-pmu-2026-05-18.md`.
 
 **Wat parser caveats** worth remembering when extending the suite:
 
