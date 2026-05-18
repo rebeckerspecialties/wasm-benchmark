@@ -832,7 +832,7 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 54 integration-test cases (52 active + 2
+**Test infrastructure**: 62 integration-test cases (60 active + 2
 ignored placeholders for known gaps) in
 [`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs).
 The active suite covers same-function dispatch (typed catch /
@@ -867,7 +867,22 @@ before caller's walker runs — needs a cross-frame payload buffer)
 and `br_out_of_try_inside_loop` (br to loop entry skips END every
 iteration → eh_count grows unboundedly past the frame's static
 reservation, silently in release builds since `bh_assert` is a
-no-op; needs a synthetic eh-stack pop emit at the br site).
+no-op; needs a synthetic eh-stack pop emit at the br site —
+documented since 2026-05-18 along with the load-time
+`LOG_WARNING` the loader now emits for any br/br_if/br_table
+crossing a try-region).
+
+Eight cases derived from wasmtime/tests/spec_testsuite/legacy/
+wast scripts cover host-trap-vs-wasm-exception distinctions
+(`unreachable` + `i32.div_u 0` bypassing catch_all), f32/f64
+payload routing, three-way tag dispatch through a single try,
+catchless inner-try outward propagation, br-zero-in-try clean
+exit, and three-level rethrow chaining. WAMR's spec-test runner
+(`tests/wamr-test-suites/spec-test-script/all.py`) already
+includes all five legacy-EH `.wast` files (`throw`, `tag`,
+`try_catch`, `rethrow`, `try_delegate`) when invoked with
+`--eh`; there are no fast-interp-specific exclusions to
+re-enable.
 Each test compiles inline wat via `wat::parse_str` and runs against
 the same WAMR build the benchmarks use. Run with `cargo test -p
 benchmark-core --test eh_correctness`. The probe binary

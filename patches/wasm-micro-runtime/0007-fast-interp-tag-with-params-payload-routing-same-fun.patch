@@ -1,7 +1,7 @@
 From 5dbf0576e5a6669b0c29270eb39005056295ad27 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 22:48:18 -0700
-Subject: [PATCH 7/9] fast-interp: tag-with-params payload routing
+Subject: [PATCH 07/10] fast-interp: tag-with-params payload routing
  (same-function dispatch)
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

@@ -1,7 +1,7 @@
 From 7994f234e861cbe054f8c8a3f0f2e27429b54d1f Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 23:30:11 -0700
-Subject: [PATCH 8/9] fast-interp: tag-with-params loader bug-fix pass
+Subject: [PATCH 08/10] fast-interp: tag-with-params loader bug-fix pass
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit

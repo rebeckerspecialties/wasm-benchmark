@@ -1,7 +1,7 @@
 From 334f642ca0f043e2b462ea6ba8dbdd47c810050b Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 20:57:10 -0700
-Subject: [PATCH 5/9] fast-interp: WASM_OP_RETHROW catch-walk re-raise
+Subject: [PATCH 05/10] fast-interp: WASM_OP_RETHROW catch-walk re-raise
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
