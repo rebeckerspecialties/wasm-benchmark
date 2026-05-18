@@ -706,15 +706,23 @@ structural disadvantage.
 
 **Status (2026-05-17 late-EOD)**: throw-only legacy EH landed in
 [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
-Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1 + 2 +
-3** of the full-spec successor — loader EH metadata table + runtime
-EH-frame stack push/pop + WASM_OP_THROW catch-walk with the
-return_func exception hook. `workloads/graphql-validation-porf-
+Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1
+through 5** of the full-spec successor — loader EH metadata table,
+runtime EH-frame stack push/pop, WASM_OP_THROW catch-walk with the
+return_func exception hook, and WASM_OP_RETHROW re-raise via per-
+entry caught-tag storage. `workloads/graphql-validation-porf-
 accurate.wasm` runs end-to-end at ~11.3 ms median (no regression on
-AS / porf-fast either). The three committed patches now live in
-`patches/wasm-micro-runtime/` as `0002-…`, `0003-…`, and `0004-…`,
-applied on top of the throw-only `0001-…` and the upstream pin
-`cd390ea0`.
+AS / porf-fast either). The five committed patches now live in
+`patches/wasm-micro-runtime/` as `0001-…` through `0005-…`, applied
+on top of the upstream pin `cd390ea0`.
+
+The runtime eh-stack entry is `EH_ENTRY_CELLS = 2` cells wide as of
+commit 5. Cell 0 packs `eh_idx | EH_TRY_CATCH_STATE_BIT`; cell 1
+holds the wasm tag index of the exception currently being handled
+on that entry — undefined while the entry is in TRY state, written
+by the throw walker on catch dispatch, read by RETHROW. Frame
+allocation grows by `exception_handler_count * 2` cells per call;
+functions without try blocks still pay zero cells.
 
 **Throw-firing correctness verified** via
 `crates/benchmark-core/src/bin/probe_eh_void.rs` driving
@@ -808,7 +816,7 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 20 integration-test cases in
+**Test infrastructure**: 23 integration-test cases in
 [`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs)
 cover same-function dispatch (typed catch / catch_all / no-throw
 fall-through), inter-function unwind (3+ frame chains, deep
@@ -816,12 +824,13 @@ recursion to 50), nested try-regions (2 + 3 levels), throw-inside-
 catch outward propagation, multiple catches with tag matching,
 catch_all-as-fallback, uncaught throws, try-inside-loop/if, sequential
 try-regions in one function, repeated invocation of a try-bearing
-function, and a 6-tag stress check. Each test compiles inline wat
-via `wat::parse_str` and runs against the same WAMR build the
-benchmarks use. Run with `cargo test -p benchmark-core --test
-eh_correctness`. The probe binary
-`crates/benchmark-core/src/bin/probe_eh_void.rs` is retained as a
-faster smoke check.
+function, a 6-tag stress check, and three `rethrow` cases (depth 0
+in-frame, depth 1 across nested catches, tag-preservation across
+rethrow). Each test compiles inline wat via `wat::parse_str` and
+runs against the same WAMR build the benchmarks use. Run with
+`cargo test -p benchmark-core --test eh_correctness`. The probe
+binary `crates/benchmark-core/src/bin/probe_eh_void.rs` is retained
+as a faster smoke check.
 
 **Wat parser caveats** worth remembering when extending the suite:
 

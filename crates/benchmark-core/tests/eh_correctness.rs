@@ -84,54 +84,6 @@ fn ensure_init() {
     });
 }
 
-/// Skip every "custom" section (id 0) in `raw` and return a new
-/// wasm byte buffer holding only the remaining sections. Wasm section
-/// framing is `[id:u8][size:uleb128][body]`; the header (magic +
-/// version, 8 bytes) is forwarded verbatim.
-fn strip_custom_sections(raw: &[u8]) -> Result<Vec<u8>> {
-    if raw.len() < 8 || &raw[..4] != b"\x00asm" {
-        return Err(anyhow!("not a wasm binary"));
-    }
-    let mut out = Vec::with_capacity(raw.len());
-    out.extend_from_slice(&raw[..8]);
-    let mut i = 8;
-    while i < raw.len() {
-        let section_start = i;
-        let id = raw[i];
-        i += 1;
-        // ULEB128 decode of section size
-        let mut size: u32 = 0;
-        let mut shift = 0;
-        loop {
-            if i >= raw.len() {
-                return Err(anyhow!("truncated wasm at section size"));
-            }
-            let b = raw[i];
-            i += 1;
-            size |= ((b & 0x7f) as u32) << shift;
-            if b & 0x80 == 0 {
-                break;
-            }
-            shift += 7;
-            if shift > 28 {
-                return Err(anyhow!("section size LEB too long"));
-            }
-        }
-        let body_end = i
-            .checked_add(size as usize)
-            .ok_or_else(|| anyhow!("section size overflow"))?;
-        if body_end > raw.len() {
-            return Err(anyhow!("section runs past end of wasm"));
-        }
-        if id != 0 {
-            // Forward the full framed section verbatim.
-            out.extend_from_slice(&raw[section_start..body_end]);
-        }
-        i = body_end;
-    }
-    Ok(out)
-}
-
 struct Module {
     // Owned wasm bytes — WAMR's `wasm_runtime_load` keeps a pointer
     // into this buffer for the lifetime of the module rather than
@@ -146,16 +98,8 @@ struct Module {
 impl Module {
     fn from_wat(wat_src: &str) -> Result<Self> {
         ensure_init();
-        let raw =
+        let mut bytes =
             wat::parse_str(wat_src).map_err(|e| anyhow!("wat parse failed: {e}"))?;
-        // Strip custom sections (section id 0). `wat::parse_str` emits
-        // a `name` custom section by default; WAMR's loader appears to
-        // silently mis-register exports on modules carrying that
-        // section in this build configuration (the module pointer is
-        // non-null but every export lookup returns NULL). Stripping
-        // all custom sections sidesteps the problem and matches what
-        // `wat2wasm` produces without `--debug-names`.
-        let mut bytes = strip_custom_sections(&raw)?;
         let mut err = [0i8; 256];
         let module = unsafe {
             wasm_runtime_load(
@@ -827,6 +771,131 @@ fn try_function_called_multiple_times() {
     )
     .unwrap();
     assert_eq!(m.call_i32("t").unwrap(), 5);
+}
+
+/* ------------------------------------------------------------------ */
+/* Stress: many tags, many try-regions across a module.               */
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* RETHROW.                                                            */
+/* ------------------------------------------------------------------ */
+
+/// rethrow 0 — re-raise the immediately-enclosing catch's tag. The
+/// re-raise propagates outward and the outer catch sees the same tag.
+#[test]
+fn rethrow_depth_zero() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $a)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        throw $a
+      catch $a
+        i32.const 1
+        global.set $g
+        rethrow 0
+      end
+    catch $a
+      global.get $g
+      i32.const 10
+      i32.add
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    // inner catch sets g=1, then rethrow; outer catch fires (g += 10 → 11).
+    assert_eq!(m.call_i32("t").unwrap(), 11);
+}
+
+/// rethrow preserves the tag (an outer catch_all WOULD also match,
+/// but we verify the right typed catch fires).
+#[test]
+fn rethrow_preserves_tag() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $a)
+  (tag $b)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        throw $b
+      catch $a
+        i32.const 100
+        global.set $g
+      catch $b
+        i32.const 1
+        global.set $g
+        rethrow 0
+      end
+    catch $a
+      i32.const 200
+      global.set $g
+    catch $b
+      global.get $g
+      i32.const 10
+      i32.add
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    // inner catch $b fires (g=1), then rethrow $b;
+    // outer catch $b fires (g += 10 → 11).
+    assert_eq!(m.call_i32("t").unwrap(), 11);
+}
+
+/// rethrow with depth 1 — re-raise the tag caught by the *outer*
+/// catch from inside an inner catch body. Verifies the eh-stack walk
+/// correctly counts state=CATCH entries.
+#[test]
+fn rethrow_depth_one() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $a)
+  (tag $b)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        throw $a
+      catch $a
+        try
+          throw $b
+        catch $b
+          ;; depth 1: re-raise the outer-outer's caught tag ($a)
+          i32.const 1
+          global.set $g
+          rethrow 1
+        end
+      end
+    catch $a
+      global.get $g
+      i32.const 10
+      i32.add
+      global.set $g
+    catch $b
+      i32.const 999
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    // Innermost throws $b, caught by innermost; that body sets g=1
+    // and `rethrow 1` re-raises the tag from the depth-1 catch ($a).
+    // The outermost catch $a fires (g += 10 → 11). The outermost
+    // catch $b would set g=999; we verify $a wins.
+    assert_eq!(m.call_i32("t").unwrap(), 11);
 }
 
 /* ------------------------------------------------------------------ */
