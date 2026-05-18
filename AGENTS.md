@@ -832,7 +832,7 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 53 integration-test cases (51 active + 2
+**Test infrastructure**: 54 integration-test cases (52 active + 2
 ignored placeholders for known gaps) in
 [`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs).
 The active suite covers same-function dispatch (typed catch /
@@ -854,12 +854,20 @@ re-match an already-consumed outer catch), and eight tag-with-params
 cases (single i32 / i64 / mixed i32+i64, two i32s, multiple catches
 selected by signature, nested catches inheriting param values,
 rethrow-preserves-payload via the still-alive dst slots, catch_all-
-drops-payload, and repeated-throw-with-fresh-payload). Two
-`#[ignore]` cases document the remaining gaps as runnable tests
-that should pass once each follow-up lands:
+drops-payload, and repeated-throw-with-fresh-payload), six
+result-typed try-region cases (i32 + i64 no-throw, with-throw,
+multi-catch-pick-by-tag, catch_all fallback, mixed-with-locals),
+plus a simple `br_out_of_try_pops_eh_stack` case that passes
+without intervention (the per-frame eh-stack reservation +
+top-down walker iteration handle a single leaked entry naturally).
+Two `#[ignore]` cases document the remaining gaps as runnable
+tests that should pass once each follow-up lands:
 `cross_function_tag_with_params` (callee's source frame is freed
 before caller's walker runs — needs a cross-frame payload buffer)
-and `br_out_of_try_pops_eh_stack` (br across try-region boundary).
+and `br_out_of_try_inside_loop` (br to loop entry skips END every
+iteration → eh_count grows unboundedly past the frame's static
+reservation, silently in release builds since `bh_assert` is a
+no-op; needs a synthetic eh-stack pop emit at the br site).
 Each test compiles inline wat via `wat::parse_str` and runs against
 the same WAMR build the benchmarks use. Run with `cargo test -p
 benchmark-core --test eh_correctness`. The probe binary

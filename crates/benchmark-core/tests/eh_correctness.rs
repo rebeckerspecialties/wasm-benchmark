@@ -1552,20 +1552,26 @@ fn delegate_inside_catch_body_escapes() {
 }
 
 /* ------------------------------------------------------------------ */
-/* BR out of a try-region — known limitation flagged in AGENTS.md.    */
+/* BR out of a try-region.                                            */
 /* ------------------------------------------------------------------ */
 
-/// `br N` jumping out of a try-region — the eh-stack entry from
-/// the try-block's TRY needs to be popped before control leaves the
-/// region, otherwise a subsequent try-region in the same function
-/// inherits stale state. Currently the loader's `br` patches its
-/// target at the post-END position, bypassing the runtime END
-/// handler's pop. Documenting as a known limitation; commit 6
-/// would address by either (a) emitting a synthetic pop op before
-/// the br jump, or (b) patching `br N` to land on the END byte for
-/// EH targets so the pop runs there.
+/// `br N` out of a try-region leaks one eh-stack entry but does
+/// not corrupt subsequent behaviour: the per-frame eh-stack is
+/// allocated with `exception_handler_count * EH_ENTRY_CELLS`
+/// cells (covering every static try-block in the function), so a
+/// stale entry from a br-out still has room to live alongside
+/// any subsequent sibling try's push. The walker iterates from
+/// top down — `for (i = frame->eh_count; i > 0; i--)` — so a
+/// subsequent throw in a sibling try matches the *new* top entry
+/// before it sees the stale one. The stale entry then dies when
+/// the frame is freed at function return.
+///
+/// This is the simple case and runs clean. The pathological
+/// shape — `loop { try { br_to_loop_top } catch_all { } end }` —
+/// leaks one entry per iteration and would eventually need a
+/// synthetic eh-stack pop emit at the br site to stay correct;
+/// `br_out_of_try_inside_loop` documents that gap.
 #[test]
-#[ignore = "br across try-region boundary leaks eh-stack — see AGENTS.md follow-up"]
 fn br_out_of_try_pops_eh_stack() {
     let m = Module::from_wat(
         r#"
@@ -1595,6 +1601,49 @@ fn br_out_of_try_pops_eh_stack() {
     )
     .unwrap();
     assert_eq!(m.call_i32("t").unwrap(), 11);
+}
+
+/// `br` out of a try-region INSIDE A LOOP — each iteration would
+/// leak an eh-stack entry. After more iterations than the
+/// function's static `exception_handler_count`, the next TRY push
+/// would trip the `eh_count < exception_handler_count` assert.
+/// The fix requires a synthetic eh-stack pop emit at the br site.
+/// Currently **ignored** because this test would crash; lifting
+/// the ignore should be the litmus test for the loader fix.
+#[test]
+#[ignore = "br inside loop leaks eh-stack per iteration — needs synthetic pop emit at br site"]
+fn br_out_of_try_inside_loop() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32) (local $i i32)
+    block $exit
+      loop $body
+        try
+          local.get $i
+          i32.const 1
+          i32.add
+          local.set $i
+          local.get $i
+          i32.const 4
+          i32.ge_u
+          br_if $exit                ;; skip try-end after 4 iters
+          br $body                   ;; jump back to loop entry,
+                                     ;; also skipping try-end
+        catch $err
+          unreachable
+        end
+      end
+    end
+    local.get $i
+    global.set $g
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 4);
 }
 
 /* ------------------------------------------------------------------ */
