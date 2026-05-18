@@ -707,19 +707,23 @@ structural disadvantage.
 **Status (2026-05-17 late-EOD)**: throw-only legacy EH landed in
 [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
 Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1
-through 6** of the full-spec successor — loader EH metadata table,
+through 8** of the full-spec successor — loader EH metadata table,
 runtime EH-frame stack push/pop, WASM_OP_THROW catch-walk with the
 return_func exception hook, WASM_OP_RETHROW re-raise via per-entry
-caught-tag storage, and WASM_OP_DELEGATE forward-to-outer dispatch
+caught-tag storage, WASM_OP_DELEGATE forward-to-outer dispatch
 (loader counts try/catch/catch_all blocks between the delegate's
 try and the target block → `delegate_target_depth = delta`; runtime
 walker reads `delta` off the eh-table entry and does
 `i -= delta; continue` so the next eh-stack entry examined is the
-first one strictly outside the target block). `workloads/graphql-
-validation-porf-accurate.wasm` runs end-to-end at ~17.8 ms median
-(no regression on AS / porf-fast either). The six committed patches
-now live in `patches/wasm-micro-runtime/` as `0001-…` through
-`0006-…`, applied on top of the upstream pin `cd390ea0`.
+first one strictly outside the target block), and tag-with-params
+payload routing for same-function dispatch (loader emits cell-wise
+src offsets after THROW + records per-catch cell-wise dst offsets;
+runtime walker copies `frame_lp[dst[c]] = frame_lp[src[c]]` on
+match). `workloads/graphql-validation-porf-accurate.wasm` runs
+end-to-end at ~17.3 ms median (no regression on AS / porf-fast
+either). The eight committed patches now live in
+`patches/wasm-micro-runtime/` as `0001-…` through `0008-…`,
+applied on top of the upstream pin `cd390ea0`.
 
 The runtime eh-stack entry is `EH_ENTRY_CELLS = 2` cells wide as of
 commit 5. Cell 0 packs `eh_idx | EH_TRY_CATCH_STATE_BIT`; cell 1
@@ -821,7 +825,7 @@ next session doesn't relearn them):
      — see the `_bytes` field on
      `crates/benchmark-core/tests/eh_correctness.rs::Module`.
 
-**Test infrastructure**: 39 integration-test cases (36 active + 3
+**Test infrastructure**: 47 integration-test cases (45 active + 2
 ignored placeholders for known gaps) in
 [`crates/benchmark-core/tests/eh_correctness.rs`](crates/benchmark-core/tests/eh_correctness.rs).
 The active suite covers same-function dispatch (typed catch /
@@ -833,17 +837,22 @@ matching, catch_all-as-fallback, uncaught throws, try-inside-loop/
 if/catch-body, sequential try-regions in one function (10 and 32
 deep), repeated invocation of a try-bearing function, a 6-tag stress
 check, three `rethrow` cases (depth 0 in-frame, depth 1 across
-nested catches, tag-preservation across rethrow), and eight
+nested catches, tag-preservation across rethrow), eight
 `delegate` cases (basic forward, normal-flow eh-stack pop,
 forwarding through a non-try block, skipping a middle try-with-
 catches, forwarding to function-block-as-escape, callee-side
 delegate caught by caller's try, 3-level nested delegates, and
 catch-body-internal delegate that must escape rather than
-re-match an already-consumed outer catch). Three `#[ignore]`
-cases document the remaining gaps as runnable tests that should
-pass once each follow-up lands: `tag_single_i32_param` /
-`tag_two_i32_params` (tag-with-params walker copy), and
-`br_out_of_try_pops_eh_stack` (br across try-region boundary).
+re-match an already-consumed outer catch), and eight tag-with-params
+cases (single i32 / i64 / mixed i32+i64, two i32s, multiple catches
+selected by signature, nested catches inheriting param values,
+rethrow-preserves-payload via the still-alive dst slots, catch_all-
+drops-payload, and repeated-throw-with-fresh-payload). Two
+`#[ignore]` cases document the remaining gaps as runnable tests
+that should pass once each follow-up lands:
+`cross_function_tag_with_params` (callee's source frame is freed
+before caller's walker runs — needs a cross-frame payload buffer)
+and `br_out_of_try_pops_eh_stack` (br across try-region boundary).
 Each test compiles inline wat via `wat::parse_str` and runs against
 the same WAMR build the benchmarks use. Run with `cargo test -p
 benchmark-core --test eh_correctness`. The probe binary

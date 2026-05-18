@@ -1,7 +1,7 @@
 From d441aa95c791936ef353847943b55112ee2eaa17 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 01:59:16 -0700
-Subject: [PATCH 1/6] feat(interpreter): legacy exception handling (throw-only)
+Subject: [PATCH 1/8] feat(interpreter): legacy exception handling (throw-only)
  for fast-interp
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

@@ -903,16 +903,14 @@ fn rethrow_depth_one() {
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
-/* Tag-with-params (currently EXPECTED to fail).                       */
+/* Tag-with-params — payload routing from throw site to catch body.    */
 /* ------------------------------------------------------------------ */
 
-/// Tag with a single i32 param. `throw $err (i32.const 42)` should
-/// hand the value to the catch body's operand stack at entry; the
-/// catch then stores it via `local.set`. Currently the runtime
-/// walker doesn't propagate tag params, so the catch reads
-/// uninitialized stack — documenting the gap with `#[ignore]`.
+/// Tag with a single i32 param. `throw $err (i32.const 42)` hands
+/// the value to the catch body's operand stack at entry; the
+/// catch then stores it via `global.set`. Exercises the simplest
+/// payload-routing shape: 1 cell, same function, typed catch.
 #[test]
-#[ignore = "tag-with-params: walker doesn't yet copy params from throw site to catch body"]
 fn tag_single_i32_param() {
     let m = Module::from_wat(
         r#"
@@ -934,8 +932,10 @@ fn tag_single_i32_param() {
 }
 
 /// Tag with two i32 params — `throw $err (i32.const 10) (i32.const 32)`.
+/// Verifies the catch body sees the params in source order with
+/// the last-pushed on top of the operand stack (so `i32.add`
+/// computes 10+32=42).
 #[test]
-#[ignore = "tag-with-params: walker doesn't yet copy params from throw site to catch body"]
 fn tag_two_i32_params() {
     let m = Module::from_wat(
         r#"
@@ -953,6 +953,276 @@ fn tag_two_i32_params() {
       global.set $g
     end
     global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 42);
+}
+
+/// Tag with a single i64 param — exercises the 2-cell-per-param
+/// width handling. The loader records 2 cells in
+/// `param_cell_num`, the throw emits 2 src offsets, the catch
+/// allocates 2 dst slots, and the walker copies cell-wise.
+#[test]
+fn tag_single_i64_param() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i64))
+  (global $g (mut i64) (i64.const 0))
+  (func (export "t") (result i32)
+    try
+      i64.const 0x1234_5678_9abc_def0
+      throw $err
+    catch $err
+      global.set $g
+    end
+    global.get $g
+    i64.const 0x1234_5678_9abc_def0
+    i64.eq))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 1);
+}
+
+/// Tag with mixed i32 + i64 params — exercises the loader's
+/// per-param cell synthesis: the i64 occupies 2 consecutive
+/// cells in frame_lp but `wasm_loader_push_frame_offset` only
+/// writes a meaningful first-cell offset to `frame_offset[]`
+/// (the second cell entry is left uninitialized). The CATCH /
+/// THROW emits now reconstruct the consecutive cell offsets
+/// `(first, first+1)` per multi-cell param so the runtime
+/// walker copies the right cells. Test would fail if the copy
+/// ended up shifted by one cell.
+#[test]
+fn tag_mixed_i32_i64_params() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32 i64))
+  (global $gi (mut i32) (i32.const 0))
+  (global $gl (mut i64) (i64.const 0))
+  (func (export "t") (result i32)
+    try
+      i32.const 100
+      i64.const 0x7fff_ffff_ffff_ff00
+      throw $err
+    catch $err
+      ;; catch body sees [i32=100, i64=0x7fff...]. Pop the
+      ;; i64 first (top), then the i32.
+      global.set $gl
+      global.set $gi
+    end
+    global.get $gi
+    i32.const 100
+    i32.eq
+    global.get $gl
+    i64.const 0x7fff_ffff_ffff_ff00
+    i64.eq
+    i32.and))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 1);
+}
+
+/// Two catches with different tag signatures — the throw matches
+/// the second one, verifying that the loader correctly records
+/// per-catch param_cell_num / param_dst_offsets, and the walker
+/// picks the matching entry via tag_index, not by signature
+/// position.
+#[test]
+fn multiple_catches_with_params_pick_by_tag() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $a (param i32))
+  (tag $b (param i32 i32))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      i32.const 7
+      i32.const 13
+      throw $b           ;; matches the (param i32 i32) catch
+    catch $a
+      i32.const 999      ;; should not fire
+      global.set $g
+    catch $b
+      i32.add
+      global.set $g      ;; expected: 7 + 13 = 20
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 20);
+}
+
+/// Nested try-regions, both with tag-with-params catches. The
+/// inner catch handles the throw and its payload, then the
+/// outer try-region falls through with no exception. Verifies
+/// dst slots are per-catch (no cross-region aliasing).
+///
+/// The outer catch (which never runs) drops its incoming param
+/// before pushing 999 so the catch body's loader validation
+/// sees a balanced operand stack — the catch body's loader
+/// validation now correctly sees the tag's param on the operand
+/// stack at entry (was a latent bug; before tag-with-params
+/// support landed, the PUSH_TYPE-only code in CATCH let the
+/// param "slip past" loader validation).
+#[test]
+fn nested_try_with_params_inner_wins() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        i32.const 55
+        throw $err
+      catch $err
+        ;; inner catch fires; payload = 55
+        global.set $g
+      end
+      ;; falls through to outer try normal flow
+    catch $err
+      drop               ;; discard the would-be payload
+      i32.const 999      ;; never runs
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 55);
+}
+
+/// Rethrow with payload — outer catch sees the same payload the
+/// inner catch received. Exercises the RETHROW handler's
+/// `throw_src_offsets = match->param_dst_offsets` re-point: the
+/// inner catch's dst slots are read as the new src for the outer
+/// catch's copy.
+#[test]
+fn rethrow_preserves_payload() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        i32.const 88
+        throw $err
+      catch $err
+        ;; inner catch — pop and discard the payload, then
+        ;; rethrow. The original payload (88) lives in the
+        ;; inner catch's dst slots even though the operand
+        ;; stack consumed it; RETHROW reads from dst slots.
+        drop
+        rethrow 0
+      end
+    catch $err
+      ;; outer catch — expects the same payload (88).
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 88);
+}
+
+/// Catch_all with a thrown payload — the payload is dropped per
+/// spec ("catch_all has no exception values"). The catch_all
+/// body simply runs without seeing any params. This is the
+/// orthogonal case to `tag_single_i32_param`.
+#[test]
+fn catch_all_drops_payload() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      i32.const 42
+      throw $err
+    catch_all
+      ;; payload dropped; just observe that the catch fired.
+      i32.const 7
+      global.set $g
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    assert_eq!(m.call_i32("t").unwrap(), 7);
+}
+
+/// Try-region invoked repeatedly — the dst slots are reused
+/// each iteration (function entry doesn't reset the underlying
+/// frame_lp slots, but a fresh throw populates them anew). Acts
+/// as a smoke test for stale-payload bleed across invocations.
+#[test]
+fn repeated_throw_with_payload() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (func $once (param $v i32) (result i32)
+    try
+      local.get $v
+      throw $err
+    catch $err
+      ;; payload is on stack — return it
+      return
+    end
+    i32.const 0)
+  (func (export "t") (result i32)
+    i32.const 11
+    call $once
+    i32.const 22
+    call $once
+    i32.const 33
+    call $once
+    i32.add
+    i32.add))
+"#,
+    )
+    .unwrap();
+    /* 11 + 22 + 33 = 66 */
+    assert_eq!(m.call_i32("t").unwrap(), 66);
+}
+
+/// **Documented gap**: cross-function throw with payload. The
+/// callee's source slots are torn down by `return_func` before
+/// the caller's `find_a_catch_handler` runs, so the payload is
+/// silently dropped. The caller's catch still fires (the tag
+/// match works via `frame->tag_index`), but the operand stack
+/// at catch entry contains uninitialized garbage instead of the
+/// thrown values. Ignored until the cross-frame payload buffer
+/// design is in.
+#[test]
+#[ignore = "cross-function tag-with-params: callee's source frame is freed before caller's walker runs — see AGENTS.md"]
+fn cross_function_tag_with_params() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (func $inner
+    i32.const 42
+    throw $err)
+  (func (export "t") (result i32)
+    try
+      call $inner
+      i32.const 0
+    catch $err
+      ;; expects 42 on stack — currently sees garbage
+    end))
 "#,
     )
     .unwrap();

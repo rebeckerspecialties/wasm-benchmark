@@ -1,7 +1,7 @@
 From e7f527a6a54c5bd251370e8a3b10f2b8936dc586 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 20:01:58 -0700
-Subject: [PATCH 4/6] fast-interp: WASM_OP_THROW catch-walk + return_func
+Subject: [PATCH 4/8] fast-interp: WASM_OP_THROW catch-walk + return_func
  exception hook
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

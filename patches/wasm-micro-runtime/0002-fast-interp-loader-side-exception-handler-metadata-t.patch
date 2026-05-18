@@ -1,7 +1,7 @@
 From 5cc2ae2317db5f397e6d45f413d04c50526f9f55 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 16:19:31 -0700
-Subject: [PATCH 2/6] fast-interp: loader-side exception-handler metadata table
+Subject: [PATCH 2/8] fast-interp: loader-side exception-handler metadata table
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
