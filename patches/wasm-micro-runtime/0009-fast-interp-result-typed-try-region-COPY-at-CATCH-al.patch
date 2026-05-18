@@ -1,7 +1,7 @@
 From 1743fc0500e420302094ccbdaeea43b14b189b2c Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 08:50:15 -0700
-Subject: [PATCH 09/10] fast-interp: result-typed try-region COPY-at-CATCH
+Subject: [PATCH 09/11] fast-interp: result-typed try-region COPY-at-CATCH
  alignment
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

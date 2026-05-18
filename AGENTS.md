@@ -919,6 +919,43 @@ intentional unaligned-IR shape under
 `WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0` and aren't
 addressed here. Full summary: `out/eh-pmu-2026-05-18.md`.
 
+**iPhone 12 (A14, Icestorm E-core) PMU + optimization sweep —
+2026-05-18**: per-workload PMU via
+`scripts/run_per_workload_pmu.sh` (xctrace `CPU Counters`, 20 s
+attach window). Bucket shares on E-core (where the workload
+lives — P-core sample counts are too low to read):
+
+| workload | Useful | Processing | Delivery (L1-I) | Discarded (mispred) |
+|---|---:|---:|---:|---:|
+| Porffor (graphql-validation) | 34.31% | **56.78%** | 4.72% | 4.19% |
+| AS (graphql-validation)      | 40.15% | 7.97% | **24.66%** | **27.22%** |
+
+Porffor has NO L1 / prefetch / branch headroom on E-cores — the
+backend (`Processing`) is saturated by the dispatch loop's
+load chain (`int16 from IR → frame_lp address compute → uint32
+from frame_lp → ALU → store`), with `Delivery` and `Discarded`
+both already in the noise floor. Two attempted optimizations
+fell within run-to-run noise on both workloads' bucket shares:
+
+  1. `__builtin_prefetch(frame_ip + 2, 0, 3)` in
+     `EXT_OP_SET_LOCAL_FAST` (~3000 dispatches per Porffor
+     benchmark iteration). Hardware prefetcher already handles
+     sequential IR access. Reverted.
+  2. `__builtin_expect(cond, 0)` on the four bounds / null /
+     type-mismatch cold paths in `WASM_OP_CALL_INDIRECT`. Bucket
+     deltas: Porffor `Useful` 34.31% → 35.02% (+0.71 pp, in
+     noise); AS unchanged. Kept as documentation-as-code (commit
+     11 in feat/legacy-eh-fast-interp-full) — the cold-path
+     semantic is real (spec-required traps that ~never fire) and
+     the compile-time-only cost is zero.
+
+The bigger structural opportunities (op-fusion for Porffor's
+hot `local.get + binop + local.set` sequences; better
+indirect-branch helper for AS's megamorphic call_indirect) are
+architectural changes that would need a separate design pass —
+out of scope for this round. Full writeup with reproduce
+commands: `out/eh-pmu-iphone12-2026-05-18.md`.
+
 **Wat parser caveats** worth remembering when extending the suite:
 
   * Rust's `wast` parser only accepts the LINEAR `try / instr* /
