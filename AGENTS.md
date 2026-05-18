@@ -704,77 +704,97 @@ structural disadvantage.
 
 ### Open follow-up — WAMR fast-interp legacy exception handling (full spec)
 
-**Status (2026-05-17 EOD)**: throw-only legacy EH landed in
+**Status (2026-05-17 late-EOD)**: throw-only legacy EH landed in
 [rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1).
-Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1 + 2**
-of the full-spec successor (loader EH metadata table + runtime EH-
-frame stack push/pop). `workloads/graphql-validation-porf-accurate.wasm`
-runs end-to-end on the inputs we exercise (validation passes without
-hitting a throw inside the try body): result=0 in ~11.0 ms, matching
-porf-fast's 11.0 ms (no regression on AS / porf-fast either — both
-within run-to-run variance). The two committed patches now live in
-`patches/wasm-micro-runtime/` as `0002-…` and `0003-…`.
+Branch `feat/legacy-eh-fast-interp-full` now carries **commits 1 + 2 +
+3** of the full-spec successor — loader EH metadata table + runtime
+EH-frame stack push/pop + WASM_OP_THROW catch-walk with the
+return_func exception hook. `workloads/graphql-validation-porf-
+accurate.wasm` runs end-to-end at ~11.3 ms median (no regression on
+AS / porf-fast either). The three committed patches now live in
+`patches/wasm-micro-runtime/` as `0002-…`, `0003-…`, and `0004-…`,
+applied on top of the throw-only `0001-…` and the upstream pin
+`cd390ea0`.
 
-**Commit 3 (throw catch-walk + return_func hook) is NOT yet in**.
-The design as written hit an architectural snag uncovered while
-running my throwaway end-to-end probe `try { i32.const 42 } catch
-{ i32.const 99 } end`: the runtime returns 99 instead of 42 for
-*normal* (no-throw) flow.
+**Throw-firing correctness verified** via
+`crates/benchmark-core/src/bin/probe_eh_void.rs` driving
+`/tmp/eh_void.wasm` (compile from `/tmp/eh_void.wat` via
+`wat2wasm --enable-exceptions`). Five void-result try-region shapes
+all PASS:
 
-Root cause: fast-interp's `i32.const` does NOT emit the value into
-the rewritten IR — `skip_label()` undoes the auto-emitted opcode
-and the value goes into the per-function const pool. The operand
-stack is tracked at load time as slot offsets in `frame_offset`.
-When the loader reaches the END of a try-region, `reserve_block_ret`
-emits a COPY from `*(frame_offset - cell)` (the *current* top of
-stack) to `block->dynamic_offset` — but `current top of stack` at
-that point is the *catch body's* last value's slot, not the try
-body's. So a single end_of_region_pc landing point can't serve
-both bodies — the COPY's source slot is fixed at load time and
-hard-codes the catch body's slot.
+| case | what | want |
+|---|---|---|
+| `test_local_throw` | typed catch handles same-function throw | 99 |
+| `test_catch_all` | catch_all matches any throw | 77 |
+| `test_inter_fn` | callee throws; caller's catch fires via return_func hook | 55 |
+| `test_nested` | inner catch wins; outer never fires | 33 |
+| `test_no_throw` | normal-flow CATCH-skip on empty try | 11 |
 
-**Fix for commit 3** (the real shape): at CATCH processing in the
-loader (before resetting the operand stack for the catch body),
-emit a COPY for the try body's last value into `block->dynamic_offset`
-— mirroring how `WASM_OP_ELSE` in
-[`wasm_loader.c`](wasm-micro-runtime/core/iwasm/interpreter/wasm_loader.c)
-calls `reserve_block_ret(loader_ctx, WASM_OP_ELSE, ...)` to align
-the if-body's result. Once both bodies deposit to the same slot,
+**Pending — non-void result-type try-regions** (`try (result T)`).
+The runtime walker and return_func hook are correct for any
+blocktype; what's missing is loader-side: fast-interp's
+`reserve_block_ret` at END emits a COPY from the *current
+frame_offset top* to `block->dynamic_offset`, and that "current
+top" is fixed at load time. For a try-region with two bodies
+(try + catch), the COPY's source slot ends up hard-coded to the
+catch body's last value's slot. Try-bodies that complete normally
+then take the CATCH-fall-through path and run the COPY with the
+*wrong* source slot — returning the catch body's would-be value
+instead of the try body's actual value.
+
+**Fix for the result-type follow-up**: at CATCH processing in the
+loader (before `RESET_STACK()` and the catch-body's PUSH_TYPE
+sequence), emit a COPY for the try body's last value into
+`block->dynamic_offset` — same shape as `case WASM_OP_ELSE`'s
+`reserve_block_ret(loader_ctx, WASM_OP_ELSE, …)` aligns the if-
+body's result. Once both bodies deposit to the same slot,
 end_of_region_pc can point at the post-COPY position and both
-paths return the right value.
+paths return the right value. graphql-validation-porf-accurate is
+not blocked by this — its single try is `06 40` (void).
 
-The runtime side of commit 3 (the THROW walker and return_func
-hook) is mechanically right; only the loader-side block-return
-alignment needs a follow-up emit at CATCH time. The throwaway
-WIP code that hit this lives in the local
-`crates/benchmark-core/src/bin/probe_eh_test.rs` shape (compile
-`/tmp/eh_test.wat` via `wat2wasm --enable-exceptions` and run);
-deleted from the tree but trivial to recreate.
+**Land-mines documented during the deep-dive** (kept here so the
+next session doesn't relearn them):
 
-Three other notes captured during the deep-dive (worth remembering
-for the next session):
-
-  1. **IR encoding under `WASM_ENABLE_LABELS_AS_VALUES`** (default on
-     macOS / Linux): each "opcode" in the rewritten IR is an 8-byte
-     pointer (on 64-bit with unaligned access) into the dispatch
+  1. **Loader-side pass-1 / pass-2 size accounting must match.**
+     Any `emit_uint32`/`emit_label`/etc you add must run in BOTH
+     traverses or pass 2 will overrun the `code_compiled` buffer
+     allocated based on pass 1's measurement. Commit 3's pass-1/
+     pass-2 mismatch on `emit_uint32(eh_idx)` for CATCH / CATCH_ALL
+     was a 4-byte overrun per catch that corrupted the very next
+     loader allocation in the heap — typically
+     `func->exception_handlers` itself (catch_count gets zeroed).
+     Bug signature: loader populates correctly, but runtime sees
+     `entry->catch_count == 0` and the throw escapes as "wasm
+     exception thrown (tag N)". Gate the *populate* on
+     `p_code_compiled != NULL`, never the *emit*.
+  2. **IR encoding under `WASM_ENABLE_LABELS_AS_VALUES`** (default
+     on macOS / Linux): each "opcode" in the rewritten IR is an
+     8-byte pointer (on 64-bit + unaligned access) into the dispatch
      handle table, NOT a 1-byte opcode value. `emit_label(opcode)`
-     emits 8 bytes; `skip_label()` rewinds 8 bytes. This matters
-     when computing `handler_pc` offsets — my initial commit-3 mental
-     model was wrong about IR size by a large factor.
-  2. **The build script's `git reset --hard HEAD`** in
-     `scripts/build-wamr.sh` will wipe uncommitted WAMR changes
-     every time it runs. During iterative dev, either commit before
-     building or bypass the script and run `cmake/make` directly
-     in `wasm-micro-runtime/product-mini/platforms/darwin/build/`.
-  3. **`frame->exception_raised` is NOT zero-initialized by
-     `ALLOC_FRAME`** in fast-interp. If the inter-function unwind
-     hook in `return_func` reads it without first setting it to
-     false on every frame setup, the hook fires on every wasm-to-
-     wasm return with whatever stale bytes were in the slot,
-     turning every program into "wasm exception thrown (tag N)"
-     for a random N. Commit 3 needs to add
-     `frame->exception_raised = false` next to the existing
-     `frame->eh_count = 0` line in `call_func_from_entry`.
+     emits 8 bytes; `skip_label()` rewinds 8 bytes. `i32.const`,
+     `f32.const`, etc. ARE stripped from the IR — the value goes
+     into the per-function const pool and downstream ops reference
+     a slot offset via `frame_offset`. Don't reason about IR layout
+     by counting source bytes.
+  3. **The build script's `git reset --hard HEAD`** in
+     `scripts/build-wamr.sh` wipes uncommitted WAMR changes every
+     time. During iterative dev, either commit on the submodule's
+     `feat/legacy-eh-fast-interp-full` branch before building, or
+     run `cmake/make` directly in
+     `wasm-micro-runtime/product-mini/platforms/darwin/build/`.
+     The recorded submodule pin in the outer repo should stay at
+     `cd390ea0` (upstream) so the patches/ stack applies cleanly;
+     when actively editing WAMR, `git checkout
+     feat/legacy-eh-fast-interp-full` in the submodule to switch
+     to the dev branch, then back to `cd390ea0` before committing
+     outer-repo changes.
+  4. **`frame->exception_raised` is NOT zero-initialized by
+     `ALLOC_FRAME`** in fast-interp. The return_func hook reads it
+     on every wasm-to-wasm return; without an explicit `frame->
+     exception_raised = false` next to the existing `frame->
+     eh_count = 0` line in `call_func_from_entry`, the hook fires
+     on every call return with stale memory and turns every
+     program into "wasm exception thrown (tag N)" for random N.
 
 **Failure mode (precise)**: with the throw-only patch applied,
 `workloads/graphql-validation-porf-accurate.wasm` (1 `try`, 1
