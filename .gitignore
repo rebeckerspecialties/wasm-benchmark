@@ -2,6 +2,12 @@
 /target/
 **/target/
 
+# Cache-key inputs written by .github/workflows/build.yml — submodule
+# gitlink SHAs hashed by actions/cache to invalidate runtime build
+# caches when the pin changes. Regenerated on every CI run; should
+# never be committed.
+/.ci-cache-inputs/
+
 # --- Xcode build outputs ---
 /apps/build/
 /apps/out/
