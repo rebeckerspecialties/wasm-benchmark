@@ -1,7 +1,7 @@
 From 20f2825f2d49f191b7bc01d73ae17e358126761c Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 23:08:51 -0700
-Subject: [PATCH 17/18] fast-interp: runtime cases for relaxed-SIMD opcodes
+Subject: [PATCH 17/19] fast-interp: runtime cases for relaxed-SIMD opcodes
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
