@@ -35,7 +35,7 @@ let WORKLOADS: [Workload] = [
     Workload(id: 10, label: "[Pulley] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd() }),
     Workload(id: 11, label: "[ WAMR ] matmul simd128 (64×64 f32)",     run: { bench_run_matmul_simd_wamr() }),
     Workload(id: 12, label: "[Pulley] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma() }),
-    Workload(id: 13, label: "[ WAMR ] matmul relaxed-simd FMA (no-op)",run: { bench_run_matmul_fma_wamr() }),
+    Workload(id: 13, label: "[ WAMR ] matmul relaxed-simd FMA",        run: { bench_run_matmul_fma_wamr() }),
     Workload(id: 14, label: "[Pulley] convolution 256×256",            run: { bench_run_convolution() }),
     Workload(id: 15, label: "[ WAMR ] convolution 256×256",            run: { bench_run_convolution_wamr() }),
     Workload(id: 16, label: "[Pulley] audio DSP (1000 frames × 512)",  run: { bench_run_audio_dsp() }),
@@ -318,7 +318,17 @@ struct BenchmarkContentView: View {
             // macOS continue to read the env vars, so the iPhone /
             // M-series runner is unaffected.
             #if os(watchOS)
-            let WATCHOS_WORKLOADS_FILTER = "call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation"
+            // `matmul` keeps both matmul-simd128 (legacy SIMD) and
+            // matmul-relaxed-simd FMA (new — relies on WAMR's
+            // relaxed-SIMD support shipped in
+            // rebeckerspecialties/wasm-micro-runtime#3); both should
+            // now run on WAMR-arm64_32-watchos thanks to the
+            // `WAMR_BUILD_RELAXED_SIMD=1` flag in
+            // `scripts/build-wamr.sh`. graphql-validation covers the
+            // Porffor variant which exercises WAMR's legacy-EH
+            // support (rebeckerspecialties/wasm-micro-runtime#2's
+            // full-spec lowering).
+            let WATCHOS_WORKLOADS_FILTER = "call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation,matmul"
             let WATCHOS_RUNTIMES_FILTER = ""
             let env = WATCHOS_WORKLOADS_FILTER
             let runtimesEnv = WATCHOS_RUNTIMES_FILTER
