@@ -1,7 +1,7 @@
 From 0e042ea28789b90e3d2ea77e04e495cd8a6c50b8 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 23:53:12 -0700
-Subject: [PATCH 19/19] fast-interp: inline V128 <-> simde_v128_t conversions
+Subject: [PATCH 19/20] fast-interp: inline V128 <-> simde_v128_t conversions
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit

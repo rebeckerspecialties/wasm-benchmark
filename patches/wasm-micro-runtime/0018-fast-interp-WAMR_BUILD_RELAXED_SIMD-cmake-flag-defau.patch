@@ -1,7 +1,7 @@
 From 43f8a33c63446bea8dae0fe80b358b23d743d315 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 23:11:40 -0700
-Subject: [PATCH 18/19] fast-interp: WAMR_BUILD_RELAXED_SIMD cmake flag (default
+Subject: [PATCH 18/20] fast-interp: WAMR_BUILD_RELAXED_SIMD cmake flag (default
  off)
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

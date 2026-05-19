@@ -1,0 +1,424 @@
+From 60662902181b27137622084ad5267701f98a4e10 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 19 May 2026 01:14:35 -0700
+Subject: [PATCH 20/20] =?UTF-8?q?fast-interp:=20relaxed-SIMD=20audit=20fixes?=
+ =?UTF-8?q?=20=E2=80=94=20cmake=20guards=20+=20config.h=20+=20tests/unit?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Anticipates and addresses common WAMR maintainer review feedback on
+the relaxed-SIMD PR (rebeckerspecialties/wasm-micro-runtime#3):
+
+  * **HIGH — silent AOT mis-compile when RELAXED_SIMD=1 AOT=1**:
+    the shared loader `prepare_bytecode` (`wasm_loader.c`) is
+    reached by AOT/JIT/wamrc too. With this PR's commit 1 it
+    accepts the new sub-opcodes 0x100..0x113, but the AOT path
+    in `core/iwasm/compilation/aot_compiler.c:1494,2463,2639,2799`
+    does `opcode = (uint8)opcode1`, silently aliasing
+    `relaxed_swizzle` (0x100) into `SIMD_v128_load` (0x00) and
+    reading a garbage memarg at codegen time.
+    Reject the combination at cmake-configure time:
+    `WAMR_BUILD_RELAXED_SIMD=1` now requires
+    `WAMR_BUILD_FAST_INTERP=1` and explicitly rejects
+    `WAMR_BUILD_AOT=1 / WAMR_BUILD_JIT=1 / WAMR_BUILD_FAST_JIT=1 /
+     WAMR_BUILD_WAMR_COMPILER=1` with a diagnostic that points
+    at `aot_compiler.c` and says "build fast-interp-only to use
+    relaxed-SIMD until the AOT/JIT pipelines learn the wider
+    sub-opcode range."
+
+  * **`core/config.h` default for `WASM_ENABLE_RELAXED_SIMD`**:
+    `#ifndef … #define … 0 #endif` block alongside `WASM_ENABLE_SIMD`
+    and `WASM_ENABLE_SIMDE`. Cosmetic but matches WAMR's pattern
+    for every other feature flag — non-cmake builds (e.g. CI lint
+    that compiles a TU in isolation) still see a defined value.
+
+  * **`tests/unit/relaxed-simd/`**: gtest-based unit test that
+    loads + invokes a hand-encoded wasm module with
+    `f32x4.relaxed_madd`. Two tests:
+      - `load_module_with_relaxed_madd`: asserts the loader
+        accepts the module (pre-PR, this fails with
+        `"invalid opcode 0xfd 100"`).
+      - `invoke_relaxed_madd_returns_fma_result`: invokes the
+        export, asserts the bit pattern of two f32 lanes
+        (`0x42DC0000` = 110.0 and `0x43700000` = 240.0) — both
+        single-rounded FMA hardware and split mul+add produce
+        the same result here since every input/product/sum is
+        exactly representable in f32.
+    Wired into `tests/unit/CMakeLists.txt` next to the parallel
+    `exception-handling` test target. Gated on
+    `WAMR_BUILD_RELAXED_SIMD=1 + WAMR_BUILD_FAST_INTERP=1`.
+
+  * **Hand-rolled `q15mulr_s` swap → SIMDe intrinsic**: the patch-2
+    case body for `SIMD_i16x8_relaxed_q15mulr_s` previously had a
+    lane-by-lane fallback loop (because SIMDe doesn't ship a
+    `relaxed_q15mulr_s` intrinsic). SIMDe DOES ship the
+    non-relaxed `simde_wasm_i16x8_q15mulr_sat` (strict-saturating
+    `sqrdmulh.h8` on aarch64), and the relaxed spec explicitly
+    permits saturating behaviour. Swap to that — smaller code,
+    NEON hardware path, bit-identical to the hand loop on the
+    INT16_MIN² overflow boundary (verified locally via
+    `q15mulr_overflow` test case: both produce 0x7ffe7fff7fff).
+
+  * Docs nit: comment in patch-2 `HANDLE_OP(WASM_OP_SIMD_PREFIX)`
+    referenced `emit_uint16(opcode1)` but the actual call is
+    `wasm_loader_emit_int16(opcode1)`. Fixed.
+
+Audit items verified OK without code change:
+  - `clang-format-14` clean across all 5 commits.
+  - `-Wpedantic` not enabled in `build-scripts/warnings.cmake` so
+    the `({ })` GCC statement-expression in the V128 conversion
+    macros is fine.
+  - IR encoding's 2-byte sub-opcode advance via
+    `wasm_loader_emit_int16` is safe on non-unaligned platforms
+    (STORE_U16 with alignment asserts; legacy `emit_byte` also
+    consumed 2 bytes there via padding).
+  - `WASM_ENABLE_SIMDE` is always set when SIMD+FAST_INTERP are
+    set, so the nested `#include "simde/wasm/relaxed-simd.h"`
+    can't be reached without SIMDe being in scope.
+  - `AOT_CURRENT_VERSION` correctly not bumped — no AOT struct
+    changed.
+
+References: WAMR PR #4713 (woodsmc) made tests mandatory in
+CONTRIBUTING.md; `@lum1n0us`'s PR #4837 review pattern on
+fast-interp EH ("follow `tests/unit/interpreter`") shapes the
+new `tests/unit/relaxed-simd/` layout. CODEOWNERS will route
+review to `@loganek @lum1n0us @no1wudi @TianlongLiang @yamt`.
+---
+ build-scripts/config_common.cmake            |  29 ++++
+ core/config.h                                |  11 ++
+ core/iwasm/interpreter/wasm_interp_fast.c    |  37 ++---
+ tests/unit/CMakeLists.txt                    |   1 +
+ tests/unit/relaxed-simd/CMakeLists.txt       |  42 ++++++
+ tests/unit/relaxed-simd/relaxed_simd_test.cc | 141 +++++++++++++++++++
+ 6 files changed, 236 insertions(+), 25 deletions(-)
+ create mode 100644 tests/unit/relaxed-simd/CMakeLists.txt
+ create mode 100644 tests/unit/relaxed-simd/relaxed_simd_test.cc
+
+diff --git a/build-scripts/config_common.cmake b/build-scripts/config_common.cmake
+index 8805eb30..2209988d 100644
+--- a/build-scripts/config_common.cmake
++++ b/build-scripts/config_common.cmake
+@@ -490,6 +490,35 @@ if (WAMR_BUILD_RELAXED_SIMD EQUAL 1)
+     message (FATAL_ERROR
+         "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_SIMD=1")
+   endif ()
++  # Scope is fast-interp only for now. The shared loader
++  # `prepare_bytecode` accepts the new opcodes when this flag is
++  # set, but the AOT / JIT / wamrc compilation paths in
++  # `core/iwasm/compilation/aot_compiler.c:1494, 2463, 2639, 2799`
++  # all truncate the SIMD sub-opcode to `uint8` (`opcode =
++  # (uint8)opcode1`). Sub-opcodes 0x100..0x113 would silently
++  # alias into `SIMD_v128_load` / `SIMD_v128_load8x8_s` / ...
++  # causing garbage memarg reads at codegen time. Reject the
++  # combination at configure time rather than silently
++  # mis-compile.
++  if (NOT WAMR_BUILD_FAST_INTERP EQUAL 1)
++    message (FATAL_ERROR
++        "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_FAST_INTERP=1 "
++        "(the relaxed-SIMD dispatch + SIMDe glue lives only in the "
++        "fast-interp path; classic-interp doesn't ship a SIMD switch)")
++  endif ()
++  if (WAMR_BUILD_AOT EQUAL 1 OR WAMR_BUILD_JIT EQUAL 1
++      OR WAMR_BUILD_WAMR_COMPILER EQUAL 1
++      OR WAMR_BUILD_FAST_JIT EQUAL 1)
++    message (FATAL_ERROR
++        "WAMR_BUILD_RELAXED_SIMD=1 cannot be combined with "
++        "WAMR_BUILD_AOT / WAMR_BUILD_JIT / WAMR_BUILD_FAST_JIT / "
++        "WAMR_BUILD_WAMR_COMPILER today — those pipelines truncate "
++        "the SIMD sub-opcode to uint8 (see aot_compiler.c) and "
++        "would silently mis-compile relaxed-SIMD opcodes "
++        "0x100..0x113 as legacy v128_load/store variants. Build "
++        "fast-interp-only to use relaxed-SIMD until the AOT/JIT "
++        "pipelines learn the wider sub-opcode range.")
++  endif ()
+   add_definitions (-DWASM_ENABLE_RELAXED_SIMD=1)
+   message ("     Relaxed SIMD enabled")
+ endif ()
+diff --git a/core/config.h b/core/config.h
+index 31404deb..d44bc013 100644
+--- a/core/config.h
++++ b/core/config.h
+@@ -332,6 +332,17 @@ unless used elsewhere */
+ #define WASM_ENABLE_SIMDE 0
+ #endif
+ 
++/* Disable relaxed-SIMD (wasm 2.0 extension — 20 new opcodes at
++ * 0x100..0x113 under the existing 0xfd prefix) unless manually
++ * enabled. The fast-interp path under `WAMR_BUILD_RELAXED_SIMD=1`
++ * widens the SIMD sub-opcode IR encoding from 1 byte to 2 bytes
++ * and wires SIMDe relaxed intrinsics into the SIMD-prefix switch;
++ * AOT/JIT codegen does NOT yet recognize the wider range, so the
++ * cmake gate forbids enabling this flag with AOT/JIT/WAMR_COMPILER. */
++#ifndef WASM_ENABLE_RELAXED_SIMD
++#define WASM_ENABLE_RELAXED_SIMD 0
++#endif
++
+ /* GC performance profiling */
+ #ifndef WASM_ENABLE_GC_PERF_PROFILING
+ #define WASM_ENABLE_GC_PERF_PROFILING 0
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+index c459e90f..4072656f 100644
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -5934,7 +5934,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                  * When `WAMR_BUILD_RELAXED_SIMD=1` the loader widens
+                  * the SIMD sub-opcode in the IR from one byte to a
+                  * 2-byte little-endian uint16 (see the
+-                 * `emit_uint16(opcode1)` site in
++                 * `wasm_loader_emit_int16(opcode1)` site in
+                  * `wasm_loader_prepare_bytecode`'s SIMD case), and
+                  * the runtime reads two bytes here to match. When
+                  * the flag is off the legacy `GET_OPCODE()` 1-byte
+@@ -7608,30 +7608,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                     }
+                     case SIMD_i16x8_relaxed_q15mulr_s:
+                     {
+-                        /* SIMDe doesn't expose an `i16x8_q15mulr` —
+-                         * emulate lane-wise. The relaxed flavor is
+-                         * allowed to skip saturation on overflow,
+-                         * but matching the strict-saturating shape
+-                         * here is conformant and removes a per-lane
+-                         * branch that the spec would have allowed
+-                         * us to omit. Same body as a hand-written
+-                         * non-relaxed q15mulr_sat_s. */
+-                        V128 v2 = POP_V128();
+-                        V128 v1 = POP_V128();
+-                        V128 result;
+-                        uint32 lane;
+-                        addr_ret = GET_OFFSET();
+-                        for (lane = 0; lane < 8; lane++) {
+-                            int32 prod =
+-                                (int32)v1.i16x8[lane] * (int32)v2.i16x8[lane];
+-                            int32 rounded = (prod + 0x4000) >> 15;
+-                            if (rounded > 0x7fff)
+-                                rounded = 0x7fff;
+-                            else if (rounded < -0x8000)
+-                                rounded = -0x8000;
+-                            result.i16x8[lane] = (int16)rounded;
+-                        }
+-                        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
++                        /* SIMDe doesn't expose a `relaxed_q15mulr_s`
++                         * intrinsic, but it does ship the strict-
++                         * saturating `simde_wasm_i16x8_q15mulr_sat`
++                         * (the non-relaxed twin), and the relaxed
++                         * spec explicitly permits saturating
++                         * behaviour ("either saturate or wrap on
++                         * overflow"). Reuse it — gets us NEON
++                         * `sqrdmulh.h8` directly + smaller code
++                         * footprint than the lane-by-lane fallback
++                         * a previous version of this case used. */
++                        SIMD_DOUBLE_OP(simde_wasm_i16x8_q15mulr_sat);
+                         break;
+                     }
+                     case SIMD_i16x8_relaxed_dot_i8x16_i7x16_s:
+diff --git a/tests/unit/CMakeLists.txt b/tests/unit/CMakeLists.txt
+index e51eb2c4..1942af11 100644
+--- a/tests/unit/CMakeLists.txt
++++ b/tests/unit/CMakeLists.txt
+@@ -103,6 +103,7 @@ add_subdirectory(linux-perf)
+ add_subdirectory(gc)
+ add_subdirectory(unsupported-features)
+ add_subdirectory(exception-handling)
++add_subdirectory(relaxed-simd)
+ add_subdirectory(running-modes)
+ add_subdirectory(mem-alloc)
+ 
+diff --git a/tests/unit/relaxed-simd/CMakeLists.txt b/tests/unit/relaxed-simd/CMakeLists.txt
+new file mode 100644
+index 00000000..7c722b4d
+--- /dev/null
++++ b/tests/unit/relaxed-simd/CMakeLists.txt
+@@ -0,0 +1,42 @@
++# Copyright (C) 2026 Intel Corporation.  All rights reserved.
++# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++cmake_minimum_required(VERSION 3.14)
++
++project (test-relaxed-simd)
++
++add_definitions (-DRUN_ON_LINUX)
++
++add_definitions (-Dattr_container_malloc=malloc)
++add_definitions (-Dattr_container_free=free)
++
++set (WAMR_BUILD_AOT 0)
++set (WAMR_BUILD_INTERP 1)
++set (WAMR_BUILD_FAST_INTERP 1)
++set (WAMR_BUILD_JIT 0)
++set (WAMR_BUILD_LIBC_WASI 0)
++set (WAMR_BUILD_APP_FRAMEWORK 0)
++set (WAMR_BUILD_SIMD 1)
++set (WAMR_BUILD_RELAXED_SIMD 1)
++set (WAMR_BUILD_BULK_MEMORY 1)
++set (WAMR_BUILD_REF_TYPES 1)
++
++include (../unit_common.cmake)
++
++include_directories (${CMAKE_CURRENT_SOURCE_DIR})
++include_directories (${IWASM_DIR}/interpreter)
++
++file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
++
++set (UNIT_SOURCE ${source_all})
++
++set (unit_test_sources
++  ${UNIT_SOURCE}
++  ${WAMR_RUNTIME_LIB_SOURCE}
++)
++
++add_executable (relaxed_simd_test ${unit_test_sources})
++
++target_link_libraries (relaxed_simd_test gtest_main)
++
++gtest_discover_tests(relaxed_simd_test)
+diff --git a/tests/unit/relaxed-simd/relaxed_simd_test.cc b/tests/unit/relaxed-simd/relaxed_simd_test.cc
+new file mode 100644
+index 00000000..6e767770
+--- /dev/null
++++ b/tests/unit/relaxed-simd/relaxed_simd_test.cc
+@@ -0,0 +1,141 @@
++/*
++ * Copyright (C) 2026 Intel Corporation. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++ */
++
++/* Gtest coverage for the fast-interp relaxed-SIMD opcode lowering
++ * gated by `WAMR_BUILD_RELAXED_SIMD=1`. Two angles:
++ *
++ *   1. Load-time validation — a module containing a relaxed-SIMD
++ *      opcode loads cleanly (the loader's prepare_bytecode SIMD
++ *      switch recognizes 0x100..0x113). Without commit 1 of the
++ *      patch series the loader would reject with
++ *      `"invalid opcode 0xfd 100"`.
++ *
++ *   2. Runtime dispatch — calling a function that executes
++ *      `f32x4.relaxed_madd` returns the FMA-rounded result. The
++ *      result encoding (4×i32 bit pattern packed into the low i64
++ *      of the v128 via `i64x2.extract_lane 0`) is bit-identical
++ *      across aarch64/x86-64 because the inputs are exact under
++ *      both single-rounded (hardware FMA) and double-rounded
++ *      (split mul+add) semantics — every multiplication and
++ *      addition is exactly representable in f32.
++ */
++
++#include "gtest/gtest.h"
++#include "wasm_runtime_common.h"
++#include "bh_platform.h"
++
++class RelaxedSimdTest : public testing::Test
++{
++  protected:
++    virtual void SetUp()
++    {
++        memset(&init_args, 0, sizeof(RuntimeInitArgs));
++        init_args.mem_alloc_type = Alloc_With_Pool;
++        init_args.mem_alloc_option.pool.heap_buf = global_heap_buf;
++        init_args.mem_alloc_option.pool.heap_size = sizeof(global_heap_buf);
++        ASSERT_EQ(wasm_runtime_full_init(&init_args), true);
++    }
++
++    virtual void TearDown() { wasm_runtime_destroy(); }
++
++  public:
++    char global_heap_buf[512 * 1024];
++    RuntimeInitArgs init_args;
++    char error_buf[256];
++};
++
++/*
++ * Minimal wasm module that exports a single `madd` function:
++ *
++ *   (module
++ *     (func (export "madd") (result i64)
++ *       v128.const f32x4 1 2 3 4
++ *       v128.const f32x4 10 20 30 40
++ *       v128.const f32x4 100 200 300 400
++ *       f32x4.relaxed_madd            ;; opcode 0xfd 0x85 0x02 (= 0x105)
++ *       i64x2.extract_lane 0))
++ *
++ * Bytes below are the raw output of `wasm-tools parse` on that WAT,
++ * inlined so the test has no wabt / wat-runtime dependency at run.
++ */
++static const uint8_t MADD_WASM[] = {
++    0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
++    0x00, 0x01, 0x7E, 0x03, 0x02, 0x01, 0x00, 0x07, 0x08, 0x01, 0x04, 0x6D,
++    0x61, 0x64, 0x64, 0x00, 0x00, 0x0A, 0x40, 0x01, 0x3E, 0x00, 0xFD, 0x0C,
++    0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40,
++    0x00, 0x00, 0x80, 0x40, 0xFD, 0x0C, 0x00, 0x00, 0x20, 0x41, 0x00, 0x00,
++    0xA0, 0x41, 0x00, 0x00, 0xF0, 0x41, 0x00, 0x00, 0x20, 0x42, 0xFD, 0x0C,
++    0x00, 0x00, 0xC8, 0x42, 0x00, 0x00, 0x48, 0x43, 0x00, 0x00, 0x96, 0x43,
++    0x00, 0x00, 0xC8, 0x43, 0xFD, 0x85, 0x02, 0xFD, 0x1D, 0x00, 0x0B
++};
++
++TEST_F(RelaxedSimdTest, load_module_with_relaxed_madd)
++{
++    char err[128] = { 0 };
++    /* The runtime API expects a mutable buffer (modifies in
++     * place during load); copy into a heap buffer first. */
++    uint8_t buf[sizeof(MADD_WASM)];
++    memcpy(buf, MADD_WASM, sizeof(MADD_WASM));
++
++    wasm_module_t module = wasm_runtime_load(buf, (uint32_t)sizeof(buf), err,
++                                             (uint32_t)sizeof(err));
++    ASSERT_NE(module, nullptr)
++        << "load failed: " << err
++        << " — make sure WAMR_BUILD_RELAXED_SIMD=1 is set";
++    wasm_runtime_unload(module);
++}
++
++TEST_F(RelaxedSimdTest, invoke_relaxed_madd_returns_fma_result)
++{
++    char err[128] = { 0 };
++    uint8_t buf[sizeof(MADD_WASM)];
++    memcpy(buf, MADD_WASM, sizeof(MADD_WASM));
++
++    wasm_module_t module = wasm_runtime_load(buf, (uint32_t)sizeof(buf), err,
++                                             (uint32_t)sizeof(err));
++    ASSERT_NE(module, nullptr) << "load failed: " << err;
++
++    wasm_module_inst_t inst = wasm_runtime_instantiate(
++        module, 32768u, 32768u, err, (uint32_t)sizeof(err));
++    ASSERT_NE(inst, nullptr) << "instantiate failed: " << err;
++
++    wasm_function_inst_t func = wasm_runtime_lookup_function(inst, "madd");
++    ASSERT_NE(func, nullptr) << "export `madd` not found";
++
++    wasm_exec_env_t env = wasm_runtime_create_exec_env(inst, 32768u);
++    ASSERT_NE(env, nullptr);
++
++    uint32_t argv[2] = { 0, 0 };
++    bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
++    EXPECT_TRUE(ok) << "call_wasm failed: " << wasm_runtime_get_exception(inst);
++
++    /*
++     * Expected: f32x4.relaxed_madd((1,2,3,4), (10,20,30,40),
++     *                              (100,200,300,400))
++     *         = (1*10+100, 2*20+200, 3*30+300, 4*40+400)
++     *         = (110, 240, 390, 560)
++     *
++     * As bit patterns:
++     *   f32(110) = 0x42DC0000
++     *   f32(240) = 0x43700000
++     *   f32(390) = 0x43C30000
++     *   f32(560) = 0x440C0000
++     *
++     * i64x2.extract_lane 0 packs lanes 0,1 of the v128 into the
++     * low i64:
++     *   high i32 (argv[1]) = lane 1 = 0x43700000
++     *   low  i32 (argv[0]) = lane 0 = 0x42DC0000
++     *
++     * (Both single-rounded FMA hardware and split mul+add
++     * produce the same bit pattern here — every product and sum
++     * is exactly representable in f32.)
++     */
++    EXPECT_EQ(argv[0], 0x42DC0000u);
++    EXPECT_EQ(argv[1], 0x43700000u);
++
++    wasm_runtime_destroy_exec_env(env);
++    wasm_runtime_deinstantiate(inst);
++    wasm_runtime_unload(module);
++}
+-- 
+2.54.0
+

@@ -1,7 +1,7 @@
 From 7562cf8d4b77552f16c5600e688a51d91f859f33 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 23:00:40 -0700
-Subject: [PATCH 16/19] fast-interp: extend WASMSimdEXTOpcode + loader validation
+Subject: [PATCH 16/20] fast-interp: extend WASMSimdEXTOpcode + loader validation
  for relaxed-SIMD
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
