@@ -577,6 +577,70 @@ fn three_level_nested() {
     assert_eq!(m.call_i32("t").unwrap(), 7);
 }
 
+/// When a throw from a nested try is caught by an OUTER handler,
+/// the inner-try entries between the throw site and the matched
+/// outer entry must be unwound at dispatch — otherwise a
+/// subsequent throw inside the outer catch body would see the
+/// stale inner entries and (mis-)dispatch against them.
+///
+/// Repro pattern (this test): outer try catches `$err`; inner
+/// try has a catch for `$err2` (different tag, so it doesn't
+/// match the inner throw). The inner throw raises `$err`, which
+/// the outer catch handles. The outer catch body then raises
+/// `$err2` — and the **only** in-scope try at that point is the
+/// outer's (in-progress) — so `$err2` must propagate to the
+/// host as uncaught.
+///
+/// Before the unwind-on-match fix, the walker found the inner
+/// try's `catch $err2` (stale, never popped) and dispatched
+/// there incorrectly, returning `99`. The fix sets
+/// `frame->eh_count = i;` at the match site so the inner
+/// entries are popped before the catch body runs.
+///
+/// Codex P1 review feedback on PR #2: "Unwind skipped EH
+/// entries before dispatching catches".
+#[test]
+fn outer_catch_unwinds_inner_eh_entries() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err)
+  (tag $err2)
+  (global $g (mut i32) (i32.const 0))
+  (func (export "t") (result i32)
+    try
+      try
+        throw $err          ;; outer catches this
+      catch $err2           ;; never matches $err
+        i32.const 99
+        global.set $g
+      end
+    catch $err
+      ;; in outer catch body. Now throw $err2 — inner try is
+      ;; out of scope, so this should propagate UNCAUGHT to the
+      ;; host. Pre-fix walker would (mis-)find the inner catch
+      ;; for $err2 at its stale eh-stack slot and dispatch to
+      ;; the unreachable side that sets g=99.
+      throw $err2
+    end
+    global.get $g))
+"#,
+    )
+    .unwrap();
+    let result = m.call_i32("t");
+    // Either: the inner $err2 propagates uncaught (correct), in
+    // which case call_i32 returns Err.
+    // Or: pre-fix bug returns g=99 from the stale inner catch
+    // (incorrect).
+    match result {
+        Err(_) => {} // correct: $err2 escapes the outer catch
+        Ok(v) => panic!(
+            "expected an uncaught-throw trap, got Ok({v}) — the inner \
+             catch was reached via a stale eh-stack entry"
+        ),
+    }
+}
+
 /// A throw raised from inside a catch body propagates outward — the
 /// in-progress entry has state=CATCH so the same try-region's
 /// handlers don't re-fire.
@@ -1285,12 +1349,17 @@ fn repeated_throw_with_payload() {
 
 /// **Documented gap**: cross-function throw with payload. The
 /// callee's source slots are torn down by `return_func` before
-/// the caller's `find_a_catch_handler` runs, so the payload is
-/// silently dropped. The caller's catch still fires (the tag
-/// match works via `frame->tag_index`), but the operand stack
-/// at catch entry contains uninitialized garbage instead of the
-/// thrown values. Ignored until the cross-frame payload buffer
-/// design is in.
+/// the caller's `find_a_catch_handler` runs, so the payload
+/// cannot be copied across the frame boundary in the current
+/// design. The runtime now traps with `"cross-function exception
+/// payload not supported by fast-interp"` rather than silently
+/// dispatching the caller's typed catch against uninitialized
+/// slots (the original `eh_correctness` design dropped the
+/// payload silently; that was changed in response to PR review,
+/// see `cross_function_tag_with_params_traps` below).
+///
+/// Ignored — this is the success-case the eventual fix should
+/// make pass.
 #[test]
 #[ignore = "cross-function tag-with-params: callee's source frame is freed before caller's walker runs — see AGENTS.md"]
 fn cross_function_tag_with_params() {
@@ -1306,12 +1375,54 @@ fn cross_function_tag_with_params() {
       call $inner
       i32.const 0
     catch $err
-      ;; expects 42 on stack — currently sees garbage
+      ;; expects 42 on stack — currently traps with
+      ;; "cross-function exception payload not supported"
     end))
 "#,
     )
     .unwrap();
     assert_eq!(m.call_i32("t").unwrap(), 42);
+}
+
+/// The compile-time-known cross-frame payload gap (above)
+/// currently traps at runtime rather than silently dispatching
+/// the caller's catch with stale slots. This is the
+/// regression-test variant — same module shape as
+/// `cross_function_tag_with_params`, but asserts the trap-with-
+/// expected-message contract instead of the eventual
+/// payload-preserved result.
+#[test]
+fn cross_function_tag_with_params_traps() {
+    let m = Module::from_wat(
+        r#"
+(module
+  (tag $err (param i32))
+  (func $inner
+    i32.const 42
+    throw $err)
+  (func (export "t") (result i32)
+    try (result i32)
+      call $inner
+      i32.const 0
+    catch $err
+      ;; would receive 42 on stack if cross-frame payload were
+      ;; preserved — but the runtime traps at the unwind site
+      ;; before reaching here.
+    end))
+"#,
+    )
+    .unwrap();
+    let msg = match m.call_i32("t") {
+        Ok(v) => panic!(
+            "expected a trap because the callee's frame is torn down \
+             before the caller's typed-catch payload bind, got Ok({v})"
+        ),
+        Err(e) => format!("{e}"),
+    };
+    assert!(
+        msg.contains("cross-function exception payload"),
+        "trap message: {msg}",
+    );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1657,14 +1768,18 @@ fn br_out_of_try_pops_eh_stack() {
 /// `br` out of a try-region INSIDE A LOOP — each iteration would
 /// leak an eh-stack entry. After more iterations than the
 /// function's static `exception_handler_count`, the next TRY push
-/// would trip the `eh_count < exception_handler_count` assert.
-/// The fix requires a synthetic eh-stack pop emit at the br site.
-/// Currently **ignored** because this test would crash; lifting
-/// the ignore should be the litmus test for the loader fix.
+/// would trip the `eh_count < exception_handler_count` assert
+/// (no-op in release builds → silent OOB write past the
+/// reservation → memory corruption). The loader rejects modules
+/// with this shape rather than emitting a synthetic eh-stack pop
+/// at the br site — the synthetic-pop variant would tax the hot
+/// dispatch loop, and the shape is rare in practice. See the
+/// `set_error_buf("br[_if|_table] to loop entry from inside
+/// try-region not supported in fast interpreter")` paths in
+/// `wasm_loader.c`.
 #[test]
-#[ignore = "br inside loop leaks eh-stack per iteration — needs synthetic pop emit at br site"]
-fn br_out_of_try_inside_loop() {
-    let m = Module::from_wat(
+fn br_out_of_try_inside_loop_rejected() {
+    let result = Module::from_wat(
         r#"
 (module
   (tag $err)
@@ -1692,9 +1807,18 @@ fn br_out_of_try_inside_loop() {
     global.set $g
     global.get $g))
 "#,
-    )
-    .unwrap();
-    assert_eq!(m.call_i32("t").unwrap(), 4);
+    );
+    let msg = match result {
+        Ok(_) => panic!(
+            "expected loader to reject br to loop entry from inside a \
+             try-region, but the module loaded successfully"
+        ),
+        Err(e) => format!("{e}"),
+    };
+    assert!(
+        msg.contains("br") && msg.contains("loop entry"),
+        "loader error: {msg}",
+    );
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,7 +1,7 @@
 From 5b122fe8deb9c71bb610f99dd834b7bbf1c69efd Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 11:14:47 -0700
-Subject: [PATCH 11/12] fast-interp: __builtin_expect cold-path hints on
+Subject: [PATCH 11/15] fast-interp: __builtin_expect cold-path hints on
  CALL_INDIRECT bounds checks
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -116,5 +116,5 @@ index 1f587b10..f9195bef 100644
                      goto got_exception;
                  }
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

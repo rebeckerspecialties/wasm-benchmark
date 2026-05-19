@@ -1,7 +1,7 @@
 From d481d9bc9bb0e3a5375df879affcf31b005e9807 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 08:50:15 -0700
-Subject: [PATCH 09/12] fast-interp: result-typed try-region COPY-at-CATCH
+Subject: [PATCH 09/15] fast-interp: result-typed try-region COPY-at-CATCH
  alignment
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -253,5 +253,5 @@ index 88885a27..ba9122e4 100644
                  /* catch_all has no tagtype and therefore no parameters */
                  break;
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

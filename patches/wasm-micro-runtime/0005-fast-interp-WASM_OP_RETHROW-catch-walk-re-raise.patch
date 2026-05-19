@@ -1,7 +1,7 @@
 From 683a9dbee72cb7777bfd291e233ff469ce3d1949 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 20:57:10 -0700
-Subject: [PATCH 05/12] fast-interp: WASM_OP_RETHROW catch-walk re-raise
+Subject: [PATCH 05/15] fast-interp: WASM_OP_RETHROW catch-walk re-raise
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -320,5 +320,5 @@ index cef9db11..9ef6603d 100644
  
                  BranchBlock *cur_block = loader_ctx->frame_csp - 1;
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

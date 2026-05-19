@@ -1,0 +1,104 @@
+From 54bac97f9dde4205d937f4c163d25d08230b1fc3 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Mon, 18 May 2026 22:13:08 -0700
+Subject: [PATCH 14/15] fast-interp: trap on cross-function exception payload
+ propagation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The walker's "no handler in this frame" path previously set
+`prev_frame->exception_raised = true` and let `return_func`
+forward the throw to the caller, regardless of payload size.
+This silently lost the payload: the source cells
+(`throw_src_offsets`) live in *this* frame's `frame_lp`, which
+return_func is about to tear down. The caller's
+`find_a_catch_handler` then ran with `throw_param_cell_num = 0`,
+which made any typed catch in the caller bind uninitialized
+destination slots — the catch body would either see garbage in
+its payload locals or, if the typed catch's slots were used as
+struct-of-pointers, dereference freed memory.
+
+Cross-function payload preservation would require a per-thread
+scratch buffer to ferry the payload across the frame boundary
+(callee's frame_lp → buffer → caller's frame_lp), plus a small
+change to return_func to populate it before tearing down the
+callee. That's a meaningful design lift and out of scope for
+this commit.
+
+Safe action for now: when a payload-bearing throw escapes its
+callee (i.e. `throw_param_cell_num > 0` and we're about to
+return to a caller frame), trap to the host with the diagnostic
+`"cross-function exception payload not supported by fast-
+interp"`. Same-function payload routing (the common Porffor /
+AS shape, where a JS throw is caught by an in-function catch
+the JS-to-wasm compiler emitted) is unaffected — that path
+dispatches via the same-function match in the walker before
+this branch runs.
+
+A `catch_all` in the caller would technically tolerate a
+zero-payload bind, but the typed-vs-catch_all choice happens in
+the caller's walker, which we can't peek into here without
+coupling the frames. Trap unconditionally for payload-bearing
+cross-frame throws.
+
+Tests:
+* `cross_function_tag_with_params` stays `#[ignore]` — that's
+  the eventual-success-case for when cross-frame payload routing
+  is implemented.
+* `cross_function_tag_with_params_traps` (new) asserts the
+  current trap-with-expected-message contract on the same
+  module shape.
+
+Codex P1 review feedback on
+rebeckerspecialties/wasm-benchmark PR #3 (patch 0007 line 306):
+"Preserve cross-frame exception payloads".
+---
+ core/iwasm/interpreter/wasm_interp_fast.c | 30 ++++++++++++++++++++++-
+ 1 file changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+index ee9cd4bd..d44e21ed 100644
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -2083,8 +2083,36 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+              * re-enters this label with the caller's frame in
+              * scope. If we're already at the top of the wasm
+              * stack, the existing got_exception path lets the
+-             * host observe the trap via wasm_runtime_get_exception. */
++             * host observe the trap via wasm_runtime_get_exception.
++             *
++             * Tag-with-params payload is intentionally NOT
++             * preserved across the frame boundary: the source
++             * cells (throw_src_offsets) live in *this* frame's
++             * frame_lp, which return_func is about to tear down.
++             * A caller-side typed catch would then bind
++             * uninitialized destination slots, producing wrong
++             * results in the catch body (or, if the typed catch
++             * uses the slots as a struct-of-pointers, memory
++             * corruption). The safe action when a payload-
++             * bearing throw escapes its callee is to trap to the
++             * host with a clear diagnostic. Same-function
++             * payload routing (the common Porffor / AS shape)
++             * is unaffected — it dispatches via the loop above
++             * before this branch runs. catch_all in the caller
++             * would technically tolerate a zero-payload bind,
++             * but the typed-vs-catch_all choice happens in the
++             * caller's walker, which we can't peek into here
++             * without coupling the frames; trap unconditionally
++             * for payload-bearing throws and let the test
++             * `cross_function_tag_with_params` document the
++             * shape. */
+             if (prev_frame && prev_frame->ip) {
++                if (throw_param_cell_num > 0) {
++                    wasm_set_exception(module,
++                                       "cross-function exception payload "
++                                       "not supported by fast-interp");
++                    goto got_exception;
++                }
+                 prev_frame->tag_index = exception_tag_index;
+                 prev_frame->exception_raised = true;
+                 goto return_func;
+-- 
+2.54.0
+

@@ -1,7 +1,7 @@
 From 04625e71590708636318fe06d91ad1586eb6ed5d Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 16:09:03 -0700
-Subject: [PATCH 12/12] test_wamr.sh: enable wasm spec EH suite for fast-interp
+Subject: [PATCH 12/15] test_wamr.sh: enable wasm spec EH suite for fast-interp
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -45,5 +45,5 @@ index 97dc84d5..c4b6efa9 100755
          fi
      fi
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

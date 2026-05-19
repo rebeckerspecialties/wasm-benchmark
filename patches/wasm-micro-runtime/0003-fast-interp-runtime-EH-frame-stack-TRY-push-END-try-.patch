@@ -1,7 +1,7 @@
 From 5202bfabefa12eed7a88b023b92bd50f28b49009 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 16:54:29 -0700
-Subject: [PATCH 03/12] fast-interp: runtime EH-frame stack + TRY push /
+Subject: [PATCH 03/15] fast-interp: runtime EH-frame stack + TRY push /
  END(try) pop
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -417,5 +417,5 @@ index f1418df4..1948efef 100644
                  }
  #endif
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

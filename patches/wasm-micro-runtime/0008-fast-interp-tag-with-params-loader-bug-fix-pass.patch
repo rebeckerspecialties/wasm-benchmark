@@ -1,7 +1,7 @@
 From 72db3ca8a2ba2c7c93f373dd489e89125cdb86a5 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 23:30:11 -0700
-Subject: [PATCH 08/12] fast-interp: tag-with-params loader bug-fix pass
+Subject: [PATCH 08/15] fast-interp: tag-with-params loader bug-fix pass
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -179,5 +179,5 @@ index 53e0b6af..88885a27 100644
                      }
                      entry->catches = new_catches;
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

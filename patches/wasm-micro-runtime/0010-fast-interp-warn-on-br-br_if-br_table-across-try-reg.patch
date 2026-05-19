@@ -1,7 +1,7 @@
 From 924217e63fbd299e0c5c800cc94f23c1d906e66b Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 10:29:47 -0700
-Subject: [PATCH 10/12] fast-interp: warn on br/br_if/br_table across
+Subject: [PATCH 10/15] fast-interp: warn on br/br_if/br_table across
  try-region boundary
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -169,5 +169,5 @@ index ba9122e4..a20cf800 100644
                      if (br_table_cache) {
                          br_table_cache->br_depths[i] = depth;
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 
