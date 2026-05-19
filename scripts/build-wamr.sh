@@ -59,6 +59,16 @@ COMMON_DEFS=(
   -DWAMR_BUILD_LIBC_WASI=0
   -DWAMR_BUILD_LIBC_BUILTIN=0
   -DWAMR_BUILD_SIMD=1
+  # Relaxed-SIMD (wasm 2.0 extension) — same `0xfd` prefix as the
+  # legacy SIMD opcodes, plus 20 spec-assigned sub-opcodes at
+  # 0x100..0x113. Off by default in upstream WAMR (dormant feature
+  # bit `WASM_FEATURE_RELAXED_SIMD` at `aot_runtime.h:32`); our
+  # fork's `patches/wasm-micro-runtime/0016..0018` light up the
+  # fast-interp dispatch + cmake gate, and we set the flag here
+  # so the matmul-relaxed-simd workload + any future relaxed-SIMD
+  # benchmark wasm runs on WAMR. Upstreaming work tracked at
+  # rebeckerspecialties/wasm-micro-runtime#3.
+  -DWAMR_BUILD_RELAXED_SIMD=1
   -DWAMR_BUILD_BULK_MEMORY=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
