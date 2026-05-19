@@ -42,7 +42,13 @@ WHICH="${1:-macos}"
 #       rebeckerspecialties/wasm-micro-runtime#1 against the
 #       fork; intended for upstream once same-function try/catch
 #       lowering lands (see AGENTS.md → Open follow-up).
-( cd "${WAMR}" && git reset --hard HEAD --quiet \
+# Pinned submodule gitlink is the upstream WAMR base; reset to that
+# rather than HEAD so that patches 0001-0020 always forward-apply
+# cleanly. (HEAD may have feat-branch commits whose content overlaps
+# the patch series, breaking apply_patch_series.sh's reverse-check.)
+WAMR_PIN="$(cd "${ROOT}" && git ls-tree HEAD wasm-micro-runtime \
+  | awk '{print $3}')"
+( cd "${WAMR}" && git reset --hard "${WAMR_PIN}" --quiet \
   && git clean -fdq -e 'product-mini' )
 if [[ -d "${PATCH_DIR}" ]]; then
   "${ROOT}/scripts/apply_patch_series.sh" "${WAMR}" "${PATCH_DIR}"
