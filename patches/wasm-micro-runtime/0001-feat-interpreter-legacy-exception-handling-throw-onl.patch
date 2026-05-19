@@ -1,8 +1,8 @@
-From d441aa95c791936ef353847943b55112ee2eaa17 Mon Sep 17 00:00:00 2001
+From 8ba873f08d2d5d7fed4ca870770979f1d79b9118 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 01:59:16 -0700
-Subject: [PATCH] feat(interpreter): legacy exception handling (throw-only) for
- fast-interp
+Subject: [PATCH 01/15] feat(interpreter): legacy exception handling
+ (throw-only) for fast-interp
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -169,5 +169,5 @@ index a2c67bea..4f3dcffd 100644
                  /* check tag index is within the tag index space */
                  if (tag_index >= module->import_tag_count + module->tag_count) {
 -- 
-2.50.1 (Apple Git-155)
+2.54.0
 

@@ -11,6 +11,20 @@ name: build
 # to install + run, so they're not exercised here — but the static-lib
 # CROSS builds for those targets ARE exercised, so we'd catch a
 # broken target / patch / submodule pin before it landed on main.
+#
+# Runtime-build caching (added 2026-05-18):
+#   Each runtime's per-target build output dir is cached via
+#   actions/cache@v4 keyed on (a) the submodule's pinned gitlink
+#   SHA — written into `.ci-cache-inputs/<submodule>.sha` so
+#   hashFiles() can see it, (b) the entire patches/<submodule>/**
+#   tree, (c) the runtime's build-<runtime>.sh script, and
+#   (d) scripts/apply_patch_series.sh (the shared patch driver).
+#   A cache hit on (runtime, target) skips the build step entirely;
+#   any change to those four inputs invalidates the cache and the
+#   build step re-runs the full `git reset --hard HEAD && apply
+#   patches && cmake/make` path.
+#   See the per-step `if: steps.cache-….outputs.cache-hit != 'true'`
+#   gates below.
 
 on:
   push:
@@ -29,6 +43,24 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Record submodule SHAs for cache keys
+        # actions/cache derives its key via hashFiles(); to fold each
+        # submodule's *pinned commit* into the key we have to write the
+        # gitlink SHA to a regular file (hashFiles can't read git
+        # objects). Changing the pin in the outer-repo tree changes
+        # the file content and invalidates the corresponding cache.
+        # patches/<submodule>/** and the runtime's build script are
+        # folded in directly via hashFiles() in each cache step below.
+        run: |
+          mkdir -p .ci-cache-inputs
+          for sm in wasm-micro-runtime wasm3 wasmz zwasm WasmEdge; do
+            git ls-tree HEAD "$sm" | awk '{print $3}' > ".ci-cache-inputs/${sm}.sha"
+          done
+          # Echo for transparency in the run log.
+          for f in .ci-cache-inputs/*.sha; do
+            printf '%-32s %s\n' "$(basename "$f" .sha)" "$(cat "$f")"
+          done
 
       - name: Install pinned rustup toolchains
         run: |
@@ -62,20 +94,86 @@ jobs:
       - name: Build wasm workloads
         run: ./scripts/build-workloads.sh
 
+      # ─── WAMR ─────────────────────────────────────────────────────
+      # One cache entry per (target) — each build_target() in
+      # build-wamr.sh writes to a distinct
+      # `product-mini/platforms/darwin/build[-<triple>]` directory,
+      # and benchmark-core/build.rs picks the right one per cargo
+      # TARGET triple. Cache key inputs are shared across targets
+      # (same submodule, same patches, same build script).
+
+      - name: Cache WAMR (macOS host)
+        id: cache-wamr-macos
+        uses: actions/cache@v4
+        with:
+          path: wasm-micro-runtime/product-mini/platforms/darwin/build
+          key: ${{ runner.os }}-wamr-macos-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh') }}
+
       - name: Build WAMR (macOS) — applies any patches/wasm-micro-runtime/
+        if: steps.cache-wamr-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wamr.sh macos
 
+      # ─── wasm3 ────────────────────────────────────────────────────
+
+      - name: Cache wasm3 (macOS host)
+        id: cache-wasm3-macos
+        uses: actions/cache@v4
+        with:
+          path: wasm3/build
+          key: ${{ runner.os }}-wasm3-macos-${{ hashFiles('.ci-cache-inputs/wasm3.sha', 'patches/wasm3/**', 'scripts/build-wasm3.sh', 'scripts/apply_patch_series.sh') }}
+
       - name: Build wasm3 (macOS) — applies patches/wasm3/0001 (v128 opaque)
+        if: steps.cache-wasm3-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wasm3.sh macos
 
+      # ─── wasmz ────────────────────────────────────────────────────
+
+      - name: Cache wasmz (macOS host)
+        id: cache-wasmz-macos
+        uses: actions/cache@v4
+        with:
+          path: wasmz/build
+          key: ${{ runner.os }}-wasmz-macos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh') }}
+
       - name: Build wasmz (macOS) — applies patches/wasmz/{0001 stdlib port, 0002 watchos}
+        if: steps.cache-wasmz-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wasmz.sh macos
 
+      # ─── zwasm ────────────────────────────────────────────────────
+
+      - name: Cache zwasm (macOS host)
+        id: cache-zwasm-macos
+        uses: actions/cache@v4
+        with:
+          path: zwasm/build
+          key: ${{ runner.os }}-zwasm-macos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh') }}
+
       - name: Build zwasm (macOS) — applies patches/zwasm/0001 watchos
+        if: steps.cache-zwasm-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-zwasm.sh macos
 
+      # ─── WasmEdge ─────────────────────────────────────────────────
+      # WasmEdge is the slowest build in the matrix (~90 s on the
+      # macOS-15 runner) and the patch series is the largest (27
+      # patches), so it benefits the most from caching.
+
+      - name: Cache WasmEdge (macOS host)
+        id: cache-wasmedge-macos
+        uses: actions/cache@v4
+        with:
+          path: WasmEdge/build
+          key: ${{ runner.os }}-wasmedge-macos-${{ hashFiles('.ci-cache-inputs/WasmEdge.sha', 'patches/wasmedge/**', 'scripts/build-wasmedge.sh', 'scripts/apply_patch_series.sh') }}
+
       - name: Build WasmEdge (macOS) — applies 27-patch series in patches/wasmedge/
+        if: steps.cache-wasmedge-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wasmedge.sh macos
+
+      # ─── benchmark-core static libs (cargo — not submodule-cached) ─
+      # These are pure cargo builds against the cached runtime libs
+      # above; cargo's own incremental compilation handles re-use, so
+      # no extra actions/cache layer here. (cargo registry / target/
+      # caching is a separate concern from the runtime build caching
+      # this workflow's primary focus is on.)
 
       - name: Build benchmark-core static lib (macOS host)
         run: ./scripts/build-lib.sh macos
@@ -86,18 +184,60 @@ jobs:
       - name: Build benchmark-core static lib (iOS simulator cross-build)
         run: ./scripts/build-lib.sh ios-sim
 
+      # ─── WAMR (iOS device) ────────────────────────────────────────
+
+      - name: Cache WAMR (iOS device)
+        id: cache-wamr-ios
+        uses: actions/cache@v4
+        with:
+          path: wasm-micro-runtime/product-mini/platforms/darwin/build-aarch64-apple-ios
+          key: ${{ runner.os }}-wamr-ios-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh') }}
+
       - name: Build WAMR (iOS) — confirms patch series applies cleanly cross-target
+        if: steps.cache-wamr-ios.outputs.cache-hit != 'true'
         run: ./scripts/build-wamr.sh ios
 
-      - name: Build wasmz + zwasm for arm64_32-apple-watchos — the patches we cared about
-        run: |
-          ./scripts/build-wasmz.sh watchos
-          ./scripts/build-zwasm.sh watchos
+      # ─── wasmz (watchOS device) ───────────────────────────────────
 
-      - name: Build WAMR + benchmark-core for arm64_32-apple-watchos
-        run: |
-          ./scripts/build-wamr.sh watchos
-          ./scripts/build-lib.sh watchos
+      - name: Cache wasmz (arm64_32-apple-watchos)
+        id: cache-wasmz-watchos
+        uses: actions/cache@v4
+        with:
+          path: wasmz/build-arm64_32-apple-watchos
+          key: ${{ runner.os }}-wasmz-watchos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh') }}
+
+      - name: Build wasmz for arm64_32-apple-watchos
+        if: steps.cache-wasmz-watchos.outputs.cache-hit != 'true'
+        run: ./scripts/build-wasmz.sh watchos
+
+      # ─── zwasm (watchOS device) ───────────────────────────────────
+
+      - name: Cache zwasm (arm64_32-apple-watchos)
+        id: cache-zwasm-watchos
+        uses: actions/cache@v4
+        with:
+          path: zwasm/build-arm64_32-apple-watchos
+          key: ${{ runner.os }}-zwasm-watchos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh') }}
+
+      - name: Build zwasm for arm64_32-apple-watchos
+        if: steps.cache-zwasm-watchos.outputs.cache-hit != 'true'
+        run: ./scripts/build-zwasm.sh watchos
+
+      # ─── WAMR (watchOS device) ────────────────────────────────────
+
+      - name: Cache WAMR (arm64_32-apple-watchos)
+        id: cache-wamr-watchos
+        uses: actions/cache@v4
+        with:
+          path: wasm-micro-runtime/product-mini/platforms/darwin/build-arm64_32-apple-watchos
+          key: ${{ runner.os }}-wamr-watchos-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh') }}
+
+      - name: Build WAMR for arm64_32-apple-watchos
+        if: steps.cache-wamr-watchos.outputs.cache-hit != 'true'
+        run: ./scripts/build-wamr.sh watchos
+
+      - name: Build benchmark-core static lib (arm64_32-apple-watchos)
+        run: ./scripts/build-lib.sh watchos
 
       - name: Build all native test binaries (validates harness wiring)
         run: cargo build --release -p benchmark-core --bins

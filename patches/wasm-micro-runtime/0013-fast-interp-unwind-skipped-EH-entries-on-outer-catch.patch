@@ -1,0 +1,108 @@
+From 57f4169ee17a336192e9f6bdf74a526aae792db0 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Mon, 18 May 2026 22:12:52 -0700
+Subject: [PATCH 13/15] fast-interp: unwind skipped EH entries on outer-catch
+ dispatch
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When a throw from a nested try is caught by an OUTER handler, the
+walker previously left the inner-try entries between the throw site
+and the matched outer entry on the eh-stack. The matched entry got
+its `EH_TRY_CATCH_STATE_BIT` set, but `frame->eh_count` stayed
+unchanged. After the outer catch body's END decremented eh_count by
+one, the inner-try slot remained at the top of the eh-stack with
+the matched outer entry now sitting *under* it (in-progress bit
+set).
+
+A subsequent throw inside (or after) the outer catch body would
+walk that stale state. The walker SKIPs entries with the state bit
+set, so the outer entry was correctly ignored — but the inner-try
+entry (no state bit) was treated as live. If the inner try's typed
+catch happened to match the new tag, the walker dispatched against
+that stale entry — an out-of-scope catch.
+
+Worse, in a tight loop of `outer try { inner try { throw }
+catch_other catch_outer { ... } }`, every iteration leaked one
+inner-try entry. After more iterations than the function's
+`exception_handler_count`, the next TRY push wrote past the static
+eh-stack reservation (silently in release builds since `bh_assert`
+is a no-op without `BH_DEBUG`).
+
+Fix: at each match-and-dispatch site in `find_a_catch_handler` —
+both the typed-catch branch and the catch_all branch — set
+`frame->eh_count = i;` before jumping to the handler. `i` is the
+loop counter, which equals the index of the matched entry plus
+one. This pops the nested-try entries above the match in a single
+indexed store. The matched entry stays at index i-1 with its state
+bit set; the catch body's END pops it normally when the body
+completes.
+
+Cost shape: one extra indexed store on the cold throw path, only
+when a typed catch or catch_all matches. CALL / LOAD / STORE
+handlers are untouched.
+
+Test added in the external integration suite at
+`crates/benchmark-core/tests/eh_correctness.rs::
+outer_catch_unwinds_inner_eh_entries`. The test pattern is: outer
+try catches `$err`; inner try has a catch for `$err2`. Inner throw
+of `$err` is caught by outer. Outer catch body re-throws `$err2`,
+which must propagate UNCAUGHT (inner try is out of scope). Pre-fix
+walker found the stale inner catch and dispatched to it,
+producing a Ok(99) instead of the trap; post-fix the walker has
+no in-scope entries and the throw escapes correctly.
+
+Codex P1 review feedback on rebeckerspecialties/wasm-micro-
+runtime PR #2: "Unwind skipped EH entries before dispatching
+catches".
+---
+ core/iwasm/interpreter/wasm_interp_fast.c | 25 +++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+index f9195bef..ee9cd4bd 100644
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -2036,6 +2036,25 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                                     frame_lp[throw_src_offsets[c]];
+                             }
+                         }
++                        /* Pop the inner eh-stack entries that the
++                         * throw is jumping past. When the match is
++                         * at the topmost entry this is a no-op
++                         * (i == frame->eh_count). When the match is
++                         * an outer entry, the nested-try entries
++                         * above it (indices i .. eh_count-1) are
++                         * out of scope after the catch-dispatch;
++                         * leaving them counted would let a
++                         * subsequent throw inside the catch body
++                         * see stale in-scope entries (and a tight
++                         * loop of throw → outer-catch → throw
++                         * would eventually overflow the fixed
++                         * reservation). The matched entry stays
++                         * at index i-1 with its state bit set; the
++                         * catch body's END pops it when it
++                         * completes. Cost: one indexed store on
++                         * the cold throw path; CALL / LOAD / STORE
++                         * untouched. */
++                        frame->eh_count = i;
+                         frame_ip = entry->catches[j].handler_pc;
+                         HANDLE_OP_END();
+                     }
+@@ -2048,6 +2067,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                      * documented as a known limitation. */
+                     cells[0] = packed | EH_TRY_CATCH_STATE_BIT;
+                     cells[1] = exception_tag_index;
++                    /* Same unwind as the typed-catch path above —
++                     * pop any nested-try entries the throw is
++                     * jumping past so a subsequent throw inside
++                     * this catch_all body doesn't dispatch
++                     * against stale inner entries. */
++                    frame->eh_count = i;
+                     frame_ip = entry->catch_all_pc;
+                     HANDLE_OP_END();
+                 }
+-- 
+2.54.0
+

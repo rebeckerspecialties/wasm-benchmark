@@ -34,3 +34,9 @@ path = "src/bin/profile-audio.rs"
 [[bin]]
 name = "runwasm-compare"
 path = "src/bin/runwasm-compare.rs"
+
+[dev-dependencies]
+# In-process wat → wasm compilation for the EH correctness integration
+# tests in `tests/eh_correctness.rs`. Pulled only for `cargo test`; not
+# linked into the staticlib that ships on-device.
+wat = "1"

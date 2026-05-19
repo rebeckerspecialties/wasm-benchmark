@@ -1,0 +1,575 @@
+From 169f9e757ae4b83f79cf90e11f80c84c609fa8b8 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Sun, 17 May 2026 22:48:18 -0700
+Subject: [PATCH 07/15] fast-interp: tag-with-params payload routing
+ (same-function dispatch)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Wires up the loader + runtime path so a tagged exception with i32 /
+i64 / v128 parameters delivers its payload to the matching catch
+body's operand stack — same-function dispatch only. Cross-function
+dispatch (callee throws, caller catches) still drops the payload;
+that gap is now surfaced explicitly via the
+`cross_function_tag_with_params` integration test (#[ignore]'d
+with the same justification recorded in AGENTS.md).
+
+WASMFastEHCatch grows two fields:
+  uint32 param_cell_num;
+  int16 *param_dst_offsets;
+
+The dst-slots array is a loader-owned int16[] of length
+`param_cell_num`, capturing the cell-wise frame_lp slot offsets
+that the catch body's downstream ops will pop from. NULL for the
+common tag-without-params case (Porffor's empty-payload tags, all
+of the spec-test's `tag $err` declarations) — no heap allocation
+and the runtime walker's copy loop is a trivial zero-iteration
+no-op.
+
+Loader (wasm_loader.c) — CATCH case:
+  * Swap `PUSH_TYPE` for `PUSH_OFFSET_TYPE` so the catch body's
+    incoming params get fresh `dynamic_offset` slots allocated +
+    emitted as int16 operands in the IR (right after the eh_idx
+    immediate). The PUSH_OFFSET_TYPE emits are dead bytes on the
+    normal-flow CATCH dispatch (which only reads eh_idx and
+    branches to end_of_region_pc), but they're necessary so the
+    catch body's POP_OFFSET_TYPEs find the right slot offsets in
+    frame_offset[].
+  * Pass 2 captures handler_pc AFTER the PUSH_OFFSET_TYPEs so the
+    throw walker's `frame_ip = handler_pc` lands at the first byte
+    of the catch body proper (skipping the dead dst-slot bytes).
+  * Pass 2 also bh_memcpy_s's frame_offset[]'s top
+    `param_cell_num` cells into a fresh int16[] on the catch's
+    WASMFastEHCatch — these are the destination offsets the
+    runtime walker will write payload values to.
+  * Free path in wasm_loader_unload extended to free the
+    per-catch dst-offsets array.
+
+Loader — THROW case (wasm_loader.c):
+  * Moved the existing `emit_uint32(tag_index)` below the
+    tag-type lookup + validation so `tag_type->param_cell_num` is
+    available.
+  * After tag_index, emit `<param_cell_num:u32>` plus
+    `<src_offset_i:int16>` for i in 0..param_cell_num. The src
+    offsets are read directly off the top of `loader_ctx->
+    frame_offset[]` — the validation loop above pops frame_ref
+    but doesn't touch frame_offset, so they're stable. Both
+    traverses run the same emit to keep pass-1 / pass-2 size
+    accounting balanced.
+
+Runtime (wasm_interp_fast.c) — new locals in the dispatch
+function (cold-path only, same scope as `exception_tag_index`):
+  uint32 throw_param_cell_num = 0;
+  int16 *throw_src_offsets = NULL;
+
+These get populated by HANDLE_OP(WASM_OP_THROW), which now reads
+tag_index + param_cell_num + the src-offsets array off the IR
+(advancing frame_ip past all three). The pair is consumed by
+find_a_catch_handler's catch-match dispatch: on a typed-catch
+match it does the cell-wise copy `frame_lp[dst[c]] =
+frame_lp[src[c]]`. catch_all dispatch explicitly drops the
+payload (per spec — catch_all binds no exception values). The
+copy loop is fully cold (only THROW reaches here); CALL / LOAD
+/ STORE handlers untouched.
+
+WASM_OP_RETHROW: extended to re-point throw_src_offsets at the
+matched catch's `param_dst_offsets` before goto find_a_catch_
+handler — so rethrow from inside a typed catch carries the same
+payload outward. The catch body can't mutate the dst slots
+(they're allocated from `dynamic_offset`, separate from the
+local-slot range that local.set writes to), so the values are
+still the original ones at rethrow time. Rethrow from inside a
+catch_all (whose `param_dst_offsets == NULL`) falls back to
+zero-cell — documented as a known limitation.
+
+return_func hook: the cross-frame branch zeros throw_param_cell_
+num and throw_src_offsets before the goto find_a_catch_handler,
+since the callee's source slots live in a frame that's about to
+be torn down — same payload-dropping semantics as the existing
+cross-function-no-payload case, but explicit instead of
+relying on uninitialized stack.
+
+Cost shape preserved: zero new bytes in CALL / LOAD / STORE.
+EH_ENTRY_CELLS still 2; no extra cells per try-region. The two
+new locals get spilled by the compiler since the hot loop
+doesn't reference them.
+---
+ core/iwasm/interpreter/wasm.h             |  19 ++
+ core/iwasm/interpreter/wasm_interp_fast.c | 130 ++++++++++++-
+ core/iwasm/interpreter/wasm_loader.c      | 215 ++++++++++++++++------
+ 3 files changed, 303 insertions(+), 61 deletions(-)
+
+diff --git a/core/iwasm/interpreter/wasm.h b/core/iwasm/interpreter/wasm.h
+index e18ab7ae..879bdc64 100644
+--- a/core/iwasm/interpreter/wasm.h
++++ b/core/iwasm/interpreter/wasm.h
+@@ -688,6 +688,25 @@ typedef struct WASMImport {
+ typedef struct WASMFastEHCatch {
+     uint32 tag_index;
+     uint8 *handler_pc;
++    /* Tag-with-params payload routing (same-function dispatch only).
++     * When this catch matches, the throw walker copies `param_cell_num`
++     * 32-bit cells from the throw site's *source* slots (encoded as
++     * `int16` immediates after the THROW opcode in the rewritten IR)
++     * into these *destination* slots in the catch body's `frame_lp`,
++     * then sets `frame_ip = handler_pc`. The destination slots are
++     * allocated by the CATCH loader at preprocess time, mirroring how
++     * block-with-params allocate fresh `dynamic_offset` slots via
++     * `PUSH_OFFSET_TYPE`. NULL iff `param_cell_num == 0` (the typical
++     * tag-without-params shape, e.g. Porffor's empty-payload tags).
++     *
++     * Cross-function dispatch (caller's catch fires for a callee's
++     * throw) does NOT copy the payload: the callee's source slots
++     * sit in a frame that's about to be torn down by return_func.
++     * That gap is documented as an ignored integration test —
++     * `cross_function_tag_with_params` in
++     * crates/benchmark-core/tests/eh_correctness.rs. */
++    uint32 param_cell_num;
++    int16 *param_dst_offsets;
+ } WASMFastEHCatch;
+ 
+ /* One entry per same-function try-region, indexed by the uint32 immediate
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+index 4db492ca..1f587b10 100644
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -1560,6 +1560,22 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+      * Cold path only — the dispatch loop's hot ops never reference
+      * this variable, so the compiler is free to spill it. */
+     uint32 exception_tag_index = 0;
++    /* Tag-with-params payload routing for same-function dispatch.
++     * Read off the IR after THROW's tag_index immediate;
++     * `throw_src_offsets` points at the first src-slot int16 in the
++     * rewritten IR, and `throw_param_cell_num` is the total cell
++     * count across all of the tag's params. find_a_catch_handler
++     * uses these to copy frame_lp[src[i]] into the matched catch's
++     * pre-allocated dst slots. Both are cold-path-only — like
++     * exception_tag_index, the dispatch loop's hot ops never
++     * reference them. RETHROW re-points throw_src_offsets at the
++     * still-alive catch's `param_dst_offsets` (the original
++     * payload values, unchanged by the catch body since they live
++     * in a different slot range from locals) so the re-raised
++     * exception carries the same payload across outer try-regions
++     * in this frame. */
++    uint32 throw_param_cell_num = 0;
++    int16 *throw_src_offsets = NULL;
+ #endif
+ 
+ #if WASM_ENABLE_INSTRUCTION_METERING != 0
+@@ -1861,13 +1877,32 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+ #if WASM_ENABLE_EXCE_HANDLING != 0
+             HANDLE_OP(WASM_OP_THROW)
+             {
+-                /* Loader emits `WASM_OP_THROW <tag_index:u32>`. Read
+-                 * the tag, then walk the eh-stack in
+-                 * find_a_catch_handler to find a matching catch —
+-                 * first in this frame, then via return_func's hook in
+-                 * caller frames, and finally falling out to the host
+-                 * via got_exception when no match is found anywhere. */
++                /* Loader emits
++                 *   `WASM_OP_THROW <tag_index:u32>
++                 *                  <param_cell_num:u32>
++                 *                  <src_offset_0:int16> ...
++                 * <src_offset_N-1:int16>`. Read the tag plus payload-source
++                 * metadata, then walk the eh-stack in find_a_catch_handler to
++                 * find a matching catch — first in this frame, then via
++                 * return_func's hook in caller frames, and finally
++                 * falling out to the host via got_exception when no
++                 * match is found anywhere.
++                 *
++                 * Payload routing: when a same-function catch matches,
++                 * find_a_catch_handler copies frame_lp[src[i]] into
++                 * the catch's pre-allocated dst slots (recorded on
++                 * `WASMFastEHCatch.param_dst_offsets` at load time).
++                 * For tag-without-params (the typical Porffor shape),
++                 * `throw_param_cell_num == 0` makes the copy a no-op.
++                 * For cross-function dispatch the source frame is
++                 * torn down before the caller's walker runs, so the
++                 * payload is dropped — this gap is documented in
++                 * AGENTS.md and exercised as
++                 * `cross_function_tag_with_params` (#[ignore]). */
+                 exception_tag_index = read_uint32(frame_ip);
++                throw_param_cell_num = read_uint32(frame_ip);
++                throw_src_offsets = (int16 *)frame_ip;
++                frame_ip += sizeof(int16) * throw_param_cell_num;
+                 goto find_a_catch_handler;
+             }
+ 
+@@ -1962,11 +1997,33 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                          * raise it. */
+                         cells[0] = packed | EH_TRY_CATCH_STATE_BIT;
+                         cells[1] = exception_tag_index;
++                        /* Payload copy (same-function dispatch).
++                         * The loader guaranteed
++                         * `entry->catches[j].param_cell_num ==
++                         * throw_param_cell_num` by checking the
++                         * tag type at both THROW and CATCH; the
++                         * runtime just executes the cell-wise
++                         * frame_lp move. Tag-without-params makes
++                         * the loop trivial. */
++                        if (throw_param_cell_num > 0
++                            && entry->catches[j].param_dst_offsets) {
++                            uint32 c;
++                            int16 *dst = entry->catches[j].param_dst_offsets;
++                            for (c = 0; c < throw_param_cell_num; c++) {
++                                frame_lp[dst[c]] =
++                                    frame_lp[throw_src_offsets[c]];
++                            }
++                        }
+                         frame_ip = entry->catches[j].handler_pc;
+                         HANDLE_OP_END();
+                     }
+                 }
+                 if (entry->catch_all_pc) {
++                    /* catch_all binds no payload (spec: catch_all
++                     * has no exception values), so we drop the
++                     * src cells here. RETHROW from inside a
++                     * catch_all body cannot re-emit a payload —
++                     * documented as a known limitation. */
+                     cells[0] = packed | EH_TRY_CATCH_STATE_BIT;
+                     cells[1] = exception_tag_index;
+                     frame_ip = entry->catch_all_pc;
+@@ -2075,7 +2132,51 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                         /* Re-raise the caught tag against the *outer*
+                          * try-regions. find_a_catch_handler iterates
+                          * top-down and skips state=CATCH entries, so
+-                         * this same entry won't re-match. */
++                         * this same entry won't re-match.
++                         *
++                         * Payload routing: the original throw's
++                         * payload values were copied into THIS
++                         * catch's dst slots by the previous
++                         * find_a_catch_handler dispatch. The wasm
++                         * spec says the catch body can't mutate
++                         * those exception values directly (they're
++                         * not addressable as locals, and the only
++                         * way to read them is to pop off the
++                         * operand stack at catch entry — which
++                         * advances past the dst slots without
++                         * writing them back). So at RETHROW time
++                         * the dst slots still hold the original
++                         * payload, and we can point throw_src_offsets
++                         * at them so the outer catch's copy lands
++                         * on a fresh set of dst slots with the
++                         * same values.
++                         *
++                         * If the original match was via catch_all
++                         * (no typed catch matched cells[1]),
++                         * `match->param_dst_offsets == NULL` and the
++                         * payload was already dropped at the
++                         * catch_all dispatch. RETHROW from
++                         * catch_all then re-raises with no payload
++                         * — documented as a known limitation. */
++                        uint32 ent_eh_idx = cells[0] & ~EH_TRY_CATCH_STATE_BIT;
++                        WASMFastEHEntry *ent =
++                            &cur_wasm_func->exception_handlers[ent_eh_idx];
++                        WASMFastEHCatch *match = NULL;
++                        uint32 mj;
++                        for (mj = 0; mj < ent->catch_count; mj++) {
++                            if (ent->catches[mj].tag_index == cells[1]) {
++                                match = &ent->catches[mj];
++                                break;
++                            }
++                        }
++                        if (match && match->param_dst_offsets) {
++                            throw_param_cell_num = match->param_cell_num;
++                            throw_src_offsets = match->param_dst_offsets;
++                        }
++                        else {
++                            throw_param_cell_num = 0;
++                            throw_src_offsets = NULL;
++                        }
+                         exception_tag_index = cells[1];
+                         goto find_a_catch_handler;
+                     }
+@@ -8145,9 +8246,22 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+          * chance to catch. Predicted strongly not-taken —
+          * exceptions are rare, this single check is the entire
+          * CALL-return-side cost of EH; the success path takes the
+-         * HANDLE_OP_END() below. */
++         * HANDLE_OP_END() below.
++         *
++         * Cross-frame payload routing: the callee's throw site's
++         * source slots lived in the callee's frame_lp, which has
++         * already been freed by the time we get here. We zero out
++         * the throw_param_cell_num / throw_src_offsets pair so the
++         * caller's find_a_catch_handler doesn't try to dereference
++         * freed memory — the catch (if any matches) will fire with
++         * a zero-cell payload. This is the same gap documented at
++         * the WASM_OP_THROW handler and surfaced as
++         * `cross_function_tag_with_params` in the integration
++         * suite. */
+         if (frame->exception_raised) {
+             exception_tag_index = frame->tag_index;
++            throw_param_cell_num = 0;
++            throw_src_offsets = NULL;
+             frame->exception_raised = false;
+             goto find_a_catch_handler;
+         }
+diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
+index d637b171..53e0b6af 100644
+--- a/core/iwasm/interpreter/wasm_loader.c
++++ b/core/iwasm/interpreter/wasm_loader.c
+@@ -7366,12 +7366,22 @@ wasm_loader_unload(WASMModule *module)
+                     for (eh_idx = 0;
+                          eh_idx < module->functions[i]->exception_handler_count;
+                          eh_idx++) {
+-                        if (module->functions[i]
+-                                ->exception_handlers[eh_idx]
+-                                .catches) {
+-                            wasm_runtime_free(module->functions[i]
+-                                                  ->exception_handlers[eh_idx]
+-                                                  .catches);
++                        WASMFastEHEntry *eh_entry =
++                            &module->functions[i]->exception_handlers[eh_idx];
++                        if (eh_entry->catches) {
++                            uint32 cj;
++                            /* Free each catch's tag-with-params dst
++                             * slot array. param_dst_offsets is NULL
++                             * for the (common) tag-without-params
++                             * case, in which case the free is a
++                             * no-op. */
++                            for (cj = 0; cj < eh_entry->catch_count; cj++) {
++                                if (eh_entry->catches[cj].param_dst_offsets) {
++                                    wasm_runtime_free(eh_entry->catches[cj]
++                                                          .param_dst_offsets);
++                                }
++                            }
++                            wasm_runtime_free(eh_entry->catches);
+                         }
+                     }
+                     wasm_runtime_free(module->functions[i]->exception_handlers);
+@@ -12445,19 +12455,6 @@ re_scan:
+                 uint32 tag_index = 0;
+                 pb_read_leb_int32(p, p_end, tag_index);
+ 
+-#if WASM_ENABLE_FAST_INTERP != 0
+-                /* Fast-interp: the LEB-encoded tag_index from the source
+-                 * bytecode is consumed above; re-emit it as a plain
+-                 * uint32 immediate after the (auto-emitted) THROW opcode
+-                 * so the runtime handler can read it without re-running
+-                 * the LEB decoder. The runtime currently treats the tag
+-                 * as opaque (it surfaces a generic "wasm exception
+-                 * thrown (tag N)" string via wasm_set_exception and
+-                 * escapes via got_exception). Same emit shape as
+-                 * WASM_OP_CALL's funcidx. */
+-                emit_uint32(loader_ctx, tag_index);
+-#endif
+-
+                 /* check validity of tag_index against module->tag_count */
+                 /* check tag index is within the tag index space */
+                 if (tag_index >= module->import_tag_count + module->tag_count) {
+@@ -12484,6 +12481,59 @@ re_scan:
+                     goto fail;
+                 }
+ 
++#if WASM_ENABLE_FAST_INTERP != 0
++                /* Fast-interp THROW IR shape (emitted in BOTH traverses
++                 * so pass-1 / pass-2 size accounting stays balanced):
++                 *
++                 *   <THROW label>
++                 *   <tag_index:u32>
++                 *   <param_cell_num:u32>
++                 *   <src_offset_0:int16> ... <src_offset_N-1:int16>
++                 *
++                 * Where `param_cell_num` is the sum across all params'
++                 * cell widths (i32 = 1, i64 = 2, v128 = 4, etc.) and
++                 * src_offset_i is the throw-site's frame_lp slot for
++                 * the i-th payload cell, read directly off the top of
++                 * `loader_ctx->frame_offset[]`. The validation loop
++                 * below pops frame_ref / available_stack_cell but
++                 * doesn't touch frame_offset, so the src offsets are
++                 * stable to read here. They get consumed at runtime
++                 * by find_a_catch_handler when a *same-function*
++                 * catch matches: it copies `param_cell_num` cells
++                 * from frame_lp[src_offset_i] into the catch body's
++                 * `param_dst_offsets[i]` slots before jumping to
++                 * handler_pc.
++                 *
++                 * Cross-function dispatch (callee throws, caller's
++                 * catch fires after return_func unwinds) does NOT
++                 * preserve the payload — the source slots live in a
++                 * frame that's about to be torn down. That gap is
++                 * documented as an ignored integration test, in line
++                 * with the cost-model rule that EH must not tax hot
++                 * ops: a per-thread payload buffer would force every
++                 * CALL / RETURN handler to spill scratch state across
++                 * the boundary, which we explicitly refuse.
++                 *
++                 * Tag-without-params is the common case (Porffor
++                 * emits empty payloads; many spec tests use bare
++                 * tags too). param_cell_num=0 makes the for-loop
++                 * trivial and the resulting IR is just the tag_index
++                 * + a single zero — same hot-path cost as the
++                 * pre-tag-with-params shape, since the runtime
++                 * read_uint32 of param_cell_num happens on the cold
++                 * THROW handler. */
++                emit_uint32(loader_ctx, tag_index);
++                emit_uint32(loader_ctx, tag_type->param_cell_num);
++                {
++                    uint32 ci;
++                    for (ci = 0; ci < tag_type->param_cell_num; ci++) {
++                        int16 src = *(loader_ctx->frame_offset
++                                      - tag_type->param_cell_num + ci);
++                        emit_operand(loader_ctx, src);
++                    }
++                }
++#endif
++
+                 int32 available_stack_cell =
+                     (int32)(loader_ctx->stack_cell_num
+                             - cur_block->stack_cell_num);
+@@ -12758,39 +12808,6 @@ re_scan:
+                  * loader allocation the heap placed immediately after
+                  * (typically func->exception_handlers itself). */
+                 emit_uint32(loader_ctx, cur_block->eh_entry_idx);
+-
+-                /* Second traverse only: append (tag_index, handler_pc)
+-                 * to the parent try-region's catches[]. handler_pc is
+-                 * the first rewritten-IR byte *after* the eh_idx
+-                 * immediate — that's where the runtime throw dispatch
+-                 * jumps when a matching tag is caught. */
+-                if (loader_ctx->p_code_compiled != NULL) {
+-                    uint32 eh_idx = cur_block->eh_entry_idx;
+-                    WASMFastEHEntry *entry;
+-                    WASMFastEHCatch *new_catches;
+-                    uint64 new_size;
+-                    bh_assert(eh_idx < func->exception_handler_count);
+-                    bh_assert(func->exception_handlers != NULL);
+-                    entry = &func->exception_handlers[eh_idx];
+-                    new_size = (uint64)sizeof(WASMFastEHCatch)
+-                               * (entry->catch_count + 1);
+-                    if (!(new_catches = loader_malloc(new_size, error_buf,
+-                                                      error_buf_size))) {
+-                        goto fail;
+-                    }
+-                    if (entry->catches) {
+-                        bh_memcpy_s(new_catches, (uint32)new_size,
+-                                    entry->catches,
+-                                    (uint32)sizeof(WASMFastEHCatch)
+-                                        * entry->catch_count);
+-                        wasm_runtime_free(entry->catches);
+-                    }
+-                    new_catches[entry->catch_count].tag_index = tag_index;
+-                    new_catches[entry->catch_count].handler_pc =
+-                        loader_ctx->p_code_compiled;
+-                    entry->catches = new_catches;
+-                    entry->catch_count++;
+-                }
+ #endif
+ 
+                 /*
+@@ -12807,7 +12824,29 @@ re_scan:
+                 uint32 j = 0;
+ #endif
+ 
+-                /* push types on the stack according to caught type */
++                /* Push the tag's params onto the catch body's operand
++                 * stack. Classic-interp uses PUSH_TYPE (which only
++                 * touches the value-type stack used by validation);
++                 * fast-interp also needs `PUSH_OFFSET_TYPE`, which
++                 * allocates fresh `dynamic_offset` slots for each cell
++                 * (and emits the slot offsets as `int16` operands in
++                 * the IR right after the eh_idx). The catch body's
++                 * downstream ops then `POP_OFFSET_TYPE` to consume
++                 * these slots — same shape the loader uses for
++                 * block-with-params (see `copy_params_to_dynamic_
++                 * space`).
++                 *
++                 * Note: the emitted dst slots are *unused* by the
++                 * runtime CATCH normal-flow handler (it only reads
++                 * eh_idx and branches to end_of_region_pc) — they
++                 * sit in the IR as dead bytes on the fall-through
++                 * path. The throw walker doesn't read them either;
++                 * it consults the pre-decoded copy on
++                 * `WASMFastEHCatch.param_dst_offsets` (populated
++                 * below). They're emitted only so PUSH_OFFSET_TYPE's
++                 * pass-1 / pass-2 size accounting stays balanced and
++                 * the catch body's POP_OFFSET_TYPEs find the right
++                 * slot offsets in `frame_offset[]`. */
+                 for (i = 0; i < func_type->param_count; i++) {
+ #if WASM_ENABLE_GC != 0
+                     if (wasm_is_type_multi_byte_type(func_type->types[i])) {
+@@ -12819,8 +12858,78 @@ re_scan:
+                         j++;
+                     }
+ #endif
++#if WASM_ENABLE_FAST_INTERP != 0
++                    PUSH_OFFSET_TYPE(func_type->types[i]);
++#else
+                     PUSH_TYPE(func_type->types[i]);
++#endif
+                 }
++
++#if WASM_ENABLE_FAST_INTERP != 0
++                /* Second traverse only: append a fully-populated
++                 * `WASMFastEHCatch` entry to the parent try-region's
++                 * catches[]. handler_pc is captured *after* the
++                 * PUSH_OFFSET_TYPE emits above so it points at the
++                 * first rewritten-IR byte of the catch body proper
++                 * (skipping the dead dst-slot bytes). param_cell_num
++                 * is the sum of cells across all tag params (i32 = 1
++                 * cell, i64 = 2, v128 = 4); param_dst_offsets is a
++                 * loader-owned copy of the int16 slot offsets just
++                 * pushed onto frame_offset[]. NULL when the tag has
++                 * no params (the typical Porffor shape). */
++                if (loader_ctx->p_code_compiled != NULL) {
++                    uint32 eh_idx = cur_block->eh_entry_idx;
++                    WASMFastEHEntry *entry;
++                    WASMFastEHCatch *new_catches;
++                    uint64 new_size;
++                    bh_assert(eh_idx < func->exception_handler_count);
++                    bh_assert(func->exception_handlers != NULL);
++                    entry = &func->exception_handlers[eh_idx];
++                    new_size = (uint64)sizeof(WASMFastEHCatch)
++                               * (entry->catch_count + 1);
++                    if (!(new_catches = loader_malloc(new_size, error_buf,
++                                                      error_buf_size))) {
++                        goto fail;
++                    }
++                    if (entry->catches) {
++                        bh_memcpy_s(new_catches, (uint32)new_size,
++                                    entry->catches,
++                                    (uint32)sizeof(WASMFastEHCatch)
++                                        * entry->catch_count);
++                        wasm_runtime_free(entry->catches);
++                    }
++                    new_catches[entry->catch_count].tag_index = tag_index;
++                    new_catches[entry->catch_count].handler_pc =
++                        loader_ctx->p_code_compiled;
++                    new_catches[entry->catch_count].param_cell_num =
++                        func_type->param_cell_num;
++                    new_catches[entry->catch_count].param_dst_offsets = NULL;
++                    if (func_type->param_cell_num > 0) {
++                        uint64 dst_size =
++                            (uint64)sizeof(int16) * func_type->param_cell_num;
++                        int16 *dst;
++                        if (!(dst = loader_malloc(dst_size, error_buf,
++                                                  error_buf_size))) {
++                            wasm_runtime_free(new_catches);
++                            goto fail;
++                        }
++                        /* The just-completed PUSH_OFFSET_TYPE sequence
++                         * pushed param_cell_num int16 entries onto
++                         * frame_offset[] in source order (param 0's
++                         * cell 0, cell 1, ..., param 1's cell 0, ...).
++                         * Copy them out now while the top of
++                         * frame_offset[] still holds them — the next
++                         * RESET_STACK would wipe them. */
++                        bh_memcpy_s(dst, (uint32)dst_size,
++                                    loader_ctx->frame_offset
++                                        - func_type->param_cell_num,
++                                    (uint32)dst_size);
++                        new_catches[entry->catch_count].param_dst_offsets = dst;
++                    }
++                    entry->catches = new_catches;
++                    entry->catch_count++;
++                }
++#endif
+                 break;
+             }
+             case WASM_OP_CATCH_ALL:
+-- 
+2.54.0
+
