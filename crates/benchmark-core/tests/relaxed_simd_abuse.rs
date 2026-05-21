@@ -22,6 +22,15 @@
 //! behavior so a future SIMDe upgrade or lowering change is
 //! caught.
 //!
+//! A second wave of boundary tests (Categories 1b, 2b, 6b, 6c, 7b,
+//! 7c, 8b) was added after the chatgpt-codex-connector code review
+//! on PR #3 caught an i16-intermediate-truncation bug in
+//! `i32x4.relaxed_dot_i8x16_i7x16_add_s` that none of the original
+//! 19 cases exercised. Each new test targets a multi-step spec
+//! operation where collapsing the steps changes the result, or
+//! pins an implementation-defined ambiguity that the original
+//! coverage didn't.
+//!
 //! These tests double as ASan / UBSan smoke tests. Build WAMR with
 //! `-fsanitize=address,undefined` via the existing
 //! `build-asan/` cmake config and run `cargo test --test
@@ -239,6 +248,184 @@ const ABUSE_WAT: &str = r#"
     v128.const f32x4 0.1 0.2 0.3 0.4
     f32x4.relaxed_madd
     i64x2.extract_lane 0)
+
+  ;; --------------------------------------------------------------
+  ;; Boundary tests added after the chatgpt-codex-connector review
+  ;; on PR #3 caught a missing i16-intermediate truncation in
+  ;; `i32x4.relaxed_dot_i8x16_i7x16_add_s` — see the commit
+  ;; "fast-interp: i32x4.relaxed_dot_i8x16_i7x16_add_s preserve i16
+  ;; intermediate". Each block below targets a multi-step spec
+  ;; operation where collapsing the steps changes the result, or
+  ;; an implementation-defined ambiguity zone where we pin
+  ;; observable behavior.
+  ;; --------------------------------------------------------------
+
+  ;; Category 7b: i16-intermediate overflow boundary for
+  ;; `i32x4.relaxed_dot_i8x16_i7x16_add_s`. With a = b = 0x80 (i8 =
+  ;; -128) in all 16 bytes, c = 0:
+  ;;   pair_sum = (-128 * -128) + (-128 * -128) = 32768  (overflows i16)
+  ;;   wrap → (int16)32768 = -32768
+  ;;   ext_pair = i32(-32768) + i32(-32768) = -65536
+  ;;   + c (0)  = -65536  per i32 lane
+  ;;
+  ;; Direct-i32-sum implementation (the pre-fix bug):
+  ;;   4 * 16384 = 65536  per lane  ← OUTSIDE spec-allowed set
+  ;;
+  ;; Spec-allowed set per lane (any wrap/sat × wrap/sat combination
+  ;; of the two pair sums): {-65536, -1, 65534}. 65536 is *not* in
+  ;; the set.
+  ;;
+  ;; Our wrap-on-both impl pins to -65536 per lane.
+  ;;   lane0 = lane1 = -65536 = (i32) 0xffff0000
+  ;;   low i64 = (lane1 << 32) | lane0 = 0xffff0000_ffff0000
+  (func (export "dot_add_i16_overflow") (result i64)
+    v128.const i8x16 -128 -128 -128 -128 -128 -128 -128 -128
+                     -128 -128 -128 -128 -128 -128 -128 -128
+    v128.const i8x16 -128 -128 -128 -128 -128 -128 -128 -128
+                     -128 -128 -128 -128 -128 -128 -128 -128
+    v128.const i32x4 0 0 0 0
+    i32x4.relaxed_dot_i8x16_i7x16_add_s
+    i64x2.extract_lane 0)
+
+  ;; Category 7c: pin the `i16x8.relaxed_dot_i8x16_i7x16_s` impl
+  ;; at the same overflow boundary. The current impl correctly
+  ;; truncates to i16 via the assignment `result.i16x8[lane] =
+  ;; (int16)sum` (wasm_interp_fast.c:8103); this test makes a
+  ;; future refactor that drops that cast loudly fail.
+  ;;
+  ;; With a = b = 0x80 (i8 = -128) in all 16 bytes, each of 8 i16
+  ;; lanes computes the same pair_sum 32768 and wraps to -32768.
+  ;;   lane0..3 = -32768 = (i16) 0x8000
+  ;;   low i64 = four i16 lanes packed = 0x8000_8000_8000_8000
+  (func (export "dot_s_i16_overflow_pin") (result i64)
+    v128.const i8x16 -128 -128 -128 -128 -128 -128 -128 -128
+                     -128 -128 -128 -128 -128 -128 -128 -128
+    v128.const i8x16 -128 -128 -128 -128 -128 -128 -128 -128
+                     -128 -128 -128 -128 -128 -128 -128 -128
+    i16x8.relaxed_dot_i8x16_i7x16_s
+    i64x2.extract_lane 0)
+
+  ;; Category 6b: i32-lane relaxed_laneselect. Mask alignment per
+  ;; i32 lane is 4 bytes wide. SIMDe's lowering is bitwise-select
+  ;; `(a & m) | (b & ~m)`, so each bit picks independently.
+  ;;
+  ;; a   = [0xaaaaaaaa, 0xaaaaaaaa, 0xaaaaaaaa, 0xaaaaaaaa]
+  ;; b   = [0x55555555, 0x55555555, 0x55555555, 0x55555555]
+  ;; m   = [0xffffffff, 0x00000000, 0xff00ff00, 0x00800000]
+  ;; lane0 = a (all bits)                              = 0xaaaaaaaa
+  ;; lane1 = b (no bits)                               = 0x55555555
+  ;; lane2 = (a & 0xff00ff00) | (b & 0x00ff00ff)       = 0xaa55aa55
+  ;; lane3 = (a & 0x00800000) | (b & 0xff7fffff)       = 0x55d55555
+  ;; low i64 = (lane1 << 32) | lane0 = 0x55555555_aaaaaaaa
+  (func (export "laneselect_i32") (result i64)
+    v128.const i32x4 0xaaaaaaaa 0xaaaaaaaa 0xaaaaaaaa 0xaaaaaaaa
+    v128.const i32x4 0x55555555 0x55555555 0x55555555 0x55555555
+    v128.const i32x4 0xffffffff 0x00000000 0xff00ff00 0x00800000
+    i32x4.relaxed_laneselect
+    i64x2.extract_lane 0)
+
+  ;; And the high half (lane2, lane3) of the same computation.
+  (func (export "laneselect_i32_hi") (result i64)
+    v128.const i32x4 0xaaaaaaaa 0xaaaaaaaa 0xaaaaaaaa 0xaaaaaaaa
+    v128.const i32x4 0x55555555 0x55555555 0x55555555 0x55555555
+    v128.const i32x4 0xffffffff 0x00000000 0xff00ff00 0x00800000
+    i32x4.relaxed_laneselect
+    i64x2.extract_lane 1)
+
+  ;; Category 6c: i64-lane relaxed_laneselect. Mask alignment is
+  ;; 8 mask bytes per i64 lane — the widest case, where the
+  ;; top-bit-only vs per-bit interpretation matters most.
+  ;;
+  ;; a    (per byte) = 0xaa repeated
+  ;; b    (per byte) = 0x55 repeated
+  ;; mask bytes 0..7  (lane 0) = ff 00 ff 00 ff 00 ff 00
+  ;; mask bytes 8..15 (lane 1) = ff ff 00 00 ff ff 00 00
+  ;;
+  ;; bitwise-select per byte:
+  ;;   byte i: (0xaa & m_i) | (0x55 & ~m_i)
+  ;;     m=0xff → 0xaa, m=0x00 → 0x55
+  ;; lane 0 bytes = [aa 55 aa 55 aa 55 aa 55]  (little-endian)
+  ;;              = 0x55aa55aa55aa55aa
+  ;; lane 1 bytes = [aa aa 55 55 aa aa 55 55]
+  ;;              = 0x5555aaaa5555aaaa
+  (func (export "laneselect_i64_lo") (result i64)
+    v128.const i8x16 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa
+                     0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa
+    v128.const i8x16 0x55 0x55 0x55 0x55 0x55 0x55 0x55 0x55
+                     0x55 0x55 0x55 0x55 0x55 0x55 0x55 0x55
+    v128.const i8x16 0xff 0x00 0xff 0x00 0xff 0x00 0xff 0x00
+                     0xff 0xff 0x00 0x00 0xff 0xff 0x00 0x00
+    i64x2.relaxed_laneselect
+    i64x2.extract_lane 0)
+  (func (export "laneselect_i64_hi") (result i64)
+    v128.const i8x16 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa
+                     0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa 0xaa
+    v128.const i8x16 0x55 0x55 0x55 0x55 0x55 0x55 0x55 0x55
+                     0x55 0x55 0x55 0x55 0x55 0x55 0x55 0x55
+    v128.const i8x16 0xff 0x00 0xff 0x00 0xff 0x00 0xff 0x00
+                     0xff 0xff 0x00 0x00 0xff 0xff 0x00 0x00
+    i64x2.relaxed_laneselect
+    i64x2.extract_lane 1)
+
+  ;; Category 8b: relaxed_trunc f32 → i32 at the exact INT32_MAX+1
+  ;; boundary. The hex floats are chosen specifically:
+  ;;   lane 0: 0x1.fffffep+30 = 2147483520.0f
+  ;;           (largest f32 strictly less than INT32_MAX+1)
+  ;;           — must convert cleanly to 2147483520 (= 0x7fffff80)
+  ;;   lane 1: 0x1p+31       = 2147483648.0f (= INT32_MAX+1, exact
+  ;;           f32 representation but unrepresentable as signed i32)
+  ;;           — spec-allowed: any i32 value
+  ;;           — WAMR via SIMDe vcvtq_s32_f32 saturates → INT32_MAX
+  ;;             (= 0x7fffffff)
+  ;;   lane 2: 0.0           — must be 0
+  ;;   lane 3: -0x1p+31      = -2147483648.0f (= INT32_MIN, exactly
+  ;;           representable) — must be INT32_MIN (= 0x80000000)
+  ;; low i64 = (lane1 << 32) | lane0 = 0x7fffffff_7fffff80
+  (func (export "trunc_f32_int_max_boundary") (result i64)
+    v128.const f32x4 0x1.fffffep+30 0x1p+31 0 -0x1p+31
+    i32x4.relaxed_trunc_f32x4_s
+    i64x2.extract_lane 0)
+  (func (export "trunc_f32_int_max_boundary_hi") (result i64)
+    v128.const f32x4 0x1.fffffep+30 0x1p+31 0 -0x1p+31
+    i32x4.relaxed_trunc_f32x4_s
+    i64x2.extract_lane 1)
+
+  ;; Category 1b: relaxed_min with NaN-as-both-operands. Three
+  ;; common implementations diverge here:
+  ;;   x86 minps:    returns the second operand bit-pattern
+  ;;   ARM FMINNM:   propagates one of the NaN payloads
+  ;;   wasm.min:     returns a canonical NaN (0x7fc00000 f32)
+  ;; WAMR via SIMDe + aarch64 hardware ends up with the canonical
+  ;; NaN bit pattern in our build. Pin that.
+  ;; low i64 = (lane1 << 32) | lane0 = 0x7fc00000_7fc00000
+  (func (export "min_f32_both_nan") (result i64)
+    v128.const f32x4 nan nan nan nan
+    v128.const f32x4 nan nan nan nan
+    f32x4.relaxed_min
+    i64x2.extract_lane 0)
+
+  ;; Category 2b: relaxed_max with crossed (+0, -0) pairs. wasm.max
+  ;; says +0 > -0 (so +0 wins regardless of order). x86 maxps just
+  ;; returns the second operand. ARM FMAX returns the +0 side.
+  ;; lane 0: max(+0, -0)
+  ;; lane 1: max(-0, +0)
+  ;; Pin to WAMR's observable result.
+  ;;
+  ;; Our impl is bitwise-equivalent to wasm.max: returns +0 in both
+  ;; lanes regardless of operand order.
+  ;; lane0 = lane1 = +0.0 = 0x0000000000000000 (f64)
+  ;; low i64  = 0
+  ;; high i64 = 0
+  (func (export "max_f64_signed_zero_pair_lo") (result i64)
+    v128.const f64x2 +0.0 -0.0
+    v128.const f64x2 -0.0 +0.0
+    f64x2.relaxed_max
+    i64x2.extract_lane 0)
+  (func (export "max_f64_signed_zero_pair_hi") (result i64)
+    v128.const f64x2 +0.0 -0.0
+    v128.const f64x2 -0.0 +0.0
+    f64x2.relaxed_max
+    i64x2.extract_lane 1)
 )
 "#;
 
@@ -545,4 +732,153 @@ fn bonus_load_unaligned() {
     // Don't pin the exact bits (the byte pattern depends on the
     // unaligned read endianness); just confirm no trap.
     assert_ne!(v, 0);
+}
+
+// ---------------------------------------------------------------
+// Boundary tests added after the codex-bot review on PR #3.
+// ---------------------------------------------------------------
+
+#[test]
+fn cat7b_dot_add_i16_overflow() {
+    // The exact case the chatgpt-codex-connector bot flagged on
+    // wasm_interp_fast.c:7674. With a = b = 0x80 (i8 = -128) in
+    // all 16 bytes and c = 0:
+    //   pair_sum overflows i16: 32768 → wrap to -32768
+    //   ext_pair sum: (-32768) + (-32768) = -65536
+    //   per i32 lane: -65536 = 0xffff0000
+    //   low i64 = (lane1 << 32) | lane0 = 0xffff0000_ffff0000
+    //
+    // Pre-fix direct-sum impl produced 65536 per lane (0x00010000),
+    // which is NOT in the spec-allowed set {-65536, -1, 65534}.
+    // This test will fail loudly if anyone refactors the impl back
+    // to the direct-sum shape.
+    assert_eq!(
+        load().call_i64("dot_add_i16_overflow").unwrap(),
+        0xffff0000ffff0000u64 as i64
+    );
+}
+
+#[test]
+fn cat7c_dot_s_i16_overflow_pin() {
+    // Sibling op to the bug we fixed. The current i16x8 dot impl
+    // correctly truncates to i16 via the `(int16)sum` cast on
+    // wasm_interp_fast.c:8103. Same overflow input pattern
+    // (a = b = 0x80 in all bytes); each i16 lane should equal
+    // (int16)32768 = -32768 = 0x8000.
+    //   low i64 = 4 i16 lanes packed = 0x8000_8000_8000_8000
+    //
+    // If a future refactor drops the (int16) cast, this test fails
+    // before the bug ships.
+    assert_eq!(
+        load().call_i64("dot_s_i16_overflow_pin").unwrap(),
+        0x8000800080008000u64 as i64
+    );
+}
+
+#[test]
+fn cat6b_laneselect_i32() {
+    // i32-lane laneselect with SIMDe bitwise-select semantics.
+    // See WAT comment for per-lane derivation.
+    // lane0 = 0xaaaaaaaa (mask all-ones → a)
+    // lane1 = 0x55555555 (mask all-zeros → b)
+    // low i64 = (lane1 << 32) | lane0 = 0x55555555_aaaaaaaa
+    assert_eq!(
+        load().call_i64("laneselect_i32").unwrap(),
+        0x55555555aaaaaaaau64 as i64
+    );
+}
+
+#[test]
+fn cat6b_laneselect_i32_hi() {
+    // High i64 of the same laneselect_i32 computation.
+    // lane2 = (a & 0xff00ff00) | (b & 0x00ff00ff) = 0xaa55aa55
+    // lane3 = (a & 0x00800000) | (b & 0xff7fffff) = 0x55d55555
+    // high i64 = (lane3 << 32) | lane2 = 0x55d55555_aa55aa55
+    assert_eq!(
+        load().call_i64("laneselect_i32_hi").unwrap(),
+        0x55d55555aa55aa55u64 as i64
+    );
+}
+
+#[test]
+fn cat6c_laneselect_i64_lo() {
+    // i64-lane laneselect (widest case) with per-byte bitwise-
+    // select per SIMDe semantics.
+    // Lane 0 mask = ff 00 ff 00 ff 00 ff 00 → alternating a, b
+    // bytes = [aa 55 aa 55 aa 55 aa 55]
+    // little-endian i64 = 0x55aa55aa55aa55aa
+    assert_eq!(
+        load().call_i64("laneselect_i64_lo").unwrap(),
+        0x55aa55aa55aa55aau64 as i64
+    );
+}
+
+#[test]
+fn cat6c_laneselect_i64_hi() {
+    // Lane 1 mask = ff ff 00 00 ff ff 00 00 → pairs
+    // bytes = [aa aa 55 55 aa aa 55 55]
+    // little-endian i64 = 0x5555aaaa5555aaaa
+    assert_eq!(
+        load().call_i64("laneselect_i64_hi").unwrap(),
+        0x5555aaaa5555aaaau64 as i64
+    );
+}
+
+#[test]
+fn cat8b_trunc_f32_int_max_boundary() {
+    // lane 0 = 2147483520.0f → must be exactly 2147483520 (=
+    //   0x7fffff80); this value is representable in both f32 and
+    //   i32, so any conformant impl produces it.
+    // lane 1 = INT32_MAX+1 as f32 → spec allows ANY i32, our
+    //   SIMDe-via-vcvtq_s32_f32 path saturates to INT32_MAX (=
+    //   0x7fffffff).
+    // low i64 = (lane1 << 32) | lane0 = 0x7fffffff_7fffff80
+    assert_eq!(
+        load().call_i64("trunc_f32_int_max_boundary").unwrap(),
+        0x7fffffff7fffff80u64 as i64
+    );
+}
+
+#[test]
+fn cat8b_trunc_f32_int_max_boundary_hi() {
+    // lane 2 = 0.0 → 0
+    // lane 3 = INT32_MIN as f32 → INT32_MIN (= 0x80000000)
+    // high i64 = (lane3 << 32) | lane2 = 0x80000000_00000000
+    assert_eq!(
+        load().call_i64("trunc_f32_int_max_boundary_hi").unwrap(),
+        0x8000000000000000u64 as i64
+    );
+}
+
+#[test]
+fn cat1b_min_f32_both_nan() {
+    // NaN-vs-NaN: spec allows three different impl behaviors
+    // (x86 minps, ARM FMINNM, wasm.min). WAMR via SIMDe on
+    // aarch64 produces canonical NaN bit pattern 0x7fc00000 in
+    // both observed lanes.
+    // low i64 = (lane1 << 32) | lane0 = 0x7fc00000_7fc00000
+    assert_eq!(
+        load().call_i64("min_f32_both_nan").unwrap(),
+        0x7fc000007fc00000u64 as i64
+    );
+}
+
+#[test]
+fn cat2b_max_f64_signed_zero_pair_lo() {
+    // max(+0, -0): wasm.max says +0 > -0 so result is +0.
+    // x86 maxps would return -0 (second operand); ARM FMAX returns
+    // +0. Our impl pins to +0 = 0x0000000000000000.
+    assert_eq!(
+        load().call_i64("max_f64_signed_zero_pair_lo").unwrap(),
+        0i64
+    );
+}
+
+#[test]
+fn cat2b_max_f64_signed_zero_pair_hi() {
+    // max(-0, +0): same logic — +0 wins regardless of order.
+    assert_eq!(
+        load().call_i64("max_f64_signed_zero_pair_hi").unwrap(),
+        0i64
+    );
 }
