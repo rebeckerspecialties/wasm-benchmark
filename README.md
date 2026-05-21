@@ -166,6 +166,66 @@ sightglass/              pinned to upstream main (sqlite3.wasm source).
 - **[patches/README.md](patches/README.md)** — patch-stack workflow
   for the wasmtime + mach2 + target-lexicon upstream PRs.
 
+## Cross-runtime results across Apple silicon E-cores
+
+Driving question: can WAMR fast-interp replace WasmEdge as the wasm
+runtime in our interpreter-only App-Store-eligible app? The matrix
+below covers Apple's E-core microarchitectures from A12 Tempest
+through M4 Sawtooth — the cores that the OS schedules work onto at
+`.utility` QoS and where battery-sensitive iOS / watchOS workloads
+actually run. macOS measurements pin to E-cluster via
+`taskpolicy -b`; iOS / watchOS measurements set the QoS class and
+verify lane via `taskinfo` ‑‑ scheduler picks E unless the work
+saturates them. wasmtime is configured with
+`Config::target("pulley{32,64}")` so its "Pulley" bytecode runs as
+data, App-Store-safe.
+
+| Workload (median ms/iter) | Runtime | M4 Lion P | M4 Sawtooth E | A14 Icestorm (iPhone 12) | A12 Tempest (iPhone XS) | S8 (Watch SE2) |
+|---|---|---:|---:|---:|---:|---:|
+| `call_indirect` (200 K dispatches) | **WAMR** | **4.9** | 41.2 | **16.5** | **27.5** | **31.8** |
+| | Pulley | 9.0 | 41.9 | 27.7 | 41.0 | 46.4 |
+| `audio_dsp` (1000×512) | **WAMR** | **154** | — | — | **419** | **1060** |
+| | Pulley | 231 | — | — | 537 | 1472 |
+| `bulk_memory.copy/fill` | **WAMR** | **1.8** | — | — | **5.0** | **15.6** |
+| | Pulley | 5.6 | — | — | 10.8 | 31.6 |
+| `matmul relaxed-SIMD FMA` ¹ | WAMR | enabled by relaxed-SIMD PR | — | — | — | 4.61 |
+| | Pulley | 0.64 | — | — | 1.34 | **4.32** |
+| `graphql-validation` (Porffor JS→wasm) ² | WAMR | enabled by legacy-EH PR | — | — | — | 115 ³ |
+| | Pulley | — | — | 14.9 | 24.4 | **23.1** |
+
+¹ Requires the relaxed-SIMD fast-interp PR (this PR series). The
+small Pulley win on Watch SE2 motivated our diff-fuzz harness
+against wasmtime's `relaxed_simd_deterministic` mode (see below).
+
+² Requires the legacy-EH fast-interp PR (this PR series). The
+Porffor JS-to-wasm compiler emits `wasm-exceptions` sections that
+unmodified WAMR rejects at load with `invalid section id`.
+
+³ WAMR's Porffor median on Watch SE2 is 5× slower than Pulley's
+because Porffor re-instantiates per iteration and grows linear
+memory through WAMR's mmap-fallback path (~12 K page-faults/iter
+on iPhone 12). A separate follow-up PR (PROT_NONE-reservation +
+mprotect-commit fast path) closes that gap — measured 6.6× faster
+than mmap-fallback on iPhone 12; not part of either upstream PR.
+
+### Test coverage
+
+- **174 conformance checks** across three layers — 32 hand-rolled
+  abuse cases, 76 differential comparisons against wasmtime's
+  deterministic-relaxed-SIMD mode, 69 upstream
+  [WebAssembly/relaxed-simd](https://github.com/WebAssembly/relaxed-simd)
+  spec-testsuite assertions (with `(either …)` semantics for
+  impl-defined ambiguity).
+- **Diff-fuzz against wasmtime caught one of our own bugs**
+  pre-ship — see
+  [WebAssembly/relaxed-simd#164](https://github.com/WebAssembly/relaxed-simd/pull/164)
+  for the spec-test gap that let the bug slip past the canonical
+  suite.
+- All builds are run through ASan + UBSan locally; integration
+  tests linked at https://github.com/rebeckerspecialties/wasm-benchmark/tree/main/crates/benchmark-core/tests
+  (`eh_correctness.rs`, `relaxed_simd_abuse.rs`,
+  `relaxed_simd_diff_fuzz.rs`, `relaxed_simd_spec_testsuite.rs`).
+
 ## Current upstream-PR state
 
 Wasmtime fork stack (each branch stacks on the previous):
