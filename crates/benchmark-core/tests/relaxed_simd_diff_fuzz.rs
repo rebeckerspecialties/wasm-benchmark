@@ -489,6 +489,20 @@ fn opcodes() -> Vec<OpUnderTest> {
                         f32x4_bits(0x3f80_0000, 0x3f80_0000, 0x7fc0_0000, 0x3f80_0000),
                     ],
                 ),
+                // (+Inf * 0 + c) — IEEE 754 invalid multiply.
+                // Both fused fma(Inf, 0, c) and unfused Inf*0 + c
+                // produce a NaN; specific bit pattern is impl-
+                // defined per relaxed-SIMD spec, so a divergence
+                // here against wasmtime would surface as a
+                // KnownDivergence and want classification.
+                (
+                    "inf_times_zero",
+                    vec![
+                        f32x4_bits(0x7f80_0000, 0x7f80_0000, 0x7f80_0000, 0x7f80_0000),
+                        f32x4_bits(0x0000_0000, 0x0000_0000, 0x0000_0000, 0x0000_0000),
+                        f32x4_bits(0x3f80_0000, 0x4000_0000, 0x4040_0000, 0x4080_0000),
+                    ],
+                ),
             ],
         },
         OpUnderTest {

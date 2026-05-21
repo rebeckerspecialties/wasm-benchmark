@@ -131,6 +131,22 @@ const ABUSE_WAT: &str = r#"
     f32x4.relaxed_nmadd
     i64x2.extract_lane 0)
 
+  ;; Category 3b: relaxed_madd with (Inf, 0, c) — IEEE 754 invalid
+  ;; multiply. Both fused fma(Inf, 0, c) and unfused Inf*0 + c
+  ;; produce a NaN regardless of c; bit pattern is impl-defined.
+  (func (export "madd_inf_times_zero_lo") (result i64)
+    v128.const f32x4 inf inf inf inf
+    v128.const f32x4 0 0 0 0
+    v128.const f32x4 1.0 2.0 3.0 4.0
+    f32x4.relaxed_madd
+    i64x2.extract_lane 0)
+  (func (export "madd_inf_times_zero_hi") (result i64)
+    v128.const f32x4 inf inf inf inf
+    v128.const f32x4 0 0 0 0
+    v128.const f32x4 1.0 2.0 3.0 4.0
+    f32x4.relaxed_madd
+    i64x2.extract_lane 1)
+
   ;; Category 4: relaxed_swizzle out-of-range indices.
   (func (export "swizzle_oob_lo") (result i64)
     v128.const i8x16 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
@@ -589,6 +605,36 @@ fn cat3_madd_overflow() {
     assert_eq!(load().call_i64("madd_overflow").unwrap(), 0xff7fffffi64);
 }
 
+/// Helper: f32 bit pattern is any NaN (exp == 0xff, fraction != 0).
+fn f32_bits_are_nan(bits: u32) -> bool {
+    ((bits >> 23) & 0xff) == 0xff && (bits & 0x7fffff) != 0
+}
+
+#[test]
+fn cat3b_madd_inf_times_zero_propagates_nan() {
+    // IEEE 754 §7.2: Inf * 0 is an invalid multiply and produces
+    // NaN regardless of the subsequent + c. Both fused fma() and
+    // unfused mul+add lowerings of relaxed_madd produce a NaN
+    // here, but the specific NaN bit pattern is impl-defined.
+    // Check the IEEE-754 NaN predicate per lane rather than a
+    // specific bit pattern.
+    let m = load();
+    for half in [("lo", 0u32), ("hi", 1)] {
+        let name = format!("madd_inf_times_zero_{}", half.0);
+        let packed = m.call_i64(&name).unwrap() as u64;
+        let lo32 = (packed & 0xffffffff) as u32;
+        let hi32 = (packed >> 32) as u32;
+        assert!(
+            f32_bits_are_nan(lo32),
+            "{name} low f32 = {lo32:#010x} not NaN"
+        );
+        assert!(
+            f32_bits_are_nan(hi32),
+            "{name} high f32 = {hi32:#010x} not NaN"
+        );
+    }
+}
+
 #[test]
 fn cat4_swizzle_oob_lo() {
     // All-zero output. aarch64 vqtbl1q_u8 zeros every lane whose
@@ -605,12 +651,28 @@ fn cat4_swizzle_oob_hi_bit() {
 
 #[test]
 fn cat5_q15mulr_overflow() {
-    // Lane 0: (-32768 * -32768 + 0x4000) >> 15 = 32768 saturated
-    // to 32767 (0x7fff). Lane 1: (32767 * 32768 + 0x4000) >> 15 =
-    // 32767. Lane 2: (32767 * 32767 + 0x4000) >> 15 = 32766
-    // (0x7ffe). Matches WAMR's hand-rolled q15mulr_sat_s impl
-    // (SIMDe doesn't ship this intrinsic).
-    assert_eq!(load().call_i64("q15mulr_overflow").unwrap(), 0x7ffe7fff7fffi64);
+    // Lane 0: (-32768 * -32768 + 0x4000) >> 15 = 32768 — overflows
+    // i16. Spec relaxes the result so an implementation may pick
+    // either saturate (0x7fff) or wrap (0x8000). Lanes 1, 2 are
+    // deterministic (32767 = 0x7fff, 32766 = 0x7ffe respectively).
+    //   Lane 1: (32767 * 32768 + 0x4000) >> 15 = 32767 = 0x7fff
+    //   Lane 2: (32767 * 32767 + 0x4000) >> 15 = 32766 = 0x7ffe
+    //
+    // Low i64 (lanes 0..3 packed) is one of two spec-allowed values:
+    //   sat-on-lane-0:  0x7ffe_7fff_7fff   (current WAMR / SIMDe)
+    //   wrap-on-lane-0: 0x7ffe_7fff_8000   (also spec-conformant)
+    //
+    // Use membership so a future WAMR switch to wrap doesn't
+    // false-positive against a spec-conformant impl change.
+    let v = load().call_i64("q15mulr_overflow").unwrap() as u64;
+    let allowed: [u64; 2] = [0x0000_7ffe_7fff_7fff, 0x0000_7ffe_7fff_8000];
+    assert!(
+        allowed.contains(&v),
+        "q15mulr_overflow result {:#018x} not in spec-allowed set [{:#018x}, {:#018x}]",
+        v,
+        allowed[0],
+        allowed[1]
+    );
 }
 
 #[test]
