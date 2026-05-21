@@ -1,0 +1,100 @@
+From 43f8a33c63446bea8dae0fe80b358b23d743d315 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Mon, 18 May 2026 23:11:40 -0700
+Subject: [PATCH 18/20] fast-interp: WAMR_BUILD_RELAXED_SIMD cmake flag (default
+ off)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Lights up the dormant `WASM_FEATURE_RELAXED_SIMD` bit at
+`aot_runtime.h:32` for the fast interpreter. Default `0` so a
+build that doesn't explicitly opt in stays byte-identical to
+upstream — the loader + dispatch added in the two prior commits
+all sit behind `#if WASM_ENABLE_RELAXED_SIMD != 0`.
+
+  * `WAMR_BUILD_RELAXED_SIMD=1` adds `-DWASM_ENABLE_RELAXED_SIMD=1`
+    to the C compile line and prints `"Relaxed SIMD enabled"` next
+    to the existing `"SIMD enabled"` line.
+
+  * `WAMR_BUILD_RELAXED_SIMD=1 WAMR_BUILD_SIMD=0` fails fast with
+    `FATAL_ERROR "WAMR_BUILD_RELAXED_SIMD=1 requires
+    WAMR_BUILD_SIMD=1"`. Relaxed-SIMD is a superset of the base
+    feature — the dispatch loop, frame_lp v128 cells, and SIMDe
+    intrinsics it shares with legacy SIMD would all be compiled
+    out otherwise.
+
+  * Listed in the existing "feature summary" block alongside
+    `"Fixed-width SIMD"` so `WAMR_INFO` output makes the new
+    knob visible.
+
+Verified locally on macOS-15 / aarch64:
+
+  flag=0 (default):
+    iwasm -f madd /tmp/relaxed_smoke.wasm
+    -> WASM module load failed: invalid opcode 0xfd 100.
+
+  flag=1:
+    iwasm -f madd /tmp/relaxed_smoke.wasm
+    -> <0x4370000042dc0000 0x440c000043c30000>:v128
+       (correct f32x4 result for relaxed_madd)
+
+  flag=1 simd=0:
+    cmake -> "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_SIMD=1"
+    (configure aborts)
+---
+ build-scripts/config_common.cmake | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/build-scripts/config_common.cmake b/build-scripts/config_common.cmake
+index ee00203b..8805eb30 100644
+--- a/build-scripts/config_common.cmake
++++ b/build-scripts/config_common.cmake
+@@ -243,6 +243,15 @@ if (NOT DEFINED WAMR_BUILD_EXCE_HANDLING)
+   set (WAMR_BUILD_EXCE_HANDLING 0)
+ endif ()
+ 
++if (NOT DEFINED WAMR_BUILD_RELAXED_SIMD)
++  # Relaxed-SIMD (wasm 2.0 extension) — off by default, mirrors the
++  # dormant `WASM_FEATURE_RELAXED_SIMD` bit at `aot_runtime.h:32`.
++  # Enable via `-DWAMR_BUILD_RELAXED_SIMD=1` at cmake time; the
++  # cmake block in this file then defines `WASM_ENABLE_RELAXED_SIMD`
++  # for the C compiler.
++  set (WAMR_BUILD_RELAXED_SIMD 0)
++endif ()
++
+ if (NOT DEFINED WAMR_BUILD_GC)
+   set (WAMR_BUILD_GC 0)
+ endif ()
+@@ -470,6 +479,20 @@ if (WAMR_BUILD_SIMD EQUAL 1)
+   endif ()
+   add_definitions(-DWASM_ENABLE_SIMD=${SIMD_ENABLED})
+ endif ()
++if (WAMR_BUILD_RELAXED_SIMD EQUAL 1)
++  # Relaxed-SIMD is a strict superset of SIMD — fail fast if the
++  # caller forgot to also turn on the base feature, otherwise the
++  # interpreter sees a relaxed sub-opcode it can dispatch but the
++  # surrounding SIMD machinery (frame_lp v128 cells, simde
++  # intrinsics) is compiled out and we'd link against undefined
++  # symbols.
++  if (NOT WAMR_BUILD_SIMD EQUAL 1)
++    message (FATAL_ERROR
++        "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_SIMD=1")
++  endif ()
++  add_definitions (-DWASM_ENABLE_RELAXED_SIMD=1)
++  message ("     Relaxed SIMD enabled")
++endif ()
+ if (WAMR_BUILD_AOT_STACK_FRAME EQUAL 1)
+   add_definitions (-DWASM_ENABLE_AOT_STACK_FRAME=1)
+   message ("     AOT stack frame enabled")
+@@ -809,6 +832,7 @@ message (
+ "       \"Multiple Memories\" via WAMR_BUILD_MULTI_MEMORY: ${WAMR_BUILD_MULTI_MEMORY}\n"
+ "       \"Reference Types\" via WAMR_BUILD_REF_TYPES: ${WAMR_BUILD_REF_TYPES}\n"
+ "       \"Reference-Typed Strings\" via WAMR_BUILD_STRINGREF: ${WAMR_BUILD_STRINGREF}\n"
++"       \"Relaxed SIMD\" via WAMR_BUILD_RELAXED_SIMD: ${WAMR_BUILD_RELAXED_SIMD}\n"
+ "       \"Tail Call\" via WAMR_BUILD_TAIL_CALL: ${WAMR_BUILD_TAIL_CALL}\n"
+ "       \"Threads\" via WAMR_BUILD_SHARED_MEMORY: ${WAMR_BUILD_SHARED_MEMORY}\n"
+ "       \"Typed Function References\" via WAMR_BUILD_GC: ${WAMR_BUILD_GC}\n"
+-- 
+2.54.0
+
