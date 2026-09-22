@@ -19,12 +19,12 @@
 //! return empty). The `_start` export drives the whole benchmark to
 //! completion; we time the whole `_start` invocation.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use wasmtime::{Caller, Engine, Linker, Module, Store};
 
-use crate::{into_anyhow, taskinfo, RunReport};
+use crate::{into_anyhow, RunReport};
 
 /// Run the sqlite3 benchmark via Pulley. Returns a `RunReport` where
 /// `result` is always 0 (sqlite3 doesn't return a numeric result via
@@ -68,49 +68,13 @@ pub fn run_sqlite3(wasm_bytes: &[u8]) -> Result<RunReport> {
     let load_time = load_start.elapsed();
 
     // Single-shot run. _start drives the full speedtest1 sequence.
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
+    let window = crate::Window::start();
 
     let it_start = Instant::now();
     into_anyhow(start.call(&mut store, ())).context("sqlite3 _start trapped")?;
     let elapsed = it_start.elapsed();
 
-    let cpu_after = taskinfo::thread_times();
-    let events_after = taskinfo::events_info();
-    let basic = taskinfo::basic_info();
-
-    #[cfg(target_vendor = "apple")]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
-        match (cpu_before, cpu_after, events_before, events_after) {
-            (Some(b), Some(a), Some(eb), Some(ea)) => (
-                to(a.user_time).saturating_sub(to(b.user_time)),
-                to(a.system_time).saturating_sub(to(b.system_time)),
-                (ea.faults as u64).saturating_sub(eb.faults as u64),
-            ),
-            _ => (0, 0, 0),
-        }
-    };
-    #[cfg(not(target_vendor = "apple"))]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let _ = (cpu_before, cpu_after, events_before, events_after);
-        (0u64, 0u64, 0u64)
-    };
-
-    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
-
-    Ok(RunReport {
-        result: 0,
-        iterations: 1,
-        load_time,
-        run_min: elapsed,
-        run_median: elapsed,
-        run_p99: elapsed,
-        cpu_user_ns,
-        cpu_system_ns,
-        rss_peak_bytes,
-        page_faults,
-    })
+    Ok(window.finish(0, 1, load_time, vec![elapsed.as_nanos() as u64]))
 }
 
 /// Stub WASI preview-1 functions. All return 0 (success) and do

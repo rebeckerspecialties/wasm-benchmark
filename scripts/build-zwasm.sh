@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# Build zwasm (`libzwasm.a`) for one Apple target — pure interpreter
-# (`-Djit=false`), App-Store-eligible.
+# Build zwasm (`libzwasm.a`) for one Apple target — pure interpreter,
+# App-Store-eligible.
 #
-# zwasm is the clojurewasm Zig runtime; despite its README only
-# listing aarch64-macos / linux / windows as hosts, the underlying
-# Zig 0.16 `-target aarch64-ios` / `-target aarch64-tvos` /
-# `-target aarch64-watchos` cross-compilation works straight out of
-# the box for the static-lib output (`zig build static-lib`). Verified
-# 2026-05-16 — see AGENTS.md "Skipped runtimes" table.
+# zwasm v2 ships three engines (interpreter, JIT, AOT). We build with
+# `-Dengine=interp`, and patches/zwasm/0001 makes that flag compile the
+# JIT out of the C API library (upstream v2.7.0 only reads it for the
+# CLI's --version line, so libzwasm.a otherwise carries the JIT and its
+# pthread_jit_write_protect_np / sys_icache_invalidate imports). The
+# adapter additionally forces ZWASM_ENGINE_INTERP per instance and
+# checks the resolved engine. arm64_32-apple-watchos is upstream since
+# zwasm#98 (Zig triple `aarch64-watchos-ilp32`).
+#
+# Build flags: -Dengine=interp -Doptimize=ReleaseFast, defaults for
+# -Dwasm (3.0) and -Dwasi (p2).
 #
 # Output: zwasm/build-<triple>/libzwasm.a
 #
@@ -42,7 +47,7 @@ build_target() {
   rm -rf "${DIR}"
   ( cd "${ZW}" && rm -rf zig-out .zig-cache && \
     "${ZIG}" build static-lib \
-      -Djit=false \
+      -Dengine=interp \
       -Doptimize=ReleaseFast \
       -Dtarget="${ZIG_TARGET}" \
       ${EXTRA} )

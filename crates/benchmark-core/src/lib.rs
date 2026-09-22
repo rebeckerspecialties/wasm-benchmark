@@ -13,6 +13,7 @@ use wasmtime::{Engine, Instance, Module, Store};
 
 pub mod graphql_validation;
 pub mod pac_probe;
+pub mod residency;
 pub mod sqlite3;
 
 #[cfg(have_wamr)]
@@ -477,6 +478,13 @@ pub struct RunReport {
     pub cpu_system_ns: u64,
     pub rss_peak_bytes: u64,
     pub page_faults: u64,
+    /// CPU time of the timed window that ran on P-cores (rusage
+    /// `ri_*_ptime`); E-core residency = 1 - p_cpu_ns / (user + system).
+    pub p_cpu_ns: u64,
+    /// Instructions / cycles retired over the timed window (rusage fixed
+    /// counters; whole process, all cores).
+    pub instructions: u64,
+    pub cycles: u64,
 }
 
 /// Heuristic: pick an iteration count so the total measurement window is
@@ -497,6 +505,113 @@ pub(crate) fn pick_iters(first_run: Duration, target_total: Duration) -> u32 {
         .unwrap_or_else(|| target_total.as_nanos() as u64);
     let raw = (target_ns / single_ns).max(1);
     raw.min(16_384) as u32
+}
+
+/// Accounting for one timed measurement window: task_info CPU time and
+/// page faults plus rusage P-core time / instructions / cycles, taken
+/// right before the timed loop and turned into a `RunReport` right after
+/// it. Every adapter's loop brackets its samples with this so all
+/// runtimes report the same fields the same way.
+pub(crate) struct Window {
+    cpu: Option<taskinfo::ThreadTimes>,
+    events: Option<taskinfo::TaskEventsInfo>,
+    usage: Option<residency::ProcUsage>,
+}
+
+impl Window {
+    pub(crate) fn start() -> Self {
+        Window {
+            cpu: taskinfo::thread_times(),
+            events: taskinfo::events_info(),
+            usage: residency::proc_usage(),
+        }
+    }
+
+    /// `samples` are per-iteration nanoseconds (need not be sorted).
+    pub(crate) fn finish(
+        self,
+        result: i32,
+        iterations: u32,
+        load_time: Duration,
+        mut samples: Vec<u64>,
+    ) -> RunReport {
+        let usage = match (residency::proc_usage(), self.usage) {
+            (Some(a), Some(b)) => a.since(&b),
+            _ => residency::ProcUsage::default(),
+        };
+        let cpu_after = taskinfo::thread_times();
+        let events_after = taskinfo::events_info();
+        let basic = taskinfo::basic_info();
+
+        samples.sort_unstable();
+        let run_min = Duration::from_nanos(samples[0]);
+        let run_median = Duration::from_nanos(samples[samples.len() / 2]);
+        let p99_idx = ((samples.len() as f64) * 0.99) as usize;
+        let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
+
+        #[cfg(target_vendor = "apple")]
+        let (cpu_user_ns, cpu_system_ns, page_faults) = {
+            let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
+            match (self.cpu, cpu_after, self.events, events_after) {
+                (Some(b), Some(a), Some(eb), Some(ea)) => (
+                    to(a.user_time).saturating_sub(to(b.user_time)),
+                    to(a.system_time).saturating_sub(to(b.system_time)),
+                    (ea.faults as u64).saturating_sub(eb.faults as u64),
+                ),
+                _ => (0, 0, 0),
+            }
+        };
+        #[cfg(not(target_vendor = "apple"))]
+        let (cpu_user_ns, cpu_system_ns, page_faults) = {
+            let _ = (self.cpu, cpu_after, self.events, events_after);
+            (0u64, 0u64, 0u64)
+        };
+
+        RunReport {
+            result,
+            iterations,
+            load_time,
+            run_min,
+            run_median,
+            run_p99,
+            cpu_user_ns,
+            cpu_system_ns,
+            rss_peak_bytes: basic.map(|b| b.resident_size_max).unwrap_or(0),
+            page_faults,
+            p_cpu_ns: usage.p_cpu_ns,
+            instructions: usage.instructions,
+            cycles: usage.cycles,
+        }
+    }
+}
+
+/// Shared measurement loop for runtime adapters, identical in shape to the
+/// hand-written loops in the older adapters: one init warmup call (pays any
+/// first-call lazy init), one timed steady warmup that sizes `iters` via
+/// `pick_iters` when `iters == 0`, then the timed calls inside a `Window`.
+pub(crate) fn measure_calls(
+    load_time: Duration,
+    iters: u32,
+    mut call: impl FnMut() -> Result<i32>,
+) -> Result<RunReport> {
+    let mut result = call().context("init warmup failed")?;
+    let warm_start = Instant::now();
+    result = call().context("steady warmup failed")?;
+    let warm = warm_start.elapsed();
+    let n = if iters == 0 {
+        pick_iters(warm, Duration::from_millis(200))
+    } else {
+        iters
+    };
+
+    let window = Window::start();
+    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let it_start = Instant::now();
+        result = call()?;
+        samples.push(it_start.elapsed().as_nanos() as u64);
+    }
+    Ok(window.finish(result, n, load_time, samples))
 }
 
 /// Generic runner: load `wasm_bytes` via Pulley, look up `fn_name`, then run
@@ -589,73 +704,9 @@ pub fn run_workload_iters(
     // fib, sieve, crc32, ...) the two warmups just pay an extra
     // sub-millisecond beat that doesn't show up against the
     // measurement window.
-    let mut result = into_anyhow(typed.call(&mut store, arg))
-        .with_context(|| format!("`{fn_name}({arg})` trapped (init warmup)"))?;
-    let warm_start = Instant::now();
-    result = into_anyhow(typed.call(&mut store, arg))
-        .with_context(|| format!("`{fn_name}({arg})` trapped (steady warmup)"))?;
-    let warm = warm_start.elapsed();
-    let n = if iters == 0 {
-        pick_iters(warm, Duration::from_millis(200))
-    } else {
-        iters
-    };
-
-    // Snapshot before measurement window.
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
-
-    // Measurement loop. Record every per-iteration wall-clock for percentiles.
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
-        let r = into_anyhow(typed.call(&mut store, arg))
-            .with_context(|| format!("`{fn_name}({arg})` trapped"))?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
-        result = r;
-    }
-
-    let cpu_after = taskinfo::thread_times();
-    let events_after = taskinfo::events_info();
-    let basic = taskinfo::basic_info();
-
-    samples.sort_unstable();
-    let run_min = Duration::from_nanos(samples[0]);
-    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
-    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
-    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
-
-    #[cfg(target_vendor = "apple")]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
-        match (cpu_before, cpu_after, events_before, events_after) {
-            (Some(b), Some(a), Some(eb), Some(ea)) => (
-                to(a.user_time).saturating_sub(to(b.user_time)),
-                to(a.system_time).saturating_sub(to(b.system_time)),
-                (ea.faults as u64).saturating_sub(eb.faults as u64),
-            ),
-            _ => (0, 0, 0),
-        }
-    };
-    #[cfg(not(target_vendor = "apple"))]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let _ = (cpu_before, cpu_after, events_before, events_after);
-        (0u64, 0u64, 0u64)
-    };
-
-    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
-
-    Ok(RunReport {
-        result,
-        iterations: n,
-        load_time,
-        run_min,
-        run_median,
-        run_p99,
-        cpu_user_ns,
-        cpu_system_ns,
-        rss_peak_bytes,
-        page_faults,
+    measure_calls(load_time, iters, || {
+        into_anyhow(typed.call(&mut store, arg))
+            .with_context(|| format!("`{fn_name}({arg})` trapped"))
     })
 }
 

@@ -1,0 +1,162 @@
+From 2a07fed726d61927a42ce703ceb4e38766ca5edb Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:35:44 -0700
+Subject: api: compile the JIT out of the C API when -Dengine=interp
+
+`-Dengine` is documented as the engine selection, but engine_mode is
+only read by the CLI's --version line. The C API always instantiates
+through the JIT first (`.auto`), so libzwasm.a built with
+-Dengine=interp still carries the whole native-codegen engine and
+imports pthread_jit_write_protect_np / sys_icache_invalidate.
+
+Gate every JIT reference in api/instance.zig on a comptime
+`jit_enabled` flag: jitOf() becomes an inline fn that folds to null,
+the .jit/.auto arms of the per-instance engine fork and the JIT teardown
+paths sit behind `if (comptime jit_enabled)`, and a forced `.jit`
+request on an interp-only build returns NULL (there is no engine to
+run it on). Zig's lazy analysis then never reaches engine/runner,
+codegen or platform/jit_mem.
+
+aarch64-macos ReleaseFast static-lib: 17.6 MB -> 5.1 MB; 0 JIT-named
+symbols; no references to pthread_jit_write_protect_np or
+sys_icache_invalidate (the remaining mprotect is guarded_mem's
+READ|WRITE commit). Needed for App Store builds, which may not carry a
+JIT.
+---
+ src/api/instance.zig | 80 ++++++++++++++++++++++++++------------------
+ 1 file changed, 48 insertions(+), 32 deletions(-)
+
+diff --git a/src/api/instance.zig b/src/api/instance.zig
+index 0ee16ffdf..70b6d8019 100644
+--- a/src/api/instance.zig
++++ b/src/api/instance.zig
+@@ -41,6 +41,10 @@ const runner = @import("../engine/runner.zig"); // ADR-0200 JIT engine (Zone 2)
+ const build_options = @import("build_options");
+ const wasm_2_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v2_0));
+ const wasm_3_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v3_0));
++/// `-Dengine=interp` compiles the JIT out of the library entirely: every JIT
++/// reference below sits behind this comptime flag, so Zig never analyzes the
++/// JIT engine and `libzwasm.a` carries no native-codegen or W^X code.
++pub const jit_enabled = build_options.engine_mode != .interp;
+ // ADR-0193 P4: this `ext_* = if (wasm_N_enabled) @import(...) else struct{}`
+ // block is the deliberate finished-form for Wasm-level feature gating — a
+ // file-tier feature manifest (two central comptime predicates above + the
+@@ -290,10 +294,12 @@ pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
+         // parked for the reap below. Before this it was dropped on the floor
+         // (the cascade only ever looked at `inst.runtime`), leaking the code
+         // pages and the runtime on the reverse-order teardown path.
+-        if (inst.jit) |jp| {
+-            // EXEMPT-FALLBACK: ADR-0014 — park OOM at store-teardown accepts a JitInstance leak over UAF.
+-            parkJitAsZombie(alloc, handle, jp) catch {};
+-            inst.jit = null;
++        if (comptime jit_enabled) {
++            if (inst.jit) |jp| {
++                // EXEMPT-FALLBACK: ADR-0014 — park OOM at store-teardown accepts a JitInstance leak over UAF.
++                parkJitAsZombie(alloc, handle, jp) catch {};
++                inst.jit = null;
++            }
+         }
+         inst.funcs_storage = &.{};
+         inst.func_ptrs_storage = &.{};
+@@ -313,11 +319,13 @@ pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
+     handle.zombies.deinit(alloc);
+     // #360 — and the JIT-backed zombies: an importer's bridge thunk pointed at
+     // each of these, and every importer is gone with the cascade above.
+-    for (handle.jit_zombies.items) |jp| {
+-        const jit: *runner.JitInstance = @ptrCast(@alignCast(jp));
+-        unregisterJitEh(jit);
+-        jit.deinit(alloc);
+-        alloc.destroy(jit);
++    if (comptime jit_enabled) {
++        for (handle.jit_zombies.items) |jp| {
++            const jit: *runner.JitInstance = @ptrCast(@alignCast(jp));
++            unregisterJitEh(jit);
++            jit.deinit(alloc);
++            alloc.destroy(jit);
++        }
+     }
+     handle.jit_zombies.deinit(alloc);
+     // #360 — only now, with every parked runtime gone, may the module bytes
+@@ -1683,7 +1691,10 @@ fn instantiateWithId(store: *Store, module: *const Module, builder_state: anytyp
+     // ADR-0200 — per-instance engine fork, shared by EVERY entry point
+     // (`instantiateFacade`, `wasm_instance_new`, `src/zwasm/linker.zig`). `.jit`
+     // builds a native JIT-backed instance; `.interp` forces the interp setup below.
+-    if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits, inst_id) catch null;
++    if (comptime !jit_enabled) {
++        // `-Dengine=interp`: there is no JIT to force; `.auto` means the interpreter.
++        if (engine == .jit) return null;
++    } else if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits, inst_id) catch null;
+ 
+     // ADR-0200 / D-496 / ADR-0229 — `.auto` tries the JIT first and reads the
+     // tag of its rejection. `Declined` = a capability decline (an import it
+@@ -1695,12 +1706,14 @@ fn instantiateWithId(store: *Store, module: *const Module, builder_state: anytyp
+     // is already in `trap_out` when it could be allocated.
+     // `.claude/rules/single_slot_dual_meaning.md`: a bare `null` cannot carry
+     // both meanings, the tag is the second axis.
+-    if (engine == .auto) {
+-        if (instantiateJit(store, module, builder_state, trap_out, limits, inst_id)) |inst| {
+-            return inst;
+-        } else |reject| switch (reject) {
+-            error.Final => return null,
+-            error.Declined => {}, // fall through to the interp setup below
++    if (comptime jit_enabled) {
++        if (engine == .auto) {
++            if (instantiateJit(store, module, builder_state, trap_out, limits, inst_id)) |inst| {
++                return inst;
++            } else |reject| switch (reject) {
++                error.Final => return null,
++                error.Declined => {}, // fall through to the interp setup below
++            }
+         }
+     }
+ 
+@@ -1913,22 +1926,24 @@ pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
+     // free so wasm_store_delete doesn't try to cascade-cleanup an
+     // already-freed handle.
+     removeFromLiveInstances(store, handle);
+-    if (handle.jit) |jp| {
+-        // ADR-0200 / #360 — PARK the heap-pinned JitInstance rather than free it,
+-        // the JIT counterpart of the interpreter arm below: an importer's bridge
+-        // thunk holds this instance's runtime address and entry point (D-225), so
+-        // freeing here would leave it calling into released code. Reaped by
+-        // `wasm_store_delete`. The per-instance arena holding `exports_storage`
+-        // IS freed — only the c_api handle reads it, and it is going away.
+-        // EXEMPT-FALLBACK: ADR-0014 — park OOM accepts a JitInstance leak over UAF of an importer's bridge thunk.
+-        parkJitAsZombie(alloc, store, jp) catch {};
+-        handle.jit = null;
+-        if (handle.arena) |arena| {
+-            arena.deinit();
+-            alloc.destroy(arena);
+-            handle.arena = null;
++    if (comptime jit_enabled) {
++        if (handle.jit) |jp| {
++            // ADR-0200 / #360 — PARK the heap-pinned JitInstance rather than free it,
++            // the JIT counterpart of the interpreter arm below: an importer's bridge
++            // thunk holds this instance's runtime address and entry point (D-225), so
++            // freeing here would leave it calling into released code. Reaped by
++            // `wasm_store_delete`. The per-instance arena holding `exports_storage`
++            // IS freed — only the c_api handle reads it, and it is going away.
++            // EXEMPT-FALLBACK: ADR-0014 — park OOM accepts a JitInstance leak over UAF of an importer's bridge thunk.
++            parkJitAsZombie(alloc, store, jp) catch {};
++            handle.jit = null;
++            if (handle.arena) |arena| {
++                arena.deinit();
++                alloc.destroy(arena);
++                handle.arena = null;
++            }
++            handle.exports_storage = &.{};
+         }
+-        handle.exports_storage = &.{};
+     }
+     if (handle.runtime) |rt| {
+         if (handle.arena) |arena| {
+@@ -2905,7 +2920,8 @@ fn hostFuncCallDirect(
+ /// ADR-0200 — cast the Zone-1 `Instance.jit` opaque slot to the engine type at
+ /// the Zone-3 boundary. Null for an interp-backed (or empty) instance. Shared by
+ /// `wasm_func_call` + the `zwasm_ext.zig` budget setters' JIT arms.
+-pub fn jitOf(inst: *Instance) ?*runner.JitInstance {
++pub inline fn jitOf(inst: *Instance) ?*runner.JitInstance {
++    if (comptime !jit_enabled) return null;
+     const jp = inst.jit orelse return null;
+     return @ptrCast(@alignCast(jp));
+ }
