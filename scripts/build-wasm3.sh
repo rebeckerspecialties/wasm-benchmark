@@ -3,7 +3,7 @@
 #
 # wasm3 is a pure-interpreter wasm runtime (no JIT, no AOT) — so it is
 # App-Store-eligible on iOS/watchOS/tvOS the same way Pulley and WAMR are.
-# Its source layout is dead simple — 15 .c files in wasm3/source/ with no
+# Its source layout is dead simple — 16 .c files in wasm3/source/ with no
 # external deps when WASI is disabled — so we skip CMake entirely and
 # just shell out to `clang -c` + `ar`, mirroring the per-target output-dir
 # layout build-wamr.sh uses.
@@ -26,8 +26,10 @@ PATCH_DIR="${ROOT}/patches/wasm3"
 APPLY_PATCHES="${ROOT}/scripts/apply_patch_series.sh"
 WHICH="${1:-macos}"
 
-# Reset to pinned HEAD then apply the wasm3 patch series. Idempotent
-# via apply_patch_series.sh (skips already-applied patches).
+# Reset to pinned HEAD then apply the wasm3 patch series, if any.
+# Idempotent via apply_patch_series.sh (skips already-applied patches).
+# v0.9.0 carries our old v128-as-opaque-slot patch upstream (wasm3#559),
+# so patches/wasm3/ is currently empty.
 ( cd "${W3}" && git reset --hard HEAD --quiet && git clean -fdq -e 'build*' )
 if [[ -d "${PATCH_DIR}" ]]; then
   "${APPLY_PATCHES}" "${W3}" "${PATCH_DIR}"
@@ -48,6 +50,7 @@ SOURCES=(
   m3_info.c
   m3_module.c
   m3_parse.c
+  m3_validate.c
 )
 
 COMMON_CFLAGS="-O3 -mcpu=apple-a12 -std=c99 -DNDEBUG -fno-exceptions"
