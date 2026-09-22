@@ -1,0 +1,38 @@
+From 9999999999999999999999999999999999999999 Mon Sep 17 00:00:00 2026
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Wed, 21 May 2026 13:30:00 -0700
+Subject: [PATCH] fast-interp: MSVC `__builtin_expect` no-op shim
+
+Windows MSVC builds (`build_iwasm` matrix on bytecodealliance/wasm-
+micro-runtime CI) fail to link `wasm_interp_call_func_bytecode`
+because `__builtin_expect` is a GCC/Clang builtin with no MSVC
+equivalent. The branch-predictor hints are an optimization, not
+correctness, so dropping them on MSVC is fine.
+
+Applied last in our local stack so the line-number anchor lands
+in the patch-applied vicinity (the relaxed-SIMD include guard
+above + the EH-stack helpers below). On the upstream PR side
+the shim lives in the same `wasm_interp_fast.c` commit chain.
+---
+ core/iwasm/interpreter/wasm_interp_fast.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -33,6 +33,15 @@
+ #include "simde/wasm/relaxed-simd.h"
+ #endif
+ #endif
++
++/* MSVC has no `__builtin_expect`; the cold-path hints below are
++ * GCC/Clang only. Provide a no-op fallback so the loop still
++ * compiles on the Windows MSVC build. Branch-predictor hints are
++ * an optimization, not correctness, so dropping them on MSVC is
++ * fine. */
++#if !defined(__GNUC__) && !defined(__clang__)
++#define __builtin_expect(expr, expected) (expr)
++#endif
+ 
+ typedef int32 CellType_I32;
+ typedef int64 CellType_I64;

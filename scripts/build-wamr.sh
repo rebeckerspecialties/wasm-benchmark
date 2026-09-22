@@ -42,7 +42,19 @@ WHICH="${1:-macos}"
 #       rebeckerspecialties/wasm-micro-runtime#1 against the
 #       fork; intended for upstream once same-function try/catch
 #       lowering lands (see AGENTS.md → Open follow-up).
-( cd "${WAMR}" && git reset --hard HEAD --quiet \
+# Pinned submodule gitlink is the upstream WAMR base; check it out
+# (detached HEAD) before applying the patch series so that:
+#   (a) patches 0001-0021 always forward-apply cleanly. HEAD may have
+#       feat-branch commits whose content overlaps the patch series,
+#       breaking apply_patch_series.sh's reverse-check.
+#   (b) `git reset --hard <pin>` while on a feature branch would move
+#       the branch ref to the pin and orphan any local commits — bad
+#       UX for anyone iterating on a feat/ branch in the submodule.
+#       Detaching HEAD first keeps branch refs untouched.
+WAMR_PIN="$(cd "${ROOT}" && git ls-tree HEAD wasm-micro-runtime \
+  | awk '{print $3}')"
+( cd "${WAMR}" && git checkout --detach "${WAMR_PIN}" --quiet \
+  && git reset --hard "${WAMR_PIN}" --quiet \
   && git clean -fdq -e 'product-mini' )
 if [[ -d "${PATCH_DIR}" ]]; then
   "${ROOT}/scripts/apply_patch_series.sh" "${WAMR}" "${PATCH_DIR}"
@@ -59,6 +71,16 @@ COMMON_DEFS=(
   -DWAMR_BUILD_LIBC_WASI=0
   -DWAMR_BUILD_LIBC_BUILTIN=0
   -DWAMR_BUILD_SIMD=1
+  # Relaxed-SIMD (wasm 2.0 extension) — same `0xfd` prefix as the
+  # legacy SIMD opcodes, plus 20 spec-assigned sub-opcodes at
+  # 0x100..0x113. Off by default in upstream WAMR (dormant feature
+  # bit `WASM_FEATURE_RELAXED_SIMD` at `aot_runtime.h:32`); our
+  # fork's `patches/wasm-micro-runtime/0016..0018` light up the
+  # fast-interp dispatch + cmake gate, and we set the flag here
+  # so the matmul-relaxed-simd workload + any future relaxed-SIMD
+  # benchmark wasm runs on WAMR. Upstreaming work tracked at
+  # rebeckerspecialties/wasm-micro-runtime#3.
+  -DWAMR_BUILD_RELAXED_SIMD=1
   -DWAMR_BUILD_BULK_MEMORY=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
@@ -86,11 +108,37 @@ COMMON_DEFS=(
 # Target-cpu apple-a12 to match the Rust side's `-C target-cpu=apple-a12`.
 COMMON_CFLAGS="-O3 -mcpu=apple-a12"
 
+# `-DWASM_LINMEM_RESERVATION_CAP=<bytes>` opts into WAMR's PROT_NONE
+# linear-memory reservation path
+# (`patches/wasm-micro-runtime/0021-…`). Without it, every
+# `memory.grow` call goes through `os_mremap_slow` on darwin —
+# `mmap(new_size) + memcpy(old, new) + munmap(old)` — which first-
+# touch faults every page in the new mapping. For workloads that
+# re-instantiate + grow rapidly (Porffor's no-GC graphql-validation:
+# ~15 grows per iter, 5 MB → 9 MB), this dominates the wallclock.
+# With the reservation on, the OS-level VMA is pre-reserved with
+# PROT_NONE up to `RESERVATION_CAP`; grows become `mprotect(extra,
+# READ|WRITE)` — no syscall to mmap, no memcpy, no refault.
+#
+# Empirical (iPhone 12 A14 Icestorm, Porffor graphql-validation):
+#   median 63.6 ms → 9.7 ms (6.6×), 43 → 300 iters/3s. WAMR now
+#   beats wasmtime/Pulley by 1.6× on this workload.
+#
+# Cap chosen per-platform:
+#   16 MB on arm64_32-apple-watchos (4 GiB total address space —
+#     leaves headroom for the Rust side + system frameworks).
+#   64 MB on arm64 (iOS / macOS / tvOS) — matches wasmtime's
+#     `memory_reservation(64 MB)` for an apples-to-apples
+#     comparison; Porffor's working set is ~6-10 MB so 64 MB
+#     gives generous headroom.
+LINMEM_CAP_64="-DWASM_LINMEM_RESERVATION_CAP=67108864"   # 64 MB
+LINMEM_CAP_32="-DWASM_LINMEM_RESERVATION_CAP=16777216"   # 16 MB
+
 build_macos() {
   local DIR="${WAMR}/product-mini/platforms/darwin/build"
   rm -rf "${DIR}" && mkdir -p "${DIR}"
   ( cd "${DIR}" && cmake .. "${COMMON_DEFS[@]}" \
-      -DCMAKE_C_FLAGS="${COMMON_CFLAGS}"
+      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${LINMEM_CAP_64}"
     make -j8 )
 }
 
@@ -112,6 +160,16 @@ build_target() {
   local CC
   CC="$(xcrun --sdk "${SDK}" --find clang)"
 
+  # 32-bit Apple targets (arm64_32-apple-watchos) get a smaller
+  # linmem reservation cap to fit the 4 GiB address space; 64-bit
+  # targets get the full 64 MB.
+  local LINMEM_CAP
+  if [[ "${ARCH}" == "arm64_32" ]]; then
+    LINMEM_CAP="${LINMEM_CAP_32}"
+  else
+    LINMEM_CAP="${LINMEM_CAP_64}"
+  fi
+
   rm -rf "${DIR}" && mkdir -p "${DIR}"
   ( cd "${DIR}" && cmake "${WAMR}/product-mini/platforms/${SUBDIR}" \
       "${COMMON_DEFS[@]}" \
@@ -120,7 +178,7 @@ build_target() {
       -DCMAKE_OSX_SYSROOT="${SYSROOT}" \
       -DCMAKE_OSX_ARCHITECTURES="${ARCH}" \
       -DCMAKE_C_COMPILER="${CC}" \
-      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} -arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}" \
+      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${LINMEM_CAP} -arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}" \
       -DCMAKE_EXE_LINKER_FLAGS="-arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}"
     make -j8 iwasm_static 2>/dev/null || make -j8 vmlib 2>/dev/null || make -j8 )
   ls -la "${DIR}/libiwasm.a" 2>/dev/null || \

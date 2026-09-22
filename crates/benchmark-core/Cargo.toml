@@ -40,3 +40,8 @@ path = "src/bin/runwasm-compare.rs"
 # tests in `tests/eh_correctness.rs`. Pulled only for `cargo test`; not
 # linked into the staticlib that ships on-device.
 wat = "1"
+# JSON parsing for the relaxed-SIMD spec-testsuite runner
+# (`tests/relaxed_simd_spec_testsuite.rs`). wast2json converts each
+# .wast to JSON; we parse it here to drive WAMR through the
+# canonical assertions, honouring `(either ...)` membership.
+serde_json = "1"
