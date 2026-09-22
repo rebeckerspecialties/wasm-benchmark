@@ -21,6 +21,9 @@ export PATH="${TOOLCHAIN_BIN}:${PATH}"
 
 mkdir -p "${OUT}"
 
+# Workloads that also get a -simd128 build under ${OUT}/scalar/ (see below).
+SCALAR_VARIANTS="${SCALAR_VARIANTS:-factorial sieve crc32 convolution bulk_memory}"
+
 for src in "${SRC}"/*.rs; do
   name=$(basename "${src}" .rs)
   out="${OUT}/${name}.wasm"
@@ -51,6 +54,31 @@ for src in "${SRC}"/*.rs; do
     -o "${out}"
   size=$(wc -c < "${out}" | tr -d ' ')
   echo "    -> ${out} (${size} bytes)"
+
+  # Scalar variant for workloads whose SIMD is incidental: the
+  # auto-vectorizer emits v128 ops into these under the canonical
+  # features, which runtimes without an interpreter SIMD-128 path (wasm3,
+  # zwasm's interpreter) reject or trap on. The scalar build is the
+  # apples-to-apples interpreter comparison across every runtime; the
+  # canonical build stays the primary row. matmul_* use SIMD intrinsics
+  # by design and have no scalar variant.
+  case " ${SCALAR_VARIANTS} " in
+    *" ${name} "*)
+      mkdir -p "${OUT}/scalar"
+      rustc \
+        --target wasm32-unknown-unknown \
+        --edition 2024 \
+        --crate-type cdylib \
+        --crate-name "${name}" \
+        -C opt-level=3 \
+        -C lto=fat \
+        -C panic=abort \
+        -C target-feature=-simd128,-relaxed-simd,+tail-call,+bulk-memory,+multivalue,+reference-types \
+        "${src}" \
+        -o "${OUT}/scalar/${name}.wasm"
+      echo "    -> ${OUT}/scalar/${name}.wasm (scalar variant)"
+      ;;
+  esac
 done
 
 echo

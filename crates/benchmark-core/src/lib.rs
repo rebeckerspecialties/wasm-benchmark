@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use wasmtime::{Engine, Instance, Module, Store};
 
+pub mod cases;
 pub mod graphql_validation;
 pub mod pac_probe;
 pub mod residency;
@@ -369,6 +370,29 @@ pub const BULK_MEMORY_WASM: &[u8] = include_bytes!(concat!(
 pub const CALL_INDIRECT_WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../workloads/call_indirect.wasm"
+));
+/// Scalar (`-simd128`) builds of the workloads whose canonical build only
+/// has auto-vectorized SIMD. Same source and semantics, so the same
+/// consensus results; see `scripts/build-workloads.sh`.
+pub const FACTORIAL_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/factorial.wasm"
+));
+pub const SIEVE_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/sieve.wasm"
+));
+pub const CRC32_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/crc32.wasm"
+));
+pub const CONVOLUTION_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/convolution.wasm"
+));
+pub const BULK_MEMORY_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/bulk_memory.wasm"
 ));
 /// SQLite speedtest1 from Sightglass (`benchmarks/sqlite3/sqlite3.wasm`).
 /// Uses WASI preview-1 imports + `bench.start`/`bench.end` timing hooks.
