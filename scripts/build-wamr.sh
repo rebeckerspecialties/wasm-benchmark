@@ -134,12 +134,39 @@ COMMON_CFLAGS="-O3 -mcpu=apple-a12"
 LINMEM_CAP_64="-DWASM_LINMEM_RESERVATION_CAP=67108864"   # 64 MB
 LINMEM_CAP_32="-DWASM_LINMEM_RESERVATION_CAP=16777216"   # 16 MB
 
+# WAMR compiles every core/iwasm/common/*.c, so libiwasm.a always carries
+# the standard wasm-c-api layer (wasm_c_api.c.o: wasm_engine_new,
+# wasm_store_new, wasm_func_call, ... 265 symbols). zwasm v2's libzwasm.a
+# exports the same standard names, and the linker silently binds whichever
+# archive member it meets first: zwasm_instance_new_ex was handed WAMR's
+# store and module and crashed. The harness drives WAMR only through
+# wasm_runtime_* (wasm_export.h), so drop WAMR's c-api member. Its one
+# remaining reference, wasm_trap_delete in the c-api native-call bridge
+# (wasm_runtime_invoke_c_api_native, reachable only for host functions
+# registered through wasm-c-api, which the harness never does), gets a
+# weak no-op so WAMR-only links still resolve.
+# $1 = libiwasm.a, $2 = C compiler, remaining args = target C flags
+drop_wasm_c_api() {
+  local LIB="$1" CC="$2"; shift 2
+  local STUB_DIR
+  STUB_DIR="$(dirname "${LIB}")/wamr-c-api-stub"
+  mkdir -p "${STUB_DIR}"
+  ar d "${LIB}" wasm_c_api.c.o 2>/dev/null || true
+  printf '%s\n' \
+    '/* weak stand-in for the dropped wasm-c-api layer; see build-wamr.sh */' \
+    '__attribute__((weak)) void wasm_trap_delete(void *trap) { (void)trap; }' \
+    > "${STUB_DIR}/wamr_c_api_stub.c"
+  "${CC}" "$@" -c "${STUB_DIR}/wamr_c_api_stub.c" -o "${STUB_DIR}/wamr_c_api_stub.o"
+  ar rs "${LIB}" "${STUB_DIR}/wamr_c_api_stub.o"
+}
+
 build_macos() {
   local DIR="${WAMR}/product-mini/platforms/darwin/build"
   rm -rf "${DIR}" && mkdir -p "${DIR}"
   ( cd "${DIR}" && cmake .. "${COMMON_DEFS[@]}" \
       -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${LINMEM_CAP_64}"
     make -j8 )
+  drop_wasm_c_api "${DIR}/libiwasm.a" "$(xcrun --sdk macosx --find clang)" ${COMMON_CFLAGS}
 }
 
 # Cross-compile for an Apple non-host target.
@@ -183,6 +210,8 @@ build_target() {
     make -j8 iwasm_static 2>/dev/null || make -j8 vmlib 2>/dev/null || make -j8 )
   ls -la "${DIR}/libiwasm.a" 2>/dev/null || \
     (echo "ERROR: ${DIR}/libiwasm.a missing"; ls "${DIR}"; exit 2)
+  drop_wasm_c_api "${DIR}/libiwasm.a" "${CC}" ${COMMON_CFLAGS} -arch "${ARCH}" \
+    -isysroot "${SYSROOT}" ${DEPMIN}
 }
 
 # NB: WAMR's product-mini/platforms/ios/CMakeLists.txt hard-codes
