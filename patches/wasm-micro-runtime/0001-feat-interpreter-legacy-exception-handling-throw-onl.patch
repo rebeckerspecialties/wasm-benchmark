@@ -1,8 +1,8 @@
-From 8ba873f08d2d5d7fed4ca870770979f1d79b9118 Mon Sep 17 00:00:00 2001
+From 562302212be7463306a4823d1952455e65217ca6 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 01:59:16 -0700
-Subject: [PATCH 01/15] feat(interpreter): legacy exception handling
- (throw-only) for fast-interp
+Subject: feat(interpreter): legacy exception handling (throw-only) for
+ fast-interp
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -53,6 +53,8 @@ id" (the tag section couldn't be parsed without EXCE_HANDLING=1).
 Full same-function try/catch lowering — porting the classic
 interpreter's `find_a_catch_handler` design to fast-interp's slot-
 allocator + pre-decoded IR — is the natural follow-up.
+
+(cherry picked from commit 73fc327caec03b62029174e1e40f7e982b0d2a5f)
 ---
  build-scripts/unsupported_combination.cmake | 12 +++++-
  core/iwasm/interpreter/wasm_interp_fast.c   | 44 ++++++++++++++++++++-
@@ -60,10 +62,10 @@ allocator + pre-decoded IR — is the natural follow-up.
  3 files changed, 67 insertions(+), 2 deletions(-)
 
 diff --git a/build-scripts/unsupported_combination.cmake b/build-scripts/unsupported_combination.cmake
-index 4284be32..1789c71b 100644
+index 528c819d..5b7410cd 100644
 --- a/build-scripts/unsupported_combination.cmake
 +++ b/build-scripts/unsupported_combination.cmake
-@@ -64,7 +64,17 @@ endfunction()
+@@ -68,7 +68,17 @@ endfunction()
  
  if(WAMR_BUILD_EXCE_HANDLING EQUAL 1)
    check_aot_mode_error("Unsupported build configuration: EXCE_HANDLING + AOT")
@@ -83,7 +85,7 @@ index 4284be32..1789c71b 100644
    check_llvm_jit_error("Unsupported build configuration: EXCE_HANDLING + JIT")
  endif()
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 937a7fde..0e3a26c0 100644
+index 626b4f32..b518e5c4 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -1836,14 +1836,56 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
@@ -145,10 +147,10 @@ index 937a7fde..0e3a26c0 100644
                  goto got_exception;
              }
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index a2c67bea..4f3dcffd 100644
+index 0900223b..656b8ba7 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12353,6 +12353,19 @@ re_scan:
+@@ -12361,6 +12361,19 @@ re_scan:
                  uint32 tag_index = 0;
                  pb_read_leb_int32(p, p_end, tag_index);
  
@@ -168,6 +170,3 @@ index a2c67bea..4f3dcffd 100644
                  /* check validity of tag_index against module->tag_count */
                  /* check tag index is within the tag index space */
                  if (tag_index >= module->import_tag_count + module->tag_count) {
--- 
-2.54.0
-

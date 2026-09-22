@@ -1,8 +1,7 @@
-From 54bac97f9dde4205d937f4c163d25d08230b1fc3 Mon Sep 17 00:00:00 2001
+From 003f4f64c87f15404aee18dd5d9ec772c1c4d927 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 22:13:08 -0700
-Subject: [PATCH 14/15] fast-interp: trap on cross-function exception payload
- propagation
+Subject: fast-interp: trap on cross-function exception payload propagation
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -50,15 +49,17 @@ Tests:
   current trap-with-expected-message contract on the same
   module shape.
 
-Codex P1 review feedback on
+P1 review feedback on
 rebeckerspecialties/wasm-benchmark PR #3 (patch 0007 line 306):
 "Preserve cross-frame exception payloads".
+
+(cherry picked from commit 87ff6144f8c4a524b15e57b96b12789349efcd39)
 ---
  core/iwasm/interpreter/wasm_interp_fast.c | 30 ++++++++++++++++++++++-
  1 file changed, 29 insertions(+), 1 deletion(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index ee9cd4bd..d44e21ed 100644
+index 8c07438a..5a27017a 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -2083,8 +2083,36 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
@@ -99,6 +100,3 @@ index ee9cd4bd..d44e21ed 100644
                  prev_frame->tag_index = exception_tag_index;
                  prev_frame->exception_raised = true;
                  goto return_func;
--- 
-2.54.0
-

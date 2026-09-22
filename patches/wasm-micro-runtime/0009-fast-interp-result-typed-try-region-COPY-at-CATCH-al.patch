@@ -1,8 +1,7 @@
-From d481d9bc9bb0e3a5375df879affcf31b005e9807 Mon Sep 17 00:00:00 2001
+From 1955adf32fd81b888caa4b70dfb567a91405a743 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 08:50:15 -0700
-Subject: [PATCH 09/15] fast-interp: result-typed try-region COPY-at-CATCH
- alignment
+Subject: fast-interp: result-typed try-region COPY-at-CATCH alignment
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -62,15 +61,17 @@ before; +6 new result-typed cases). porf-accurate runs at 15.6
 ms median (no regression vs the 17.3 ms baseline; small
 improvement plausibly from the polymorphic-reset path no longer
 emitting redundant POP_OFFSET_TYPE operands).
+
+(cherry picked from commit 22a61bdda1ac362ca1bd25de630a88d84655a51c)
 ---
  core/iwasm/interpreter/wasm_loader.c | 152 +++++++++++++++++++++++++++
  1 file changed, 152 insertions(+)
 
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 88885a27..ba9122e4 100644
+index 5f503eed..05ac99ab 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12813,7 +12813,88 @@ re_scan:
+@@ -12821,7 +12821,88 @@ re_scan:
                                    "Unexpected block sequence encountered.");
                      goto fail;
                  }
@@ -159,7 +160,7 @@ index 88885a27..ba9122e4 100644
                  /* Emit `<eh_idx:u32>` after the auto-emitted CATCH
                   * opcode. The runtime CATCH handler reads it to find
                   * end_of_region_pc when the catch is reached via
-@@ -12835,6 +12916,23 @@ re_scan:
+@@ -12843,6 +12924,23 @@ re_scan:
                  /* RESET_STACK removes the values pushed in TRY or previous
                   * CATCH Blocks */
                  RESET_STACK();
@@ -183,7 +184,7 @@ index 88885a27..ba9122e4 100644
  
  #if WASM_ENABLE_GC != 0
                  WASMRefType *ref_type;
-@@ -12996,7 +13094,58 @@ re_scan:
+@@ -13004,7 +13102,58 @@ re_scan:
                      goto fail;
                  }
  
@@ -242,7 +243,7 @@ index 88885a27..ba9122e4 100644
                  /* Emit `<eh_idx:u32>` after the auto-emitted CATCH_ALL
                   * opcode in BOTH traverses (pass 1's size accounting
                   * must include this or pass 2 overruns
-@@ -13023,6 +13172,9 @@ re_scan:
+@@ -13031,6 +13180,9 @@ re_scan:
                  /* RESET_STACK removes the values pushed in TRY or previous
                   * CATCH Blocks */
                  RESET_STACK();
@@ -252,6 +253,3 @@ index 88885a27..ba9122e4 100644
  
                  /* catch_all has no tagtype and therefore no parameters */
                  break;
--- 
-2.54.0
-

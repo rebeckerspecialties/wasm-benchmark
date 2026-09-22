@@ -1,7 +1,7 @@
-From 04625e71590708636318fe06d91ad1586eb6ed5d Mon Sep 17 00:00:00 2001
+From c15f6a972e2cc7a7c01733d0e54b29881079ba07 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 16:09:03 -0700
-Subject: [PATCH 12/15] test_wamr.sh: enable wasm spec EH suite for fast-interp
+Subject: test_wamr.sh: enable wasm spec EH suite for fast-interp
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -24,15 +24,17 @@ After this change, `./test_wamr.sh -t fast-interp -m exception-handling`
 runs the upstream WebAssembly spec EH suite against the fast
 interpreter — the same suite already validated against classic
 interp.
+
+(cherry picked from commit ffddf72c8ff1221dc45c57e9a7b88e92b8226f01)
 ---
  tests/wamr-test-suites/test_wamr.sh | 5 +++--
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/tests/wamr-test-suites/test_wamr.sh b/tests/wamr-test-suites/test_wamr.sh
-index 97dc84d5..c4b6efa9 100755
+index 3de5f4c5..f8614c5d 100755
 --- a/tests/wamr-test-suites/test_wamr.sh
 +++ b/tests/wamr-test-suites/test_wamr.sh
-@@ -919,8 +919,9 @@ function do_execute_in_running_mode()
+@@ -1029,8 +1029,9 @@ function do_execute_in_running_mode()
      # keep alpha order
  
      if [[ ${ENABLE_EH} -eq 1 ]]; then
@@ -44,6 +46,3 @@ index 97dc84d5..c4b6efa9 100755
              return 0;
          fi
      fi
--- 
-2.54.0
-

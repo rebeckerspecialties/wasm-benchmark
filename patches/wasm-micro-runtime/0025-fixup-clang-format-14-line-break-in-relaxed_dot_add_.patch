@@ -1,0 +1,37 @@
+From ea1901508b13b14d2514c81013ad0948042012ef Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Wed, 20 May 2026 23:16:21 -0700
+Subject: fixup: clang-format-14 line break in relaxed_dot_add_s result write
+
+The Coding Guidelines CI check uses `clang-format-14` and flagged
+the line break I chose in the previous "preserve i16 intermediate"
+commit. Newer clang-format-22 happens to accept both shapes;
+clang-format-14 prefers the cast-then-paren-group form:
+
+    result.i32x4[lane] =
+        (int32)((uint32)ext_sum
+                + (uint32)v3.i32x4[lane]);
+
+Functionally identical. No behaviour change.
+
+(cherry picked from commit 602a01aba601f99db457b590b8424d5e0dcac418)
+---
+ core/iwasm/interpreter/wasm_interp_fast.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+index 98c157ae..5ac216b2 100644
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -8174,8 +8174,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+                                       * (int32)v2.i8x16[4 * lane + 3];
+                             int32 ext_sum =
+                                 (int32)(int16)lo_pair + (int32)(int16)hi_pair;
+-                            result.i32x4[lane] = (int32)(
+-                                (uint32)ext_sum + (uint32)v3.i32x4[lane]);
++                            result.i32x4[lane] =
++                                (int32)((uint32)ext_sum
++                                        + (uint32)v3.i32x4[lane]);
+                         }
+                         PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
+                         break;

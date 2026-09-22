@@ -1,8 +1,7 @@
-From 5202bfabefa12eed7a88b023b92bd50f28b49009 Mon Sep 17 00:00:00 2001
+From 7361f8f5b52654c3ed33e0133501684db89dbee0 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 16:54:29 -0700
-Subject: [PATCH 03/15] fast-interp: runtime EH-frame stack + TRY push /
- END(try) pop
+Subject: fast-interp: runtime EH-frame stack + TRY push / END(try) pop
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -58,6 +57,8 @@ maintained through entry/exit). Throws inside try bodies still
 escape via got_exception, matching the throw-only patch's behavior.
 porf-accurate still errors at the first throw escape (its catch
 handler does real work; full catch dispatch is the next commit).
+
+(cherry picked from commit 7bca472c1adbf2c00150a3543d8731f852f2862d)
 ---
  core/iwasm/interpreter/wasm_interp.h      |  11 ++
  core/iwasm/interpreter/wasm_interp_fast.c | 104 +++++++++++++++--
@@ -87,7 +88,7 @@ index 14164054..8ca6fe5f 100644
  
  #if WASM_ENABLE_FAST_INTERP != 0
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 0e3a26c0..06016903 100644
+index b518e5c4..1a84ef79 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -1869,23 +1869,67 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
@@ -231,10 +232,10 @@ index 0e3a26c0..06016903 100644
                  frame->operand + cur_wasm_func->const_cell_num;
  
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index f1418df4..1948efef 100644
+index 9cced0bc..6a4cb019 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12353,26 +12353,21 @@ re_scan:
+@@ -12361,26 +12361,21 @@ re_scan:
                  }
  #if WASM_ENABLE_EXCE_HANDLING != 0
                  else if (opcode == WASM_OP_TRY) {
@@ -272,7 +273,7 @@ index f1418df4..1948efef 100644
                      loader_ctx->cur_eh_entry_idx++;
                  }
  #endif
-@@ -12659,15 +12654,16 @@ re_scan:
+@@ -12667,15 +12662,16 @@ re_scan:
                  }
  
  #if WASM_ENABLE_FAST_INTERP != 0
@@ -298,7 +299,7 @@ index f1418df4..1948efef 100644
                  if (loader_ctx->p_code_compiled != NULL) {
                      uint32 eh_idx = cur_block->eh_entry_idx;
                      WASMFastEHEntry *entry;
-@@ -12675,6 +12671,7 @@ re_scan:
+@@ -12683,6 +12679,7 @@ re_scan:
                      uint64 new_size;
                      bh_assert(eh_idx < func->exception_handler_count);
                      bh_assert(func->exception_handlers != NULL);
@@ -306,7 +307,7 @@ index f1418df4..1948efef 100644
                      entry = &func->exception_handlers[eh_idx];
                      new_size = (uint64)sizeof(WASMFastEHCatch)
                                 * (entry->catch_count + 1);
-@@ -12741,17 +12738,20 @@ re_scan:
+@@ -12749,17 +12746,20 @@ re_scan:
                  }
  
  #if WASM_ENABLE_FAST_INTERP != 0
@@ -332,7 +333,7 @@ index f1418df4..1948efef 100644
                      func->exception_handlers[eh_idx].catch_all_pc =
                          loader_ctx->p_code_compiled;
                  }
-@@ -12882,30 +12882,62 @@ re_scan:
+@@ -12890,30 +12890,62 @@ re_scan:
                  POP_CSP();
  
  #if WASM_ENABLE_FAST_INTERP != 0
@@ -416,6 +417,3 @@ index f1418df4..1948efef 100644
                      }
                  }
  #endif
--- 
-2.54.0
-
