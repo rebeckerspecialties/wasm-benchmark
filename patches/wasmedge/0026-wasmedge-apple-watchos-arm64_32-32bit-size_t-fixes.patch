@@ -1,8 +1,18 @@
+From 2fc5fea37540ca4d41a8ff88daa6bfc2dee40260 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:29:01 -0700
+Subject: wasmedge apple watchos arm64_32 32bit size_t fixes
+
+---
+ include/runtime/instance/function.h | 6 +++---
+ include/runtime/instance/memory.h   | 3 ++-
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
 diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
-index 42ec43cb..54120c9c 100644
+index 5f933eba0..115e46c13 100644
 --- a/include/runtime/instance/function.h
 +++ b/include/runtime/instance/function.h
-@@ -159,12 +159,12 @@ public:
+@@ -168,12 +168,12 @@ public:
  
      struct FuncTypeKeyHash {
        size_t operator()(const FuncTypeKey &Key) const noexcept {
@@ -19,7 +29,7 @@ index 42ec43cb..54120c9c 100644
      };
  
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index 467e942d..1407324e 100644
+index 64e9a8008..fa40dfcd6 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -336,7 +336,8 @@ public:
@@ -31,4 +41,4 @@ index 467e942d..1407324e 100644
 +            static_cast<size_t>(Size)};
    }
  
-   /// Template of loading bytes and convert to a value.
+   /// Template for loading bytes and converting them to a value.

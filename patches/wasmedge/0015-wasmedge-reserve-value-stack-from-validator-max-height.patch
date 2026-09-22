@@ -1,5 +1,23 @@
+From acea79afa357e1cb0f10fe6107423910789b03db Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:27:30 -0700
+Subject: wasmedge reserve value stack from validator max height
+
+Rebased onto 0.17.2-rc.3: context-only conflicts with the #4850 comment
+sweep in function.h.
+---
+ include/ast/segment.h                 |  8 ++++++++
+ include/runtime/instance/function.h   | 19 +++++++++++++++----
+ include/runtime/stackmgr.h            |  7 +++++++
+ include/validator/formchecker.h       |  4 ++++
+ lib/executor/helper.cpp               |  3 +++
+ lib/executor/instantiate/function.cpp |  3 ++-
+ lib/validator/formchecker.cpp         |  6 +++++-
+ lib/validator/validator.cpp           |  4 ++++
+ 8 files changed, 48 insertions(+), 6 deletions(-)
+
 diff --git a/include/ast/segment.h b/include/ast/segment.h
-index 5241868713a9328f3bfe419384f05bd6ec2ddd5d..0fa1f4bd1ea5ce5a07b3d538cfe6615a0be1886d 100644
+index 7c8d4e47a..eeb58a822 100644
 --- a/include/ast/segment.h
 +++ b/include/ast/segment.h
 @@ -116,12 +116,20 @@ public:
@@ -24,7 +42,7 @@ index 5241868713a9328f3bfe419384f05bd6ec2ddd5d..0fa1f4bd1ea5ce5a07b3d538cfe6615a
  };
  
 diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
-index 3493d4f1bb57a01c0702aee3617088d00f940e12..69e7b7862ed13ab186c5b1886fa525523a36228a 100644
+index 5b94f27d9..5f4371619 100644
 --- a/include/runtime/instance/function.h
 +++ b/include/runtime/instance/function.h
 @@ -52,10 +52,12 @@ public:
@@ -53,7 +71,7 @@ index 3493d4f1bb57a01c0702aee3617088d00f940e12..69e7b7862ed13ab186c5b1886fa52552
 +    return 0U;
 +  }
 +
-   /// Getter of function body instrs.
+   /// Getter for function body instrs.
    AST::InstrView getInstrs() const noexcept {
      if (std::holds_alternative<WasmFunction>(Data)) {
 @@ -209,15 +218,17 @@ private:
@@ -73,11 +91,11 @@ index 3493d4f1bb57a01c0702aee3617088d00f940e12..69e7b7862ed13ab186c5b1886fa52552
 -                              })) {
 +                              })),
 +          MaxValueStackHeight(MaxStackHeight) {
-       // FIXME: Modify the capacity to prevent from connection of 2 vectors.
+       // FIXME: Modify the capacity to prevent connecting 2 vectors.
        Instrs.reserve(Expr.size() + 1);
        Instrs.assign(Expr.begin(), Expr.end());
 diff --git a/include/runtime/stackmgr.h b/include/runtime/stackmgr.h
-index 14eec9b803fe8e2ff16774b58fbde45b231ed4f4..877a068e596475f119886abdc5235187206fd98c 100644
+index eeaa509b9..7c8a30c1c 100644
 --- a/include/runtime/stackmgr.h
 +++ b/include/runtime/stackmgr.h
 @@ -84,6 +84,13 @@ public:
@@ -95,7 +113,7 @@ index 14eec9b803fe8e2ff16774b58fbde45b231ed4f4..877a068e596475f119886abdc5235187
    Value pop() {
      Value V = std::move(ValueStack.back());
 diff --git a/include/validator/formchecker.h b/include/validator/formchecker.h
-index b6dcde473dfed26100461079471ac270833bbcfd..3354b266807f5b60018cb986dddf28fc6615393b 100644
+index b6dcde473..3354b2668 100644
 --- a/include/validator/formchecker.h
 +++ b/include/validator/formchecker.h
 @@ -62,6 +62,9 @@ public:
@@ -117,10 +135,10 @@ index b6dcde473dfed26100461079471ac270833bbcfd..3354b266807f5b60018cb986dddf28fc
  
  } // namespace Validator
 diff --git a/lib/executor/helper.cpp b/lib/executor/helper.cpp
-index 887ca0623052107238fea80e883084960f787d7f..1851b053326a737cd990c580651d382c41cb275f 100644
+index 766bb328c..9f7903819 100644
 --- a/lib/executor/helper.cpp
 +++ b/lib/executor/helper.cpp
-@@ -213,6 +213,9 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
+@@ -215,6 +215,9 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
    } else {
      // Native function case: Jump to the start of the function body.
  
@@ -129,9 +147,9 @@ index 887ca0623052107238fea80e883084960f787d7f..1851b053326a737cd990c580651d382c
 +
      // Push local variables into the stack.
      for (auto &Def : Func.getLocals()) {
-       for (uint32_t I = 0; I < Def.first; I++) {
+       if (Def.second.isRefType()) {
 diff --git a/lib/executor/instantiate/function.cpp b/lib/executor/instantiate/function.cpp
-index 29443c48b4bd3d88496305c1e6c94edf56c8f2f2..7d9c9b768de81388743ee95a82dbb95d3815fe0d 100644
+index 1ef0dd6ed..7b3ffb079 100644
 --- a/lib/executor/instantiate/function.cpp
 +++ b/lib/executor/instantiate/function.cpp
 @@ -200,7 +200,8 @@ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
@@ -145,7 +163,7 @@ index 29443c48b4bd3d88496305c1e6c94edf56c8f2f2..7d9c9b768de81388743ee95a82dbb95d
    }
    return {};
 diff --git a/lib/validator/formchecker.cpp b/lib/validator/formchecker.cpp
-index 05979baba2484d841141370daec72be06b701c2a..09df028c57dfbf99f36f0453daf749c53c5342cc 100644
+index 8f77d85ba..2161d47d6 100644
 --- a/lib/validator/formchecker.cpp
 +++ b/lib/validator/formchecker.cpp
 @@ -55,6 +55,7 @@ void FormChecker::reset(bool CleanGlobal) {
@@ -156,7 +174,7 @@ index 05979baba2484d841141370daec72be06b701c2a..09df028c57dfbf99f36f0453daf749c5
  
    if (CleanGlobal) {
      Types.clear();
-@@ -2026,7 +2027,10 @@ Expect<void> FormChecker::checkInstr(const AST::Instruction &Instr) {
+@@ -2027,7 +2028,10 @@ Expect<void> FormChecker::checkInstr(const AST::Instruction &Instr) {
    }
  }
  
@@ -169,10 +187,10 @@ index 05979baba2484d841141370daec72be06b701c2a..09df028c57dfbf99f36f0453daf749c5
  void FormChecker::pushTypes(Span<const VType> Input) {
    for (auto Val : Input) {
 diff --git a/lib/validator/validator.cpp b/lib/validator/validator.cpp
-index f48289d1c5901c6ab10cb6f7c26ca63676225cb9..3df3077e34fdf3fb5cf738428dfc0897ee9925bc 100644
+index c0695aa5c..779e1a7ae 100644
 --- a/lib/validator/validator.cpp
 +++ b/lib/validator/validator.cpp
-@@ -448,6 +448,10 @@ Expect<void> Validator::validate(const AST::CodeSegment &CodeSeg,
+@@ -441,6 +441,10 @@ Expect<void> Validator::validate(const AST::CodeSegment &CodeSeg,
    // Validate function body expression.
    return Checker
        .validate(CodeSeg.getExpr().getInstrs(), FuncType.getReturnTypes())

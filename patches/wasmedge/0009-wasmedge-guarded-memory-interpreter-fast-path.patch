@@ -1,5 +1,21 @@
+From a6df858b56aae62eee21dce64bbefd00ece866c5 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:26:23 -0700
+Subject: wasmedge guarded memory interpreter fast path
+
+Rebased onto 0.17.2-rc.3: context-only conflict with the #4850 comment
+sweep (the storeValue doc comment was reworded); function unchanged.
+---
+ include/executor/engine/memory.ipp | 62 ++++++++++++++++++++++++++++++
+ include/runtime/instance/memory.h  | 48 +++++++++++++++++++++++
+ include/system/fault.h             |  7 ++++
+ lib/executor/engine/engine.cpp     | 21 ++++++++++
+ lib/executor/helper.cpp            | 31 ++++++++-------
+ lib/system/fault.cpp               | 22 +++++++++++
+ 6 files changed, 178 insertions(+), 13 deletions(-)
+
 diff --git a/include/executor/engine/memory.ipp b/include/executor/engine/memory.ipp
-index d987a470d166e54db7937a7ea1c7a1a6d9755eb1..494a266f59c42c3bc42c31f80cb0b44385510cea 100644
+index d987a470d..494a266f5 100644
 --- a/include/executor/engine/memory.ipp
 +++ b/include/executor/engine/memory.ipp
 @@ -17,6 +17,11 @@ TypeT<T> Executor::runLoadOp(Runtime::StackManager &StackMgr,
@@ -107,11 +123,11 @@ index d987a470d166e54db7937a7ea1c7a1a6d9755eb1..494a266f59c42c3bc42c31f80cb0b443
    uint64_t EA = I + Instr.getMemoryOffset();
  
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index d46fbaf40e41e075ceaec65e1717c981e1505a76..c0b6a3325699f0d77277fa846086be5be6545cf8 100644
+index 999c1718c..5af0c2ffc 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -97,6 +97,14 @@ public:
-   /// Getter of memory type.
+   /// Getter for memory type.
    const AST::MemoryType &getMemoryType() const noexcept { return MemType; }
  
 +  bool canUseGuardPageBoundsCheck() const noexcept {
@@ -159,9 +175,9 @@ index d46fbaf40e41e075ceaec65e1717c981e1505a76..c0b6a3325699f0d77277fa846086be5b
 +    }
 +  }
 +
-   /// Template of loading bytes and convert to a value.
+   /// Template for storing a value as bytes.
    ///
-   /// Destruct and Store the value to length of vector.
+   /// Store the value using the specified byte length.
 @@ -373,6 +411,16 @@ public:
      return {};
    }
@@ -180,7 +196,7 @@ index d46fbaf40e41e075ceaec65e1717c981e1505a76..c0b6a3325699f0d77277fa846086be5b
    uint8_t *&getDataPtr() noexcept { return DataPtr; }
  
 diff --git a/include/system/fault.h b/include/system/fault.h
-index 1f57d783ab352fbc2977269151bf7281186ab788..ceea8ebbf66e67996c84edee9cfd8d8dfd79ae1f 100644
+index c5cd0c84a..df523e763 100644
 --- a/include/system/fault.h
 +++ b/include/system/fault.h
 @@ -22,11 +22,18 @@ namespace WasmEdge {
@@ -203,7 +219,7 @@ index 1f57d783ab352fbc2977269151bf7281186ab788..ceea8ebbf66e67996c84edee9cfd8d8d
    std::jmp_buf &buffer() noexcept { return Buffer; }
  
 diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
-index 7e004976225f2da8a4391fd42ffadfdef942cf21..fe6877de5281dcdbdba8609c182bba5edb22616b 100644
+index 995af37f1..ed29546fe 100644
 --- a/lib/executor/engine/engine.cpp
 +++ b/lib/executor/engine/engine.cpp
 @@ -4,6 +4,7 @@
@@ -242,7 +258,7 @@ index 7e004976225f2da8a4391fd42ffadfdef942cf21..fe6877de5281dcdbdba8609c182bba5e
      if (Stat) {
        OpCode Code = PC->getOpCode();
 diff --git a/lib/executor/helper.cpp b/lib/executor/helper.cpp
-index 67f4f9f94897d15f1e26fe11de21e612056e3aa2..887ca0623052107238fea80e883084960f787d7f 100644
+index fd412d306..766bb328c 100644
 --- a/lib/executor/helper.cpp
 +++ b/lib/executor/helper.cpp
 @@ -101,21 +101,26 @@ Executor::enterFunction(Runtime::StackManager &StackMgr,
@@ -286,7 +302,7 @@ index 67f4f9f94897d15f1e26fe11de21e612056e3aa2..887ca0623052107238fea80e88308496
      // Do the statistics if the statistics turned on.
      if (Stat) {
 diff --git a/lib/system/fault.cpp b/lib/system/fault.cpp
-index e435d4e9537259bfa82577d7d718cf9776a7d695..db8e4e59862f4eb9a24752da25809702056b87dc 100644
+index e9d623fb9..d42ac5731 100644
 --- a/lib/system/fault.cpp
 +++ b/lib/system/fault.cpp
 @@ -9,6 +9,7 @@

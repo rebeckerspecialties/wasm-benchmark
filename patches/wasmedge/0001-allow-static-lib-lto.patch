@@ -1,5 +1,15 @@
+From 602aa42abd392a07f98dcc95174e9a5011434708 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:25:13 -0700
+Subject: allow static lib lto
+
+---
+ CMakeLists.txt     | 7 +++++--
+ cmake/Helper.cmake | 5 +++--
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index a4447548ebcc5c3499c98788e98223495aaf9446..5327ce405541c582363d4bf3f4c5b492a8e0dba3 100644
+index 6a563bbdc..a1109d54d 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -73,6 +73,7 @@ if(WASMEDGE_BUILD_AOT_RUNTIME)
@@ -24,10 +34,10 @@ index a4447548ebcc5c3499c98788e98223495aaf9446..5327ce405541c582363d4bf3f4c5b492
  endif()
  
 diff --git a/cmake/Helper.cmake b/cmake/Helper.cmake
-index b3bcfdc5ea7d521492f65db2ee205f2a75d48332..7e3b73b277d89ea0db4dcb2d00e5819f474878b8 100644
+index cfa86bef7..1eb67bcf4 100644
 --- a/cmake/Helper.cmake
 +++ b/cmake/Helper.cmake
-@@ -284,8 +284,9 @@ if((WASMEDGE_LINK_LLVM_STATIC OR WASMEDGE_BUILD_STATIC_LIB) AND WASMEDGE_USE_LLV
+@@ -348,8 +348,9 @@ if((WASMEDGE_LINK_LLVM_STATIC OR WASMEDGE_BUILD_STATIC_LIB) AND WASMEDGE_USE_LLV
      list(APPEND WASMEDGE_LLVM_LINK_SHARED_COMPONENTS
        rt
      )

@@ -1,5 +1,14 @@
+From b554350c8ed18e3ce9ae3f480d22cfb8005b643f Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:29:01 -0700
+Subject: wasmedge silence non mobile guard param warnings
+
+---
+ lib/system/allocator.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
 diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
-index 2d3afe0..5a17ace 100644
+index 2d3afe0cf..5a17ace98 100644
 --- a/lib/system/allocator.cpp
 +++ b/lib/system/allocator.cpp
 @@ -162,6 +162,8 @@ Allocator::allocate(uint64_t PageCount, uint64_t ReservedPageCount,

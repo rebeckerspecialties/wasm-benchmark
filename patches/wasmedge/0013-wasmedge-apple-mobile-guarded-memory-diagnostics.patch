@@ -1,5 +1,15 @@
+From daae50ac3b1322bdd1bb9ac7ca7b9926f0d4d29e Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:27:06 -0700
+Subject: wasmedge apple mobile guarded memory diagnostics
+
+---
+ include/runtime/instance/memory.h | 13 +++++++++++++
+ lib/system/allocator.cpp          | 14 ++++++++++++++
+ 2 files changed, 27 insertions(+)
+
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index 25a8a33f0061e45313e4159f4943af749abac699..2cde328adbde60924a94d8f8cfab0d51fe070473 100644
+index 9626205d6..62c8b4819 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -23,6 +23,7 @@
@@ -30,7 +40,7 @@ index 25a8a33f0061e45313e4159f4943af749abac699..2cde328adbde60924a94d8f8cfab0d51
        spdlog::error("Memory Instance: Unable to find usable memory address."sv);
        MemType.getLimit().setMin(0U);
 diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
-index 47ff171942324859422e8fd111a77a0dd1c9fc42..2d3afe0cf61b3e17402e6b41beddf913dd0d8f6c 100644
+index 47ff17194..2d3afe0cf 100644
 --- a/lib/system/allocator.cpp
 +++ b/lib/system/allocator.cpp
 @@ -8,6 +8,7 @@

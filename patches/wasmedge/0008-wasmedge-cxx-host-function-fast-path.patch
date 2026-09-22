@@ -1,8 +1,18 @@
+From dbdf079925a0abc9436f0196312d928ec28a5071 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:26:01 -0700
+Subject: wasmedge cxx host function fast path
+
+---
+ include/api/wasmedge/wasmedge_instance.h | 18 ++++++++
+ lib/api/wasmedge.cpp                     | 52 ++++++++++++++++++++++++
+ 2 files changed, 70 insertions(+)
+
 diff --git a/include/api/wasmedge/wasmedge_instance.h b/include/api/wasmedge/wasmedge_instance.h
-index 35de6a776de6f79976d0c255d6f54bdcb0f0f366..691e55faf56e0592efb0bf7477295fc0316cfd0c 100644
+index e5afc1eef..d2355297c 100644
 --- a/include/api/wasmedge/wasmedge_instance.h
 +++ b/include/api/wasmedge/wasmedge_instance.h
-@@ -656,6 +656,24 @@ WasmEdge_FunctionInstanceCreateBinding(
+@@ -655,6 +655,24 @@ WasmEdge_FunctionInstanceCreateBinding(
      const WasmEdge_FunctionTypeContext *Type, WasmEdge_WrapFunc_t WrapFunc,
      void *Binding, void *Data, const uint64_t Cost) WASMEDGE_CAPI_NOEXCEPT;
  
@@ -26,12 +36,12 @@ index 35de6a776de6f79976d0c255d6f54bdcb0f0f366..691e55faf56e0592efb0bf7477295fc0
 +
  /// Get the function data field of the function instance.
  ///
- /// The function data is passed when creating the FunctionInstance.
+ /// The function data is passed during FunctionInstance creation.
 diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
-index 5c0b125bbe4583d7928501b9e18aba609b99b802..7f14afbb9bfaa9147b84b967dee8d0d31208dee1 100644
+index 8ffa2c45c..1759bcc19 100644
 --- a/lib/api/wasmedge.cpp
 +++ b/lib/api/wasmedge.cpp
-@@ -545,6 +545,42 @@ private:
+@@ -551,6 +551,42 @@ private:
    void *Data;
  };
  
@@ -74,7 +84,7 @@ index 5c0b125bbe4583d7928501b9e18aba609b99b802..7f14afbb9bfaa9147b84b967dee8d0d3
  } // namespace
  
  #ifdef __cplusplus
-@@ -2754,6 +2790,22 @@ WasmEdge_FunctionInstanceCreateBinding(const WasmEdge_FunctionTypeContext *Type,
+@@ -2781,6 +2817,22 @@ WasmEdge_FunctionInstanceCreateBinding(const WasmEdge_FunctionTypeContext *Type,
    return nullptr;
  }
  

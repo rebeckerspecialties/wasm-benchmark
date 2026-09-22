@@ -1,5 +1,15 @@
+From 434773b54a6de5fa3ae940fba2f7ccd0c84d0084 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:29:01 -0700
+Subject: wasmedge skip guard allocator on arm6432
+
+---
+ include/runtime/instance/memory.h |  2 +-
+ lib/system/allocator.cpp          | 17 +++++++++--------
+ 2 files changed, 10 insertions(+), 9 deletions(-)
+
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index 1407324e..eb4222b7 100644
+index fa40dfcd6..6a1cafabb 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -99,7 +99,7 @@ public:
@@ -12,7 +22,7 @@ index 1407324e..eb4222b7 100644
          stderr,
          "Warning: Memory Instance: Apple-mobile allocation result "
 diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
-index 5a17ace9..b2a6526d 100644
+index 5a17ace98..b2a6526dd 100644
 --- a/lib/system/allocator.cpp
 +++ b/lib/system/allocator.cpp
 @@ -27,11 +27,11 @@ static inline constexpr const uint64_t kPageSize = UINT64_C(65536);

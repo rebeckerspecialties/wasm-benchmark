@@ -1,8 +1,21 @@
+From e83b9330c7069d0d93bb9cc0beeb54f6fb6fd3da Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:27:39 -0700
+Subject: wasmedge superinstr local get i32 load local tee
+
+---
+ include/common/enum_ast.hpp           |  3 ++
+ include/executor/executor.h           |  3 ++
+ lib/executor/engine/engine.cpp        |  8 ++++
+ lib/executor/engine/variableInstr.cpp | 69 +++++++++++++++++++++++++++
+ lib/executor/superinstr.cpp           | 39 +++++++++++++++
+ 5 files changed, 122 insertions(+)
+
 diff --git a/include/common/enum_ast.hpp b/include/common/enum_ast.hpp
-index 9f01ac9..44fe823 100644
+index 75d383eef..cf9e3948e 100644
 --- a/include/common/enum_ast.hpp
 +++ b/include/common/enum_ast.hpp
-@@ -65,6 +65,7 @@ enum class OpCode : uint32_t {
+@@ -66,6 +66,7 @@ enum class OpCode : uint32_t {
  #undef UseOpCode
    Internal__LocalGetI32ConstAdd,
    Internal__LocalGetI32Load,
@@ -10,7 +23,7 @@ index 9f01ac9..44fe823 100644
  };
  
  /// Instruction opcode enumeration string mapping.
-@@ -87,6 +88,8 @@ static inline constexpr const auto OpCodeStr = []() constexpr {
+@@ -88,6 +89,8 @@ static inline constexpr const auto OpCodeStr = []() constexpr {
      {OpCode::Internal__LocalGetI32ConstAdd,
       "internal.local.get.i32.const.add"},
      {OpCode::Internal__LocalGetI32Load, "internal.local.get.i32.load"},
@@ -20,10 +33,10 @@ index 9f01ac9..44fe823 100644
    return SpareEnumMap(Array);
  }();
 diff --git a/include/executor/executor.h b/include/executor/executor.h
-index b807aec..74cb037 100644
+index 08e1b8e37..2a5fc3458 100644
 --- a/include/executor/executor.h
 +++ b/include/executor/executor.h
-@@ -601,6 +601,9 @@ private:
+@@ -603,6 +603,9 @@ private:
                                      const AST::Instruction &Instr,
                                      AST::InstrView::iterator &PC) const
        noexcept;
@@ -34,7 +47,7 @@ index b807aec..74cb037 100644
                               uint32_t StackOffset) const noexcept;
    Expect<void> runLocalSetOp(Runtime::StackManager &StackMgr,
 diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
-index b29407c..ad7bad1 100644
+index 61fe540f8..adf97f2d3 100644
 --- a/lib/executor/engine/engine.cpp
 +++ b/lib/executor/engine/engine.cpp
 @@ -24,6 +24,8 @@ uint32_t getInstructionCountUnits(OpCode Code) noexcept {
@@ -67,7 +80,7 @@ index b29407c..ad7bad1 100644
        return runLocalGetOp(StackMgr, Instr.getStackOffset());
      case OpCode::Local__set:
 diff --git a/lib/executor/engine/variableInstr.cpp b/lib/executor/engine/variableInstr.cpp
-index 3d80922..e0ff80e 100644
+index 3d8092224..e0ff80efe 100644
 --- a/lib/executor/engine/variableInstr.cpp
 +++ b/lib/executor/engine/variableInstr.cpp
 @@ -9,6 +9,22 @@
@@ -154,7 +167,7 @@ index 3d80922..e0ff80e 100644
                                       uint32_t StackOffset) const noexcept {
    StackMgr.push(StackMgr.getTopN(StackOffset));
 diff --git a/lib/executor/superinstr.cpp b/lib/executor/superinstr.cpp
-index 7a4804f..271c409 100644
+index 7a4804fd2..271c409f6 100644
 --- a/lib/executor/superinstr.cpp
 +++ b/lib/executor/superinstr.cpp
 @@ -9,6 +9,22 @@ namespace WasmEdge {

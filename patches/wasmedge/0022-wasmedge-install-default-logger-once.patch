@@ -1,7 +1,17 @@
+From 5b48400a65c2c982f41d7b4259fa4d02d094546f Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:27:39 -0700
+Subject: wasmedge install default logger once
+
+---
+ lib/common/spdlog.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
 diff --git a/lib/common/spdlog.cpp b/lib/common/spdlog.cpp
+index 9493be244..be23916b2 100644
 --- a/lib/common/spdlog.cpp
 +++ b/lib/common/spdlog.cpp
-@@ -35,6 +35,7 @@
+@@ -59,6 +59,7 @@ using CallbackType = std::function<void(const spdlog::details::log_msg &)>;
  
  std::mutex LoggerMutex;
  CallbackType UserLoggingCallback;
@@ -9,7 +19,7 @@ diff --git a/lib/common/spdlog.cpp b/lib/common/spdlog.cpp
  thread_local bool ThreadLocalErrorCaptureEnabled = false;
  thread_local std::vector<std::string> ThreadLocalErrorMessages;
  
-@@ -61,10 +62,14 @@
+@@ -85,10 +86,14 @@ void installDefaultLoggerLocked() {
                           : spdlog::level::info;
    Logger->set_level(Level);
    spdlog::set_default_logger(Logger);

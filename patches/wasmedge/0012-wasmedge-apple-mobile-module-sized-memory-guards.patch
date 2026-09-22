@@ -1,5 +1,22 @@
+From 71976732b1780ed0594f95196adf14a0112f8127 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:27:06 -0700
+Subject: wasmedge apple mobile module sized memory guards
+
+Rebased onto 0.17.2-rc.3: context-only conflict with the #4850 comment
+sweep in instantiate/memory.cpp; loop rewrite unchanged.
+---
+ include/runtime/instance/memory.h     |  31 +++--
+ include/runtime/instance/module.h     |  22 ++++
+ include/system/allocator.h            |  12 +-
+ lib/executor/instantiate/function.cpp | 157 ++++++++++++++++++++++++++
+ lib/executor/instantiate/memory.cpp   |  14 ++-
+ lib/executor/instantiate/module.cpp   |   6 +-
+ lib/system/allocator.cpp              |  91 ++++++++++-----
+ 7 files changed, 286 insertions(+), 47 deletions(-)
+
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index 463e0001480b4d1258e7d6d8560d7aa995fd76c5..25a8a33f0061e45313e4159f4943af749abac699 100644
+index e8f1066e3..9626205d6 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -48,12 +48,17 @@ public:
@@ -66,10 +83,10 @@ index 463e0001480b4d1258e7d6d8560d7aa995fd76c5..25a8a33f0061e45313e4159f4943af74
    std::unordered_multimap<uint64_t, Waiter> WaiterMap;
    /// @}
 diff --git a/include/runtime/instance/module.h b/include/runtime/instance/module.h
-index 11dd3ef41d92fc345bbdd4ec752dc60b927ea9f3..b9915c9e483072893f930f1e831f3a548c742059 100644
+index 20af900a8..8911fcedf 100644
 --- a/include/runtime/instance/module.h
 +++ b/include/runtime/instance/module.h
-@@ -228,6 +228,27 @@ public:
+@@ -229,6 +229,27 @@ public:
      return std::forward<CallbackT>(CallBack)(ExpGlobals);
    }
  
@@ -97,16 +114,16 @@ index 11dd3ef41d92fc345bbdd4ec752dc60b927ea9f3..b9915c9e483072893f930f1e831f3a54
  protected:
    friend class Executor::Executor;
    friend class ComponentInstance;
-@@ -575,6 +596,7 @@ protected:
+@@ -584,6 +605,7 @@ protected:
    std::vector<GlobalInstance *> GlobInsts;
    std::vector<ElementInstance *> ElemInsts;
    std::vector<DataInstance *> DataInsts;
 +  std::vector<uint64_t> MemoryGuardPageBytes;
  
-   /// Imported instances counts.
+   /// Imported instance counts.
    uint32_t ImpGlobalNum = 0;
 diff --git a/include/system/allocator.h b/include/system/allocator.h
-index 0c6555db1493f51ff5958f063995ced13a7ca2a8..b6464f7f05f5d8990b3b02b54f414df267088e89 100644
+index 38ce8420b..df6a5fdb5 100644
 --- a/include/system/allocator.h
 +++ b/include/system/allocator.h
 @@ -43,17 +43,19 @@ public:
@@ -135,7 +152,7 @@ index 0c6555db1493f51ff5958f063995ced13a7ca2a8..b6464f7f05f5d8990b3b02b54f414df2
    static uint8_t *allocate_chunk(uint64_t Size) noexcept;
    static void release_chunk(uint8_t *Pointer, uint64_t Size) noexcept;
 diff --git a/lib/executor/instantiate/function.cpp b/lib/executor/instantiate/function.cpp
-index a8679a92f7664e64eccaa63c3e45954b12238efc..24df6d3ed40da6b7b1a466f05c333fdc3bcd35de 100644
+index 7d9b4ef1a..85ac8b770 100644
 --- a/lib/executor/instantiate/function.cpp
 +++ b/lib/executor/instantiate/function.cpp
 @@ -4,11 +4,164 @@
@@ -315,7 +332,7 @@ index a8679a92f7664e64eccaa63c3e45954b12238efc..24df6d3ed40da6b7b1a466f05c333fdc
      return {};
    }
 diff --git a/lib/executor/instantiate/memory.cpp b/lib/executor/instantiate/memory.cpp
-index a5369e6df1f34b1cfdc85aedbc2821b51f415955..341447a3a4e0dcf9e5b94f2d18d60e85f42a8368 100644
+index f8985b059..6cb30c431 100644
 --- a/lib/executor/instantiate/memory.cpp
 +++ b/lib/executor/instantiate/memory.cpp
 @@ -11,12 +11,13 @@ namespace Executor {
@@ -342,7 +359,7 @@ index a5369e6df1f34b1cfdc85aedbc2821b51f415955..341447a3a4e0dcf9e5b94f2d18d60e85
 -  for (const auto &MemType : MemSec.getContent()) {
 +  for (uint32_t I = 0; I < MemTypes.size(); ++I) {
 +    const uint32_t Index = ImportedMemoryCount + I;
-     // Create and add the memory instance into the module instance.
+     // Create and add the memory instance to the module instance.
 -    ModInst.addMemory(MemType, Conf.getRuntimeConfigure().getMaxMemoryPage());
 -    const auto Index = ModInst.getMemoryNum() - 1;
 +    ModInst.addMemory(MemTypes[I], Conf.getRuntimeConfigure().getMaxMemoryPage(),
@@ -351,7 +368,7 @@ index a5369e6df1f34b1cfdc85aedbc2821b51f415955..341447a3a4e0dcf9e5b94f2d18d60e85
      // Set the memory pointers of instantiated memories.
  #if WASMEDGE_ALLOCATOR_IS_STABLE
 diff --git a/lib/executor/instantiate/module.cpp b/lib/executor/instantiate/module.cpp
-index ae84525bacd2c4144903fa066510cf0377733e42..4d9ea88fccff8e37a35aab350e4e1094d8713130 100644
+index 92592e11e..689cfd144 100644
 --- a/lib/executor/instantiate/module.cpp
 +++ b/lib/executor/instantiate/module.cpp
 @@ -75,6 +75,11 @@ Executor::instantiate(Runtime::StoreManager &StoreMgr, const AST::Module &Mod,
@@ -375,7 +392,7 @@ index ae84525bacd2c4144903fa066510cf0377733e42..4d9ea88fccff8e37a35aab350e4e1094
    instantiate(*ModInst, MemSec);
  
 diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
-index 40fba9fabc3843d4e19bf9ddbdd1f99297f3eea8..47ff171942324859422e8fd111a77a0dd1c9fc42 100644
+index 40fba9fab..47ff17194 100644
 --- a/lib/system/allocator.cpp
 +++ b/lib/system/allocator.cpp
 @@ -10,6 +10,7 @@
