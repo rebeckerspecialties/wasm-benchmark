@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # Build wasmz (`libwasmz.a`) for one Apple target — pure interpreter,
-# App-Store-eligible.
+# App-Store-eligible (wasmz has no JIT or AOT tier).
 #
-# Upstream wasmz (Ray-D-Song/wasmz) requires Zig 0.15.2, but Zig 0.15's
-# build runner segfaults on macOS 26 Tahoe (its bundled libSystem TBDs
-# lack symbols like `_realpath$DARWIN_EXTSN`, `_sigaction`). We apply
-# `patches/wasmz/0001-zig-0.16-stdlib-port.patch` to port the sources
-# to the 0.16 stdlib (intToEnum→fromInt, ArrayListUnmanaged.empty,
-# @FieldType, std.c.mprotect, dropped Thread.Mutex shared-memory
-# paths, etc.) and to add a `static-lib` build step. See AGENTS.md
-# "Skipped runtimes" → wasmz row for the rationale.
+# Upstream wasmz moved to Zig 0.16 in v0.1.x (our port, wasmz#3), so the
+# only patch left is patches/wasmz/0002: arm64_32-apple-watchos
+# (aarch64-watchos-ilp32) support, which keeps std.Io.Threaded (it does
+# not compile under ILP32 on Zig 0.16) out of the static library.
+#
+# Build flags: -Doptimize=ReleaseFast, `zig build static-lib`.
 #
 # Output: wasmz/build-<triple>/libwasmz.a
 #
