@@ -35,6 +35,49 @@ Pick this up cold without re-deriving state:
     4-commit series when complete. **Locked design lives in the
     `### Open follow-up — WAMR fast-interp legacy exception
     handling (full spec)` section below.**
+- **WASIp2 / component-model WAMR work (2026-06-14)** — a SEPARATE
+  airbus-`cm_wasip2`-based lineage, NOT the EH/relaxed-SIMD branches
+  above. Fork PRs (all branch from airbus `dev/cm_wasip2_complete @
+  2815b698`): [#10](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/10)
+  `feat/wasip2-apple-port` (Apple host-layer port: kqueue/getentropy/
+  openat O_NOFOLLOW_ANY/SO_NOSIGPIPE/etc. + 8 base-CI fixes),
+  [#9](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/9)
+  `integration/cm-wasip2-all` (everything merged — the integration PR),
+  [#8](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/8)
+  conformance traps, [#7](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/7)
+  parser fuzz. **The fork now has its own `wasm-micro-runtime/AGENTS.md`
+  with the full dev context — read it first.**
+  - **CI**: macOS **fully green (128/0)**; ubuntu green except 3
+    `test aot` jobs (one shared `align.wast` "stack size does not match
+    block type" wamrc-only quirk — loader is upstream-clean, AOT-compiler
+    path the interpreter-only app never uses, green upstream → an
+    airbus-base wamrc-config bug to report to airbus; needs WAMR's pinned
+    LLVM to reproduce). Accepted/deferred 2026-06-14.
+  - **Swap WAMR builds for perf testing (non-destructive)**: `build.rs`
+    links `libiwasm.a` ONLY (FFI is hand-declared in
+    `crates/benchmark-core/src/wamr.rs`, no headers). Build the wanted
+    branch in a git worktree, `cp build/libiwasm.a wasm-micro-runtime/
+    product-mini/platforms/darwin/build/`, then `cargo build --release
+    --bin run_dispatch_workloads` relinks (rerun-if-changed). Restore the
+    original lib after — the submodule source stays at `cd390ea0`. The
+    cm_wasip2 base builds benchmark-compatible (EH + relaxed-SIMD are
+    upstream-present, no lineage block) with the harness's exact flags.
+  - **Phase 6 perf (2026-06-14, M4 E-core, `taskpolicy -b`)**: cm_wasip2-
+    base WAMR runs the dispatch workloads COMPARABLY to the cd390ea0
+    baseline — no major regression (faster on call_indirect / vtable_poly4
+    / graphql-porf; ~equal elsewhere; noisy at the 200 ms / 1–3-iter
+    window — bump `BENCH_TARGET_MS` for a firmer number). `WORKLOADS=...`
+    env filters the case list.
+  - **Component functionality — NOT yet wired into the harness**:
+    `workloads/graphql-validation/*.component.wasm` are
+    `wasi:http/incoming-handler@0.2.10` components (magic `0d00`; import
+    wasi:http/clocks/io/sockets). Running one in-harness needs new
+    component-runner FFI in `wamr.rs` (C-side flow: `wasm_decode_header`
+    → `is_wasm_component` → `wasm_component_instantiate` →
+    `wasm_component_application_execute_func`, see `product-mini/.../
+    main.c`) + a driveable component (the wasi:http one needs an http
+    host). `iwasm -DWAMR_BUILD_COMPONENT_MODEL=1 -DWAMR_BUILD_LIBC_WASI=1`
+    loads them via the Apple host port (iwasm 2.4.3 built + verified).
 - **Integration test wasm for the WAMR full-EH PR**:
   [`workloads/graphql-validation-porf-accurate.wasm`](workloads/graphql-validation-porf-accurate.wasm)
   (150 KB, **1 `try` + 1 `catch 0` + 2 `throw 0`** — the throws are
