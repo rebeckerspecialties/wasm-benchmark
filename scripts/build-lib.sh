@@ -3,18 +3,19 @@
 #
 # Targets:
 #   macos          M-series Macs (aarch64-apple-darwin) — host iteration.
-#                  Uses stable 1.93.1; rust-std is shipped.
 #   watchos-sim    Apple Watch simulator on Apple Silicon
-#                  (aarch64-apple-watchos-sim) — Tier 3, needs build-std
-#                  with nightly-2026-01-25.
+#                  (aarch64-apple-watchos-sim) — Tier 3, needs build-std.
 #   watchos        Apple Watch SE2 device (arm64_32-apple-watchos) — Tier 3,
-#                  needs build-std with nightly-2026-01-25.
+#                  needs build-std.
 #   ios            iPhone XS device (aarch64-apple-ios) — Tier 2, has rust-std.
-#   tvos           Apple TV 4K (aarch64-apple-tvos) — Tier 3, needs build-std
-#                  with nightly-2026-01-25.
+#   tvos           Apple TV 4K (aarch64-apple-tvos) — Tier 3, needs build-std.
 #   tvos-sim       Apple TV simulator on Apple Silicon
-#                  (aarch64-apple-tvos-sim) — Tier 3, needs build-std with
-#                  nightly-2026-01-25.
+#                  (aarch64-apple-tvos-sim) — Tier 3, needs build-std.
+#
+# Every target builds with the pinned NIGHTLY_TC below: build-std for the
+# Tier-3 targets, and the `become`-based interpreter dispatch
+# (--cfg=pulley_tail_calls for Pulley, the `nightly-dispatch` feature for
+# tinywasm's tail-call loop) everywhere.
 #
 # Per the project brief: minimum CPU is apple-a12 (iPhone XS chip).
 # For consistency the same -mcpu is set on the macOS dev build too, so any
@@ -31,9 +32,8 @@
 #
 # RUSTFLAGS notes:
 #   -C target-cpu=apple-a12        — minimum CPU; M4 stays compatible.
-#   -C linker-plugin-lto           — emit LLVM bitcode for cross-language LTO.
-#   -C embed-bitcode=yes           — keep bitcode in .o so the Apple linker
-#                                    can pick it up at app-link time.
+#   (no -C linker-plugin-lto / -C embed-bitcode: see the toolchain note
+#    below — Xcode 27's LLVM-21 libLTO cannot read LLVM-22 Rust bitcode)
 
 set -uo pipefail
 
@@ -42,21 +42,33 @@ cd "${ROOT}"
 
 WHICH="${1:-macos}"
 
-# Common LTO/LTO-bitcode flags. -C target-cpu=apple-a12 is set per-target
-# below since it doesn't apply to the host-only path.
+# Common codegen flags; LTO is Rust-side fat LTO (CARGO_PROFILE_RELEASE_LTO).
 #
 # Pulley dispatch loop:
 #   --cfg=pulley_tail_calls                    nightly, guaranteed TCO via `become`
 #   --cfg=pulley_assume_llvm_makes_tail_calls  stable, relies on LLVM TCO
 # We override per-target in the build_* functions: nightly for build-std
 # targets gets the strong variant; stable targets get the LLVM-assumes one.
-LTO_FLAGS="-C linker-plugin-lto -C embed-bitcode=yes -C target-cpu=apple-a12"
+LTO_FLAGS="-C target-cpu=apple-a12"
+export CARGO_PROFILE_RELEASE_LTO=fat
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 PULLEY_DISPATCH_NIGHTLY="--cfg=pulley_tail_calls"
 PULLEY_DISPATCH_STABLE="--cfg=pulley_assume_llvm_makes_tail_calls"
 
-# Stable for Tier-1/2 targets; pinned nightly for Tier-3 build-std targets.
-STABLE_TC="1.93.1"
-NIGHTLY_TC="nightly-2026-01-25"
+# Pinned toolchains. wasmtime v49 needs rustc >= 1.96 and tinywasm 0.11
+# needs >= 1.98. Every Rust >= 1.95 ships LLVM 22+, but Xcode 27's libLTO
+# is LLVM 21 and rejects LLVM-22 Rust bitcode in the app link ("Unknown
+# attribute kind (105) (Producer: 'LLVM22.1.8-rust-1.98.0-nightly' Reader:
+# 'LLVM APPLE_1_2100.3.34.2_0')"). Cross-language LTO with Xcode's linker
+# is therefore not possible at these Rust minimums, so the libraries are
+# built as native objects with fat LTO across all Rust crates inside the
+# staticlib (CARGO_PROFILE_RELEASE_LTO below) instead of
+# -C linker-plugin-lto -C embed-bitcode=yes. The nightly is the newest
+# dated 1.98-cycle build (LLVM 22.1.8, same as stable 1.98.0).
+# STABLE_TC is the matching stable for non-dispatch-sensitive tooling.
+STABLE_TC="1.98"
+NIGHTLY_TC="nightly-2026-07-05"
+FEATURES="--features nightly-dispatch"
 
 prepend_toolchain_path() {
   # `rustup run` doesn't prepend the toolchain bin to PATH (see
@@ -79,7 +91,7 @@ build_macos() {
   # 'pulley_tail_calls' is the only safe tail-call dispatch right now.
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib --target aarch64-apple-darwin
+    cargo build --release -p benchmark-core --lib ${FEATURES} --target aarch64-apple-darwin
   )
 }
 
@@ -87,7 +99,7 @@ build_ios() {
   echo "==> iOS device (aarch64-apple-ios) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib --target aarch64-apple-ios
+    cargo build --release -p benchmark-core --lib ${FEATURES} --target aarch64-apple-ios
   )
 }
 
@@ -95,7 +107,7 @@ build_watchos_sim() {
   echo "==> watchOS simulator (aarch64-apple-watchos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib \
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-watchos-sim
   )
@@ -105,7 +117,7 @@ build_watchos() {
   echo "==> watchOS device (arm64_32-apple-watchos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib \
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target arm64_32-apple-watchos
   )
@@ -115,7 +127,7 @@ build_ios_sim() {
   echo "==> iOS simulator (aarch64-apple-ios-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib --target aarch64-apple-ios-sim
+    cargo build --release -p benchmark-core --lib ${FEATURES} --target aarch64-apple-ios-sim
   )
 }
 
@@ -123,7 +135,7 @@ build_tvos() {
   echo "==> tvOS device (aarch64-apple-tvos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib \
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-tvos
   )
@@ -133,7 +145,7 @@ build_tvos_sim() {
   echo "==> tvOS simulator (aarch64-apple-tvos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib \
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-tvos-sim
   )
