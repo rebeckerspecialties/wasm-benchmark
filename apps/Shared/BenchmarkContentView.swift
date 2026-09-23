@@ -7,6 +7,9 @@
 // xcodebuild console), and renders a list summary on screen.
 
 import SwiftUI
+#if os(iOS) || os(tvOS)
+import UIKit
+#endif
 
 /// Static catalog of workloads exposed by benchmark-core's C ABI.
 /// Each entry is `(human label, FFI runner, default input)`.
@@ -448,6 +451,10 @@ struct BenchmarkContentView: View {
         guard !running else { return }
         running = true
         results = []
+        // Keep the screen on for the whole run. A devicectl launch into an awake
+        // device does not reset the idle timer, so auto-lock can fire mid-run and
+        // iOS then suspends the app: the launch sits on one row until it times out.
+        setIdleTimerDisabled(true)
         // WAMR's stack-guard setup must run on the main thread before
         // any worker thread tries to load a wasm module. The actual
         // runtime call into wasm_runtime_init() returns 0 if the build
@@ -607,6 +614,7 @@ struct BenchmarkContentView: View {
                 DispatchQueue.main.async {
                     running = false
                     currentLabel = ""
+                    setIdleTimerDisabled(false)
                 }
                 return
             }
@@ -627,6 +635,7 @@ struct BenchmarkContentView: View {
             DispatchQueue.main.async {
                 running = false
                 currentLabel = ""
+                setIdleTimerDisabled(false)
                 // Also emit the winner string to stderr so headless
                 // launches via devicectl --console see the verdict
                 // even when we can't take a screenshot of the
@@ -639,6 +648,12 @@ struct BenchmarkContentView: View {
                 FileHandle.standardError.write(Data("BENCH_DONE\n".utf8))
             }
         }
+    }
+
+    private func setIdleTimerDisabled(_ disabled: Bool) {
+        #if os(iOS) || os(tvOS)
+        UIApplication.shared.isIdleTimerDisabled = disabled
+        #endif
     }
 
 }
