@@ -93,6 +93,52 @@ pub const CASES: &[Case] = &[
       Some(EXPECTED_VTABLE_POLY6)),
     c("graphql_as", "graphql-validation (AS)", GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0,
       Some(EXPECTED_GRAPHQL_AS)),
+    // Wasm 3.0 feature benchmarks, one per feature at least two shipped
+    // runtimes support (docs/runtime-comparison-2026-09-22.md has the
+    // support matrix). `.<twin>` rows are the same program without the
+    // feature.
+    c("tailcall_fsm", "tail-call FSM (65536 return_call)", TAILCALL_FSM_WASM, "tailcall_fsm", 7,
+      Some(EXPECTED_TAILCALL_FSM)),
+    c("eh_parser_exnref", "EH parser, exnref (4096 stmts, 25% throw)", EH_PARSER_EXNREF_WASM,
+      "eh_parser_exnref", 7, Some(EXPECTED_EH_PARSER)),
+    c("eh_parser_legacy", "EH parser, legacy try/catch (4096 stmts)", EH_PARSER_LEGACY_WASM,
+      "eh_parser_legacy", 7, Some(EXPECTED_EH_PARSER)),
+    c("gc_trees", "GC binary trees (~130K struct.new)", GC_TREES_WASM, "gc_trees", 7,
+      Some(EXPECTED_GC_TREES)),
+    c("callref_dispatch", "call_ref dispatch (200K, typed table)", CALLREF_DISPATCH_WASM,
+      "callref_dispatch", 7, Some(EXPECTED_CALLREF_DISPATCH)),
+    c("callref_dispatch.indirect", "call_ref twin: call_indirect (200K)",
+      CALLREF_DISPATCH_INDIRECT_WASM, "callref_dispatch", 7, Some(EXPECTED_CALLREF_DISPATCH)),
+    c("relaxed_dot", "relaxed-SIMD int8 dot (64×64×256)", RELAXED_KERNELS_WASM, "relaxed_dot", 7,
+      Some(EXPECTED_RELAXED_DOT)),
+    c("relaxed_madd", "relaxed-SIMD FMA Horner (16K pts)", RELAXED_KERNELS_WASM, "relaxed_madd",
+      7, Some(EXPECTED_RELAXED_MADD)),
+    c("mem64_chase", "memory64 pointer chase (64 MiB, 256K hops)", MEM64_CHASE_WASM,
+      "mem64_chase", 7, Some(EXPECTED_MEM64_CHASE)),
+    c("mem64_chase.mem32", "memory64 twin: 32-bit memory", MEM64_CHASE_MEM32_WASM, "mem64_chase",
+      7, Some(EXPECTED_MEM64_CHASE)),
+    c("multimem_transform", "multi-memory transform (3 memories)", MULTIMEM_TRANSFORM_WASM,
+      "multimem_transform", 7, Some(EXPECTED_MULTIMEM_TRANSFORM)),
+    c("multimem_transform.single", "multi-memory twin: one memory",
+      MULTIMEM_TRANSFORM_SINGLE_WASM, "multimem_transform", 7, Some(EXPECTED_MULTIMEM_TRANSFORM)),
+    Case {
+        id: "extconst_init",
+        label: "extended-const instantiate (2560 globals)",
+        wasm: EXTCONST_INIT_WASM,
+        func: "extconst_init",
+        arg: 7,
+        expected: Some(EXPECTED_EXTCONST_INIT),
+        shape: Shape::InstantiateEach,
+    },
+    Case {
+        id: "extconst_init.mvp",
+        label: "extended-const twin: MVP consts",
+        wasm: EXTCONST_INIT_MVP_WASM,
+        func: "extconst_init",
+        arg: 7,
+        expected: Some(EXPECTED_EXTCONST_INIT),
+        shape: Shape::InstantiateEach,
+    },
     Case {
         id: "graphql_porf",
         label: "graphql-validation (Porffor)",
@@ -138,6 +184,9 @@ pub const KNOWN_CRASHES: &[(Runtime, &str, &str)] = &[
      "wasmz v0.1.4 segfaults on this module's v128 ops (the scalar build runs)"),
     (Runtime::Wasmz, "crc32",
      "wasmz v0.1.4 segfaults on this module's v128 ops (the scalar build runs)"),
+    (Runtime::Zwasm, "gc_trees",
+     "zwasm v2.7.0 never reclaims GC structs and grows its GC heap far faster than the \
+      allocation rate (124 MB for 31K 24-byte structs); the process segfaults at ~2.3 GB"),
 ];
 
 pub fn known_crash(rt: Runtime, case_id: &str) -> Option<&'static str> {

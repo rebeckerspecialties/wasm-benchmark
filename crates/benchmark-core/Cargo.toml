@@ -15,8 +15,11 @@ crate-type = ["staticlib", "rlib"]
 # parse+lower+interpret pipeline on-device, so cranelift is enabled
 # *as a compiler* but configured (via `Config::target("pulley{32,64}")`)
 # to emit Pulley bytecode rather than native machine code. The output is
-# DATA, not executable pages — no MAP_JIT, App Store-safe.
-wasmtime = { path = "../../wasmtime/crates/wasmtime", default-features = false, features = ["pulley", "runtime", "std", "cranelift", "anyhow", "gc", "gc-null"] }
+# DATA, not executable pages — no MAP_JIT, App Store-safe. `gc-drc` is
+# wasmtime's production collector (deferred reference counting, selected
+# explicitly in `run_workload_iters`); with only `gc-null` the GC heap is
+# bump-allocated and never reclaimed.
+wasmtime = { path = "../../wasmtime/crates/wasmtime", default-features = false, features = ["pulley", "runtime", "std", "cranelift", "anyhow", "gc", "gc-drc", "gc-null"] }
 anyhow = "1"
 # tinywasm: pure-Rust interpreter (no JIT/AOT tier exists; `archive` —
 # tinywasm's own bytecode serializer — stays off). `nightly-tail-calls`

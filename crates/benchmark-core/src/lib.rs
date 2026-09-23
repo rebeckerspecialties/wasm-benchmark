@@ -396,6 +396,63 @@ pub const BULK_MEMORY_SCALAR_WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../workloads/scalar/bulk_memory.wasm"
 ));
+/// Wasm 3.0 feature benchmarks (see `workloads-wat/gen.py` for the WAT
+/// ones and `workloads-rs/relaxed_kernels.rs`). A `.<twin>` file is the
+/// same program without the feature (call_indirect instead of call_ref, a
+/// 32-bit memory, one memory, pre-folded consts), so each runtime's cost
+/// of the feature itself can be read off; twins run on every runtime.
+pub const TAILCALL_FSM_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/tailcall_fsm.wasm"
+));
+pub const EH_PARSER_EXNREF_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/eh_parser_exnref.wasm"
+));
+pub const EH_PARSER_LEGACY_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/eh_parser_legacy.wasm"
+));
+pub const GC_TREES_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/gc_trees.wasm"
+));
+pub const CALLREF_DISPATCH_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/callref_dispatch.wasm"
+));
+pub const CALLREF_DISPATCH_INDIRECT_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/callref_dispatch.indirect.wasm"
+));
+pub const RELAXED_KERNELS_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/relaxed_kernels.wasm"
+));
+pub const MEM64_CHASE_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/mem64_chase.wasm"
+));
+pub const MEM64_CHASE_MEM32_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/mem64_chase.mem32.wasm"
+));
+pub const MULTIMEM_TRANSFORM_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/multimem_transform.wasm"
+));
+pub const MULTIMEM_TRANSFORM_SINGLE_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/multimem_transform.single.wasm"
+));
+pub const EXTCONST_INIT_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/extconst_init.wasm"
+));
+pub const EXTCONST_INIT_MVP_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/extconst_init.mvp.wasm"
+));
 /// SQLite speedtest1 from Sightglass (`benchmarks/sqlite3/sqlite3.wasm`).
 /// Uses WASI preview-1 imports + `bench.start`/`bench.end` timing hooks.
 /// Wired via `sqlite3::run_sqlite3()` (Pulley side) — needs an import
@@ -802,6 +859,11 @@ fn pulley_engine() -> Result<Engine> {
     // proposal isn't relevant: Porffor doesn't emit it.
     #[allow(deprecated)]
     config.wasm_legacy_exceptions(true);
+    // Wasm GC objects live in wasmtime's GC heap; the DRC collector is the
+    // one wasmtime ships as its default when compiled in. Explicit so the
+    // gc_trees workload never silently runs on the null (never-reclaiming)
+    // collector.
+    config.collector(wasmtime::Collector::DeferredReferenceCounting);
     into_anyhow(Engine::new(&config)).context("Engine::new failed")
 }
 
@@ -1283,6 +1345,17 @@ const EXPECTED_VTABLE_BI: i32 = -208336512;
 const EXPECTED_VTABLE_POLY4: i32 = -126115384;
 const EXPECTED_VTABLE_POLY6: i32 = 579248763;
 const EXPECTED_GRAPHQL_AS: i32 = 5;
+// Feature benchmarks at arg 7: cross-runtime consensus, and equal to the
+// independent Python re-computation in workloads-wat/reference.py.
+pub(crate) const EXPECTED_TAILCALL_FSM: i32 = -1841735369;
+pub(crate) const EXPECTED_EH_PARSER: i32 = 830008030;
+pub(crate) const EXPECTED_GC_TREES: i32 = -81253392;
+pub(crate) const EXPECTED_CALLREF_DISPATCH: i32 = -750120562;
+pub(crate) const EXPECTED_RELAXED_DOT: i32 = -551922832;
+pub(crate) const EXPECTED_RELAXED_MADD: i32 = -1435646925;
+pub(crate) const EXPECTED_MEM64_CHASE: i32 = 433527714;
+pub(crate) const EXPECTED_MULTIMEM_TRANSFORM: i32 = 902712413;
+pub(crate) const EXPECTED_EXTCONST_INIT: i32 = -1152068691;
 
 /// Variant of `report_from` that also asserts the runtime returned the
 /// cross-runtime-consensus reference. A wrong result is converted into a
