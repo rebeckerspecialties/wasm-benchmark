@@ -285,3 +285,175 @@ pub fn run_instantiate_each_wasm3(wasm_bytes: &[u8], fn_name: &str, arg: i32) ->
         Ok((elapsed, ret))
     })
 }
+
+// --- femtovg E2E guest binding -------------------------------------------
+
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use super::*;
+    use crate::femtovg_e2e as e2e;
+
+    type M3RawCall =
+        unsafe extern "C" fn(runtime: IM3Runtime, ctx: *mut c_void, sp: *mut u64, mem: *mut c_void) -> *const c_void;
+
+    extern "C" {
+        fn m3_LinkRawFunction(
+            module: IM3Module,
+            module_name: *const c_char,
+            function_name: *const c_char,
+            signature: *const c_char,
+            function: M3RawCall,
+        ) -> M3Result;
+        fn m3_GetMemory(runtime: IM3Runtime, size: *mut u32, index: u32) -> *mut u8;
+    }
+
+    /// Raw-call convention: return slots first, then one 64-bit slot per
+    /// argument (i32 in the low half).
+    unsafe fn arg(sp: *mut u64, i: usize) -> i32 {
+        *(sp.add(i) as *const u32) as i32
+    }
+
+    unsafe fn memory<'a>(rt: IM3Runtime) -> &'a [u8] {
+        let mut size = 0u32;
+        let base = m3_GetMemory(rt, &mut size, 0);
+        if base.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(base, size as usize)
+        }
+    }
+
+    unsafe extern "C" fn set_size(_rt: IM3Runtime, _c: *mut c_void, sp: *mut u64, _m: *mut c_void) -> *const c_void {
+        e2e::host_set_size(arg(sp, 0), arg(sp, 1), arg(sp, 2));
+        std::ptr::null()
+    }
+    unsafe extern "C" fn image_alloc(_rt: IM3Runtime, _c: *mut c_void, sp: *mut u64, _m: *mut c_void) -> *const c_void {
+        *(sp as *mut i32) = e2e::host_image_alloc(arg(sp, 1), arg(sp, 2), arg(sp, 3), arg(sp, 4));
+        std::ptr::null()
+    }
+    unsafe extern "C" fn image_update(rt: IM3Runtime, _c: *mut c_void, sp: *mut u64, _m: *mut c_void) -> *const c_void {
+        let a = |i| arg(sp, i);
+        let r = match e2e::guest_span(memory(rt), a(7), a(8).max(0) as usize) {
+            Some(data) => e2e::host_image_update(a(1), a(2), a(3), a(4), a(5), a(6), data),
+            None => -1,
+        };
+        *(sp as *mut i32) = r;
+        std::ptr::null()
+    }
+    unsafe extern "C" fn image_delete(_rt: IM3Runtime, _c: *mut c_void, sp: *mut u64, _m: *mut c_void) -> *const c_void {
+        e2e::host_image_delete(arg(sp, 0));
+        std::ptr::null()
+    }
+    unsafe extern "C" fn render(rt: IM3Runtime, _c: *mut c_void, sp: *mut u64, _m: *mut c_void) -> *const c_void {
+        let mem = memory(rt);
+        let verts = e2e::guest_span(mem, arg(sp, 0), arg(sp, 1).max(0) as usize * 16);
+        let cmds = e2e::guest_span(mem, arg(sp, 2), arg(sp, 3).max(0) as usize * 4);
+        if let (Some(v), Some(c)) = (verts, cmds) {
+            e2e::host_render(v, c);
+        }
+        std::ptr::null()
+    }
+
+    pub(crate) struct Wasm3Guest {
+        funcs: [IM3Function; 3],
+        runtime: IM3Runtime,
+        env: IM3Environment,
+        // wasm3 reads the bytes for the module's lifetime.
+        _bytes: Vec<u8>,
+    }
+
+    impl Wasm3Guest {
+        fn call(&mut self, which: usize, args: &[i32]) -> Result<i32> {
+            let argv: Vec<*const c_void> = args.iter().map(|a| a as *const i32 as *const c_void).collect();
+            m3_ok(unsafe { m3_Call(self.funcs[which], args.len() as c_uint, argv.as_ptr()) })
+                .map_err(|e| anyhow!("wasm3 m3_Call trap: {e}"))?;
+            let mut ret: i32 = 0;
+            let retptrs: [*mut c_void; 1] = [&mut ret as *mut i32 as *mut c_void];
+            m3_ok(unsafe { m3_GetResults(self.funcs[which], 1, retptrs.as_ptr()) })
+                .map_err(|e| anyhow!("wasm3 m3_GetResults failed: {e}"))?;
+            Ok(ret)
+        }
+    }
+
+    impl e2e::Guest for Wasm3Guest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            self.call(0, &[scene, width, height])
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            self.call(1, &[index, count])
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            self.call(2, &[])
+        }
+    }
+
+    impl Drop for Wasm3Guest {
+        fn drop(&mut self) {
+            unsafe {
+                m3_FreeRuntime(self.runtime);
+                m3_FreeEnvironment(self.env);
+            }
+        }
+    }
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        init()?;
+        let bytes = wasm.to_vec();
+        let env = unsafe { m3_NewEnvironment() };
+        if env.is_null() {
+            return Err(anyhow!("m3_NewEnvironment returned NULL"));
+        }
+        // 1 MiB: usvg's parser recurses deeper than the micro-benchmarks.
+        let runtime = unsafe { m3_NewRuntime(env, 1024 * 1024, std::ptr::null_mut()) };
+        if runtime.is_null() {
+            unsafe { m3_FreeEnvironment(env) };
+            return Err(anyhow!("m3_NewRuntime returned NULL"));
+        }
+        let fail = |e: String| {
+            unsafe {
+                m3_FreeRuntime(runtime);
+                m3_FreeEnvironment(env);
+            }
+            anyhow!(e)
+        };
+        let mut module: IM3Module = std::ptr::null_mut();
+        if let Err(e) = m3_ok(unsafe { m3_ParseModule(env, &mut module, bytes.as_ptr(), bytes.len() as c_uint) }) {
+            return Err(fail(format!("wasm3 m3_ParseModule failed: {e}")));
+        }
+        if let Err(e) = m3_ok(unsafe { m3_LoadModule(runtime, module) }) {
+            unsafe { m3_FreeModule(module) };
+            return Err(fail(format!("wasm3 m3_LoadModule failed: {e}")));
+        }
+        let links: [(&str, &str, M3RawCall); 5] = [
+            ("set_size", "v(iii)", set_size),
+            ("image_alloc", "i(iiii)", image_alloc),
+            ("image_update", "i(iiiiiiii)", image_update),
+            ("image_delete", "v(i)", image_delete),
+            ("render", "v(iiii)", render),
+        ];
+        let fvg = std::ffi::CString::new("fvg")?;
+        for (name, sig, f) in links {
+            let n = std::ffi::CString::new(name)?;
+            let sg = std::ffi::CString::new(sig)?;
+            if let Err(e) = m3_ok(unsafe { m3_LinkRawFunction(module, fvg.as_ptr(), n.as_ptr(), sg.as_ptr(), f) }) {
+                // An import the guest does not use is not an error.
+                if !e.contains("function lookup failed") {
+                    return Err(fail(format!("wasm3 m3_LinkRawFunction(fvg.{name}) failed: {e}")));
+                }
+            }
+        }
+        let mut funcs = [std::ptr::null_mut(); 3];
+        for (f, name) in funcs.iter_mut().zip(["fvg_init", "fvg_frame", "fvg_mem_pages"]) {
+            let c = std::ffi::CString::new(name)?;
+            if let Err(e) = m3_ok(unsafe { m3_FindFunction(f, runtime, c.as_ptr()) }) {
+                return Err(fail(format!("wasm3 m3_FindFunction({name}) failed: {e}")));
+            }
+        }
+        Ok(Box::new(Wasm3Guest { funcs, runtime, env, _bytes: bytes }))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    femtovg_binding::guest(wasm)
+}

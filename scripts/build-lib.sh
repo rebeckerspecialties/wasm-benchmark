@@ -69,6 +69,9 @@ PULLEY_DISPATCH_STABLE="--cfg=pulley_assume_llvm_makes_tail_calls"
 STABLE_TC="1.98"
 NIGHTLY_TC="nightly-2026-07-05"
 FEATURES="--features nightly-dispatch"
+# The femtovg E2E (wgpu on Metal) goes into the iOS and macOS libraries
+# only: watchOS has no Metal, and the tvOS app does not run the E2E.
+E2E_FEATURES="--features femtovg-e2e"
 
 prepend_toolchain_path() {
   # `rustup run` doesn't prepend the toolchain bin to PATH (see
@@ -91,7 +94,7 @@ build_macos() {
   # 'pulley_tail_calls' is the only safe tail-call dispatch right now.
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib ${FEATURES} --target aarch64-apple-darwin
+    cargo build --release -p benchmark-core --lib ${FEATURES} ${E2E_FEATURES} --target aarch64-apple-darwin
   )
 }
 
@@ -99,7 +102,7 @@ build_ios() {
   echo "==> iOS device (aarch64-apple-ios) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib ${FEATURES} --target aarch64-apple-ios
+    cargo build --release -p benchmark-core --lib ${FEATURES} ${E2E_FEATURES} --target aarch64-apple-ios
   )
 }
 
@@ -127,7 +130,7 @@ build_ios_sim() {
   echo "==> iOS simulator (aarch64-apple-ios-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
     export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
-    cargo build --release -p benchmark-core --lib ${FEATURES} --target aarch64-apple-ios-sim
+    cargo build --release -p benchmark-core --lib ${FEATURES} ${E2E_FEATURES} --target aarch64-apple-ios-sim
   )
 }
 

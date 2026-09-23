@@ -356,6 +356,16 @@ impl Loaded {
         Ok(f)
     }
 
+    /// Exported memory `name` itself (its data pointer can move on grow).
+    #[allow(dead_code)]
+    pub(crate) fn memory_handle(&self, name: &str) -> Result<*mut wasm_memory_t> {
+        let m = unsafe { wasm_extern_as_memory(self.export(name)?) };
+        if m.is_null() {
+            bail!("export `{name}` is not a memory");
+        }
+        Ok(m)
+    }
+
     /// Base pointer + byte length of exported memory `name`.
     #[allow(dead_code)]
     pub(crate) fn memory(&self, name: &str) -> Result<(*mut u8, usize)> {
@@ -472,4 +482,136 @@ pub fn run_graphql_validation_porf_zwasm(wasm_bytes: &[u8]) -> Result<RunReport>
             Ok((t.elapsed(), r[1].of as u32 as i32))
         })
     })
+}
+
+// --- femtovg E2E guest binding -------------------------------------------
+
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::femtovg_e2e as e2e;
+
+    thread_local! {
+        /// The guest's memory. wasm-c-api callbacks get no caller context,
+        /// and the data pointer can move when the guest grows memory, so the
+        /// callbacks re-read it through the handle on every call.
+        static MEMORY: Cell<*mut wasm_memory_t> = const { Cell::new(std::ptr::null_mut()) };
+    }
+
+    unsafe fn memory<'a>() -> &'a [u8] {
+        let m = MEMORY.with(Cell::get);
+        if m.is_null() {
+            return &[];
+        }
+        let base = wasm_memory_data(m);
+        if base.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(base, wasm_memory_data_size(m))
+        }
+    }
+
+    unsafe fn arg(args: *const wasm_val_vec_t, i: usize) -> i32 {
+        (*(*args).data.add(i)).of as u32 as i32
+    }
+
+    unsafe fn ret(results: *mut wasm_val_vec_t, v: i32) {
+        *(*results).data = wasm_val_t { kind: WASM_I32, of: v as u32 as u64 };
+    }
+
+    unsafe extern "C" fn set_size(a: *const wasm_val_vec_t, _r: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
+        e2e::host_set_size(arg(a, 0), arg(a, 1), arg(a, 2));
+        std::ptr::null_mut()
+    }
+    unsafe extern "C" fn image_alloc(a: *const wasm_val_vec_t, r: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
+        ret(r, e2e::host_image_alloc(arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3)));
+        std::ptr::null_mut()
+    }
+    unsafe extern "C" fn image_update(a: *const wasm_val_vec_t, r: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
+        let g = |i| arg(a, i);
+        let rc = match e2e::guest_span(memory(), g(6), g(7).max(0) as usize) {
+            Some(data) => e2e::host_image_update(g(0), g(1), g(2), g(3), g(4), g(5), data),
+            None => -1,
+        };
+        ret(r, rc);
+        std::ptr::null_mut()
+    }
+    unsafe extern "C" fn image_delete(a: *const wasm_val_vec_t, _r: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
+        e2e::host_image_delete(arg(a, 0));
+        std::ptr::null_mut()
+    }
+    unsafe extern "C" fn render(a: *const wasm_val_vec_t, _r: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
+        let mem = memory();
+        let verts = e2e::guest_span(mem, arg(a, 0), arg(a, 1).max(0) as usize * 16);
+        let cmds = e2e::guest_span(mem, arg(a, 2), arg(a, 3).max(0) as usize * 4);
+        if let (Some(v), Some(c)) = (verts, cmds) {
+            e2e::host_render(v, c);
+        }
+        std::ptr::null_mut()
+    }
+
+    pub(crate) struct ZwasmGuest {
+        funcs: [*mut wasm_func_t; 3],
+        _loaded: Loaded,
+    }
+
+    impl ZwasmGuest {
+        fn call(&mut self, which: usize, args: &[i32]) -> Result<i32> {
+            let vals: Vec<wasm_val_t> = args.iter().map(|&v| i32_val(v)).collect();
+            let r = call_raw(self.funcs[which], &vals, 1)?;
+            Ok(r[0].of as u32 as i32)
+        }
+    }
+
+    impl e2e::Guest for ZwasmGuest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            self.call(0, &[scene, width, height])
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            self.call(1, &[index, count])
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            self.call(2, &[])
+        }
+    }
+
+    impl Drop for ZwasmGuest {
+        fn drop(&mut self) {
+            MEMORY.with(|m| m.set(std::ptr::null_mut()));
+        }
+    }
+
+    const I: u8 = WASM_I32;
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        let imports = e2e::import_names(wasm)?
+            .into_iter()
+            .map(|(module, name)| {
+                if module != "fvg" {
+                    bail!("unexpected import {module}.{name}");
+                }
+                Ok(match name.as_str() {
+                    "set_size" => HostImport { params: &[I, I, I], results: &[], callback: set_size },
+                    "image_alloc" => HostImport { params: &[I, I, I, I], results: &[I], callback: image_alloc },
+                    "image_update" => {
+                        HostImport { params: &[I, I, I, I, I, I, I, I], results: &[I], callback: image_update }
+                    }
+                    "image_delete" => HostImport { params: &[I], results: &[], callback: image_delete },
+                    "render" => HostImport { params: &[I, I, I, I], results: &[], callback: render },
+                    other => bail!("unexpected import fvg.{other}"),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let loaded = Loaded::new(wasm, &imports)?;
+        MEMORY.with(|m| m.set(loaded.memory_handle("memory").unwrap_or(std::ptr::null_mut())));
+        let funcs = [loaded.func("fvg_init")?, loaded.func("fvg_frame")?, loaded.func("fvg_mem_pages")?];
+        Ok(Box::new(ZwasmGuest { funcs, _loaded: loaded }))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    femtovg_binding::guest(wasm)
 }

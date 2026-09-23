@@ -8,7 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		0A3CAE8DE8274BBED8806A0A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		1F74B844B929E4D35667ED9E /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */; };
+		22BB750E0B42DC0DAFE6226A /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0995B9E18D6C5CBCD5E518D8 /* Metal.framework */; };
+		4ABB1FBD706E3E52411C28F8 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0995B9E18D6C5CBCD5E518D8 /* Metal.framework */; };
 		73AEF8A899C43E13D4749926 /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		7FBD1C74EF4AD1C4B9B34897 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */; };
 		841007E9BE0E08A8AC56951E /* WasmBenchmarkTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */; };
 		91D868C194B46C7FE2C6B118 /* WasmBenchmarkWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */; };
 		96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
@@ -19,6 +23,7 @@
 
 /* Begin PBXFileReference section */
 		03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WasmBenchmarkIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0995B9E18D6C5CBCD5E518D8 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkWatchApp.swift; sourceTree = "<group>"; };
 		26571FD0795CE91DF528E4B4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		48FCC66879123AE7C5847E70 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
@@ -29,6 +34,7 @@
 		91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkContentView.swift; sourceTree = "<group>"; };
 		A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkTVApp.swift; sourceTree = "<group>"; };
 		A61CE5226A028A476906857E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkIOSApp.swift; sourceTree = "<group>"; };
 		D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkMacApp.swift; sourceTree = "<group>"; };
 		E24BDDA753B6A0987CC5D659 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -36,6 +42,27 @@
 		F1EBAC630F2DC423319A70CD /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		FB29EEA25936F3A106630767 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		46C9B13F47D8AFF35DCB7795 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4ABB1FBD706E3E52411C28F8 /* Metal.framework in Frameworks */,
+				7FBD1C74EF4AD1C4B9B34897 /* QuartzCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7D39776881EAF8181EBECA84 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				22BB750E0B42DC0DAFE6226A /* Metal.framework in Frameworks */,
+				1F74B844B929E4D35667ED9E /* QuartzCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		29DE85AD501C878B38D7EB91 /* WasmBenchmarkIOS */ = {
@@ -56,6 +83,7 @@
 				9945B4BC77502B5E74D0B0EB /* WasmBenchmarkMac */,
 				C010B1176B512BA544F49153 /* WasmBenchmarkTV */,
 				B80AE15C6D6B38D9421B14AE /* WasmBenchmarkWatch */,
+				C7896F0B8FF0F91C2AE20C53 /* Frameworks */,
 				B2EEA60BB9078F8C73B573D1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +129,15 @@
 			path = WasmBenchmarkTV;
 			sourceTree = "<group>";
 		};
+		C7896F0B8FF0F91C2AE20C53 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0995B9E18D6C5CBCD5E518D8 /* Metal.framework */,
+				A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		DA557852C358E2E3B73D4641 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
@@ -117,6 +154,7 @@
 			buildConfigurationList = 0643BC0476E72284EF455526 /* Build configuration list for PBXNativeTarget "WasmBenchmarkMac" */;
 			buildPhases = (
 				B8FC77E4D0F00FA3071AF9DF /* Sources */,
+				7D39776881EAF8181EBECA84 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -151,6 +189,7 @@
 			buildConfigurationList = 2349EC0751230E9688FFFD8C /* Build configuration list for PBXNativeTarget "WasmBenchmarkIOS" */;
 			buildPhases = (
 				31071620C4ECF0A435354163 /* Sources */,
+				46C9B13F47D8AFF35DCB7795 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -217,10 +256,10 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C165E7DBC883D8F08378864C /* WasmBenchmarkIOS */,
-				4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */,
-				E3EA256856DC2200EB2BD4DD /* WasmBenchmarkTV */,
 				8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */,
+				C165E7DBC883D8F08378864C /* WasmBenchmarkIOS */,
+				E3EA256856DC2200EB2BD4DD /* WasmBenchmarkTV */,
+				4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */,
 			);
 		};
 /* End PBXProject section */

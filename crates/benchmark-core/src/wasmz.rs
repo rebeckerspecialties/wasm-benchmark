@@ -558,3 +558,180 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
         Ok((elapsed, results[1].as_i32()))
     })
 }
+
+// --- femtovg E2E guest binding -------------------------------------------
+
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use super::*;
+    use crate::femtovg_e2e as e2e;
+
+    extern "C" {
+        fn wasmz_context_memory(ctx: *mut wasmz_ctx_t) -> *mut u8;
+        fn wasmz_context_memory_size(ctx: *mut wasmz_ctx_t) -> usize;
+    }
+
+    unsafe fn memory<'a>(ctx: *mut wasmz_ctx_t) -> &'a [u8] {
+        let base = wasmz_context_memory(ctx);
+        if base.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(base, wasmz_context_memory_size(ctx))
+        }
+    }
+
+    unsafe fn arg(p: *const WasmzVal, i: usize) -> i32 {
+        (*p.add(i)).as_i32()
+    }
+
+    extern "C" fn set_size(
+        _d: *mut c_void, _c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, _r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe { e2e::host_set_size(arg(p, 0), arg(p, 1), arg(p, 2)) };
+        0
+    }
+    extern "C" fn image_alloc(
+        _d: *mut c_void, _c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe { *r = WasmzVal::i32_val(e2e::host_image_alloc(arg(p, 0), arg(p, 1), arg(p, 2), arg(p, 3))) };
+        0
+    }
+    extern "C" fn image_update(
+        _d: *mut c_void, c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe {
+            let a = |i| arg(p, i);
+            let rc = match e2e::guest_span(memory(c), a(6), a(7).max(0) as usize) {
+                Some(data) => e2e::host_image_update(a(0), a(1), a(2), a(3), a(4), a(5), data),
+                None => -1,
+            };
+            *r = WasmzVal::i32_val(rc);
+        }
+        0
+    }
+    extern "C" fn image_delete(
+        _d: *mut c_void, _c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, _r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe { e2e::host_image_delete(arg(p, 0)) };
+        0
+    }
+    extern "C" fn render(
+        _d: *mut c_void, c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, _r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe {
+            let mem = memory(c);
+            let verts = e2e::guest_span(mem, arg(p, 0), arg(p, 1).max(0) as usize * 16);
+            let cmds = e2e::guest_span(mem, arg(p, 2), arg(p, 3).max(0) as usize * 4);
+            if let (Some(v), Some(k)) = (verts, cmds) {
+                e2e::host_render(v, k);
+            }
+        }
+        0
+    }
+
+    pub(crate) struct WasmzGuest {
+        instance: *mut wasmz_instance_t,
+        module: *mut wasmz_module_t,
+        linker: *mut wasmz_linker_t,
+        store: *mut wasmz_store_t,
+        engine: *mut wasmz_engine_t,
+    }
+
+    impl WasmzGuest {
+        fn call(&mut self, name: &[u8], args: &[i32]) -> Result<i32> {
+            let a: Vec<WasmzVal> = args.iter().map(|&v| WasmzVal::i32_val(v)).collect();
+            let mut r = [WasmzVal::i32_val(0)];
+            let err = unsafe {
+                wasmz_instance_call(self.instance, name.as_ptr() as *const c_char, a.as_ptr(), a.len(),
+                                    r.as_mut_ptr(), 1)
+            };
+            if !err.is_null() {
+                return Err(anyhow!("wasmz_instance_call trap: {}", err_msg(err)));
+            }
+            Ok(r[0].as_i32())
+        }
+    }
+
+    impl e2e::Guest for WasmzGuest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            self.call(b"fvg_init\0", &[scene, width, height])
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            self.call(b"fvg_frame\0", &[index, count])
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            self.call(b"fvg_mem_pages\0", &[])
+        }
+    }
+
+    impl Drop for WasmzGuest {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.instance.is_null() {
+                    wasmz_instance_delete(self.instance);
+                }
+                if !self.module.is_null() {
+                    wasmz_module_delete(self.module);
+                }
+                wasmz_linker_delete(self.linker);
+                wasmz_store_delete(self.store);
+                wasmz_engine_delete(self.engine);
+            }
+        }
+    }
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        init()?;
+        let engine = unsafe { wasmz_engine_new() };
+        if engine.is_null() {
+            return Err(anyhow!("wasmz_engine_new returned NULL"));
+        }
+        let mut g = WasmzGuest {
+            instance: std::ptr::null_mut(),
+            module: std::ptr::null_mut(),
+            linker: unsafe { wasmz_linker_new() },
+            store: unsafe { wasmz_store_new(engine) },
+            engine,
+        };
+        let i = WASMZ_VAL_I32;
+        let defs: [(&[u8], &[c_int], &[c_int], WasmzFunc); 5] = [
+            (b"set_size\0", &[i, i, i], &[], set_size),
+            (b"image_alloc\0", &[i, i, i, i], &[i], image_alloc),
+            (b"image_update\0", &[i, i, i, i, i, i, i, i], &[i], image_update),
+            (b"image_delete\0", &[i], &[], image_delete),
+            (b"render\0", &[i, i, i, i], &[], render),
+        ];
+        for (name, params, results, f) in defs {
+            let err = unsafe {
+                wasmz_linker_define_func(
+                    g.linker,
+                    b"fvg\0".as_ptr() as *const c_char,
+                    name.as_ptr() as *const c_char,
+                    params.as_ptr(),
+                    params.len(),
+                    results.as_ptr(),
+                    results.len(),
+                    f,
+                    std::ptr::null_mut(),
+                )
+            };
+            if !err.is_null() {
+                return Err(anyhow!("wasmz_linker_define_func failed: {}", err_msg(err)));
+            }
+        }
+        let err = unsafe { wasmz_module_new(engine, wasm.as_ptr(), wasm.len(), &mut g.module) };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_module_new failed: {}", err_msg(err)));
+        }
+        let err = unsafe { wasmz_instance_new_with_linker(g.store, g.module, g.linker, &mut g.instance) };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_instance_new_with_linker failed: {}", err_msg(err)));
+        }
+        Ok(Box::new(g))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    femtovg_binding::guest(wasm)
+}

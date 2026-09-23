@@ -31,3 +31,7 @@
 	path = wasmtime
 	url = https://github.com/rebeckerspecialties/wasmtime.git
 	branch = pulley-bench-stack-v49
+[submodule "femtovg"]
+	path = femtovg
+	url = https://github.com/rebeckerspecialties/femtovg.git
+	branch = wire-renderer

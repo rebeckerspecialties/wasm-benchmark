@@ -246,6 +246,17 @@ BenchReport bench_run_case(uint32_t runtime, const char *case_id);
 // process-global state, kept symmetrical with the other inits.
 uint8_t bench_init_tinywasm(void);
 
+// femtovg E2E (docs/femtovg-e2e-abi.md): the femtovg guest does all of its
+// CPU work per frame in runtime `runtime` (bench_run_case ids) and the host
+// renders the result with femtovg's wgpu renderer on Metal, offscreen.
+// Scene 0 is the Ghostscript tiger, 1 combined-linking.svg; `frames` frames
+// per pass on the fixed 1x -> 16x -> 1x zoom schedule, `passes` passes of
+// which the last is reported. Returns one JSON line; free it with
+// bench_free_cstring. Only in libraries built with the `femtovg-e2e`
+// feature (the iOS and macOS builds; watchOS has no Metal).
+char *bench_femtovg_e2e(uint32_t runtime, uint32_t scene, uint32_t frames, uint32_t passes);
+void bench_free_cstring(char *s);
+
 // Diagnostics.
 size_t bench_fib_wasm_size(void);
 

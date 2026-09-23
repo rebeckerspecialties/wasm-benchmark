@@ -572,6 +572,19 @@ struct BenchmarkContentView: View {
             chosenQoS = .utility
         }
         DispatchQueue.global(qos: chosenQoS).async {
+            #if os(iOS) || os(macOS)
+            // FEMTOVG_E2E=0,1 runs the femtovg E2E (scenes 0 and/or 1) on the
+            // runtimes in RUNTIMES instead of the workload list; one runtime
+            // per launch keeps each runtime's peak footprint separate.
+            if let scenes = ProcessInfo.processInfo.environment["FEMTOVG_E2E"], !scenes.isEmpty {
+                runFemtovgE2E(scenes: scenes)
+                DispatchQueue.main.async {
+                    running = false
+                    currentLabel = ""
+                }
+                return
+            }
+            #endif
             for w in workloads {
                 DispatchQueue.main.async { currentLabel = w.label }
                 var report = w.run()
@@ -600,6 +613,37 @@ struct BenchmarkContentView: View {
     }
 
 }
+
+#if os(iOS) || os(macOS)
+/// femtovg E2E (docs/femtovg-e2e-abi.md) for every scene in `scenes` on each
+/// runtime named in RUNTIMES (all seven if unset). Frames and passes come
+/// from FEMTOVG_FRAMES / FEMTOVG_PASSES (default 121 / 2). Each result is
+/// one `FEMTOVG_E2E {json}` line on stderr.
+fileprivate func runFemtovgE2E(scenes: String) {
+    let env = ProcessInfo.processInfo.environment
+    let frames = UInt32(env["FEMTOVG_FRAMES"] ?? "") ?? 121
+    let passes = UInt32(env["FEMTOVG_PASSES"] ?? "") ?? 2
+    let ids: [String: UInt32] = [
+        "pulley": 0, "wamr": 1, "wasm3": 2, "m3": 2, "wasmedge": 3, "we": 3,
+        "zwasm": 4, "wasmz": 5, "tinywasm": 6, "tinywm": 6,
+    ]
+    let requested = (env["RUNTIMES"] ?? "")
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        .filter { !$0.isEmpty }
+    let runtimes: [UInt32] = requested.isEmpty ? Array(0...6) : requested.compactMap { ids[$0] }
+    let sceneIds = scenes.split(separator: ",").compactMap { UInt32($0.trimmingCharacters(in: .whitespaces)) }
+    for rt in runtimes {
+        for scene in sceneIds {
+            guard let cstr = bench_femtovg_e2e(rt, scene, frames, passes) else { continue }
+            let line = String(cString: cstr)
+            bench_free_cstring(cstr)
+            FileHandle.standardError.write(Data(("FEMTOVG_E2E " + line + "\n").utf8))
+        }
+    }
+    FileHandle.standardError.write(Data("FEMTOVG_E2E done\n".utf8))
+}
+#endif
 
 // Free function (no `self`) — safe to call from a background queue under
 // Swift 6 strict concurrency. Frees and nils `error_msg` so the report

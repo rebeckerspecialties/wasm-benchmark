@@ -15,6 +15,8 @@ pub mod cases;
 pub mod graphql_validation;
 pub mod pac_probe;
 pub mod residency;
+#[cfg(feature = "femtovg-e2e")]
+pub mod femtovg_e2e;
 pub mod sqlite3;
 pub mod tinywasm;
 
@@ -867,7 +869,7 @@ pub fn run_workload_iters(
 }
 
 /// The Pulley engine every generic-shape case runs on.
-fn pulley_engine() -> Result<Engine> {
+pub(crate) fn pulley_engine() -> Result<Engine> {
     let pulley_target = if cfg!(target_pointer_width = "64") {
         "pulley64"
     } else {
@@ -2115,6 +2117,41 @@ pub extern "C" fn bench_run_graphql_validation_porf() -> BenchReport {
     report_from(graphql_validation::run_graphql_validation_porf(
         GRAPHQL_VALIDATION_PORF_WASM,
     ))
+}
+
+/// femtovg E2E (docs/femtovg-e2e-abi.md) on runtime `runtime` (the
+/// `bench_run_case` ids), scene `scene`, `frames` frames per pass and
+/// `passes` passes (the last one is reported), with the best guest build
+/// the runtime supports. Returns one JSON line (or `{"error":...}`) that
+/// the caller frees with `bench_free_cstring`.
+#[cfg(feature = "femtovg-e2e")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_femtovg_e2e(runtime: u32, scene: u32, frames: u32, passes: u32) -> *mut std::os::raw::c_char {
+    let line = match cases::RUNTIMES.get(runtime as usize) {
+        None => format!("{{\"error\":\"no runtime {runtime}\"}}"),
+        Some(&(rt, token, _)) => {
+            let variant = femtovg_e2e::Variant::best_for(rt);
+            let cfg = femtovg_e2e::E2eConfig { scene, frames, passes, ..Default::default() };
+            match femtovg_e2e::run_e2e(rt, variant, cfg, None) {
+                Ok(r) => r.to_json(),
+                Err(e) => format!(
+                    "{{\"runtime\":\"{token}\",\"variant\":\"{}\",\"scene\":{scene},\"error\":{:?}}}",
+                    variant.name(),
+                    format!("{e:#}")
+                ),
+            }
+        }
+    };
+    std::ffi::CString::new(line).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+/// Frees a string returned by `bench_femtovg_e2e`.
+#[cfg(feature = "femtovg-e2e")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bench_free_cstring(s: *mut std::os::raw::c_char) {
+    if !s.is_null() {
+        drop(unsafe { std::ffi::CString::from_raw(s) });
+    }
 }
 
 /// Generic C entry point over `cases::CASES`; see benchmark_core.h.

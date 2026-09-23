@@ -99,3 +99,98 @@ pub fn run_graphql_validation_porf_tinywasm(wasm_bytes: &[u8]) -> Result<RunRepo
         Ok((elapsed, r))
     })
 }
+
+// --- femtovg E2E guest binding -------------------------------------------
+
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use super::*;
+    use crate::femtovg_e2e as e2e;
+    use tinywasm::FunctionTyped;
+
+    /// Copies `[ptr, ptr + len)` out of the caller's memory (tinywasm's
+    /// memory API reads into a buffer; it has no borrowed view).
+    fn read(ctx: &FuncContext<'_>, ptr: i32, len: i32) -> tinywasm::Result<Vec<u8>> {
+        let mem = ctx.memory("memory")?;
+        mem.read_vec(ctx.store(), ptr as u32 as usize, len.max(0) as usize)
+    }
+
+    pub(crate) struct TinywasmGuest {
+        store: Store,
+        init: FunctionTyped<(i32, i32, i32), i32>,
+        frame: FunctionTyped<(i32, i32), i32>,
+        pages: FunctionTyped<(), i32>,
+    }
+
+    impl e2e::Guest for TinywasmGuest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            tw(self.init.call(&mut self.store, (scene, width, height)))
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            tw(self.frame.call(&mut self.store, (index, count)))
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            tw(self.pages.call(&mut self.store, ()))
+        }
+    }
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        let module = parse(wasm)?;
+        let mut imports = Imports::new();
+        imports.define(
+            "fvg",
+            "set_size",
+            HostFunction::from(|_c: FuncContext<'_>, (w, h, d): (i32, i32, i32)| {
+                e2e::host_set_size(w, h, d);
+                Ok(())
+            }),
+        );
+        imports.define(
+            "fvg",
+            "image_alloc",
+            HostFunction::from(|_c: FuncContext<'_>, (w, h, f, fl): (i32, i32, i32, i32)| {
+                Ok(e2e::host_image_alloc(w, h, f, fl))
+            }),
+        );
+        imports.define(
+            "fvg",
+            "image_update",
+            HostFunction::from(
+                |c: FuncContext<'_>, (hd, x, y, w, h, f, p, n): (i32, i32, i32, i32, i32, i32, i32, i32)| {
+                    let data = read(&c, p, n)?;
+                    Ok(e2e::host_image_update(hd, x, y, w, h, f, &data))
+                },
+            ),
+        );
+        imports.define(
+            "fvg",
+            "image_delete",
+            HostFunction::from(|_c: FuncContext<'_>, hd: i32| {
+                e2e::host_image_delete(hd);
+                Ok(())
+            }),
+        );
+        imports.define(
+            "fvg",
+            "render",
+            HostFunction::from(|c: FuncContext<'_>, (vp, vn, cp, cn): (i32, i32, i32, i32)| {
+                let verts = read(&c, vp, vn.saturating_mul(16))?;
+                let cmds = read(&c, cp, cn.saturating_mul(4))?;
+                e2e::host_render(&verts, &cmds);
+                Ok(())
+            }),
+        );
+        let mut store = Store::default();
+        let instance = tw(ModuleInstance::instantiate(&mut store, &module, Some(&imports)))
+            .context("tinywasm instantiate")?;
+        let init = tw(instance.func::<(i32, i32, i32), i32>(&store, "fvg_init"))?;
+        let frame = tw(instance.func::<(i32, i32), i32>(&store, "fvg_frame"))?;
+        let pages = tw(instance.func::<(), i32>(&store, "fvg_mem_pages"))?;
+        Ok(Box::new(TinywasmGuest { store, init, frame, pages }))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    femtovg_binding::guest(wasm)
+}

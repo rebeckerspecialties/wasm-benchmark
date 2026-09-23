@@ -667,3 +667,211 @@ fn executor_samples(
         Ok((elapsed, unsafe { WasmEdge_ValueGetI32(returns[result_index]) }))
     })
 }
+
+// --- femtovg E2E guest binding -------------------------------------------
+
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use super::*;
+    use crate::femtovg_e2e as e2e;
+
+    extern "C" {
+        fn WasmEdge_ValTypeGenI32() -> WasmEdgeValType;
+        fn WasmEdge_CallingFrameGetMemoryInstance(
+            frame: *const WasmEdgeCallingFrameContext,
+            idx: u32,
+        ) -> *mut c_void;
+        fn WasmEdge_MemoryInstanceGetPointerConst(mem: *const c_void, offset: u64, length: u64) -> *const u8;
+    }
+
+    /// Parameter `i` (the function type fixes how many there are).
+    unsafe fn args<'a>(params: *const WasmEdgeValue) -> impl Fn(usize) -> i32 + 'a {
+        move |i| WasmEdge_ValueGetI32(*params.add(i))
+    }
+
+    /// `[ptr, ptr + len)` of the caller's memory 0 (null when out of bounds).
+    unsafe fn span<'a>(frame: *const WasmEdgeCallingFrameContext, ptr: i32, len: usize) -> Option<&'a [u8]> {
+        let mem = WasmEdge_CallingFrameGetMemoryInstance(frame, 0);
+        let off = u32::try_from(ptr).ok()? as u64;
+        if mem.is_null() {
+            return None;
+        }
+        if len == 0 {
+            return Some(&[]);
+        }
+        let p = WasmEdge_MemoryInstanceGetPointerConst(mem, off, len as u64);
+        (!p.is_null()).then(|| std::slice::from_raw_parts(p, len))
+    }
+
+    extern "C" fn set_size(
+        _d: *mut c_void, _f: *const WasmEdgeCallingFrameContext, p: *const WasmEdgeValue, _r: *mut WasmEdgeValue,
+    ) -> WasmEdgeResult {
+        let a = unsafe { args(p) };
+        e2e::host_set_size(a(0), a(1), a(2));
+        WasmEdgeResult { code: 0 }
+    }
+    extern "C" fn image_alloc(
+        _d: *mut c_void, _f: *const WasmEdgeCallingFrameContext, p: *const WasmEdgeValue, r: *mut WasmEdgeValue,
+    ) -> WasmEdgeResult {
+        let a = unsafe { args(p) };
+        unsafe { *r = WasmEdge_ValueGenI32(e2e::host_image_alloc(a(0), a(1), a(2), a(3))) };
+        WasmEdgeResult { code: 0 }
+    }
+    extern "C" fn image_update(
+        _d: *mut c_void, f: *const WasmEdgeCallingFrameContext, p: *const WasmEdgeValue, r: *mut WasmEdgeValue,
+    ) -> WasmEdgeResult {
+        let a = unsafe { args(p) };
+        let rc = match unsafe { span(f, a(6), a(7).max(0) as usize) } {
+            Some(data) => e2e::host_image_update(a(0), a(1), a(2), a(3), a(4), a(5), data),
+            None => -1,
+        };
+        unsafe { *r = WasmEdge_ValueGenI32(rc) };
+        WasmEdgeResult { code: 0 }
+    }
+    extern "C" fn image_delete(
+        _d: *mut c_void, _f: *const WasmEdgeCallingFrameContext, p: *const WasmEdgeValue, _r: *mut WasmEdgeValue,
+    ) -> WasmEdgeResult {
+        let a = unsafe { args(p) };
+        e2e::host_image_delete(a(0));
+        WasmEdgeResult { code: 0 }
+    }
+    extern "C" fn render(
+        _d: *mut c_void, f: *const WasmEdgeCallingFrameContext, p: *const WasmEdgeValue, _r: *mut WasmEdgeValue,
+    ) -> WasmEdgeResult {
+        let a = unsafe { args(p) };
+        let verts = unsafe { span(f, a(0), a(1).max(0) as usize * 16) };
+        let cmds = unsafe { span(f, a(2), a(3).max(0) as usize * 4) };
+        if let (Some(v), Some(c)) = (verts, cmds) {
+            e2e::host_render(v, c);
+        }
+        WasmEdgeResult { code: 0 }
+    }
+
+    type Deleter = unsafe extern "C" fn(*mut c_void);
+
+    pub(crate) struct WasmEdgeGuest {
+        executor: *mut c_void,
+        funcs: [*mut WasmEdgeFunctionInstanceContext; 3],
+        // Deleted in reverse creation order on drop.
+        owned: Vec<(*mut c_void, Deleter)>,
+    }
+
+    impl WasmEdgeGuest {
+        fn call(&mut self, which: usize, args: &[i32]) -> Result<i32> {
+            let params: Vec<WasmEdgeValue> = args.iter().map(|&a| unsafe { WasmEdge_ValueGenI32(a) }).collect();
+            let mut ret = [WasmEdgeValue { _bytes: [0u8; 24] }];
+            err_from(
+                unsafe {
+                    WasmEdge_ExecutorInvoke(self.executor, self.funcs[which], params.as_ptr(), params.len() as u32,
+                                            ret.as_mut_ptr(), 1)
+                },
+                "ExecutorInvoke",
+            )?;
+            Ok(unsafe { WasmEdge_ValueGetI32(ret[0]) })
+        }
+    }
+
+    impl e2e::Guest for WasmEdgeGuest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            self.call(0, &[scene, width, height])
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            self.call(1, &[index, count])
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            self.call(2, &[])
+        }
+    }
+
+    impl Drop for WasmEdgeGuest {
+        fn drop(&mut self) {
+            for (p, del) in self.owned.drain(..).rev() {
+                unsafe { del(p) };
+            }
+        }
+    }
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        init()?;
+        let mut g = WasmEdgeGuest { executor: std::ptr::null_mut(), funcs: [std::ptr::null_mut(); 3], owned: Vec::new() };
+        let conf = unsafe { WasmEdge_ConfigureCreate() };
+        g.owned.push((conf, WasmEdge_ConfigureDelete));
+        for prop in [
+            PROP_MULTI_VALUE, PROP_BULK_MEMORY, PROP_REFERENCE_TYPES, PROP_SIMD, PROP_TAIL_CALL,
+            PROP_EXTENDED_CONST, PROP_RELAX_SIMD, PROP_EXCEPTION_HANDLING,
+        ] {
+            unsafe { WasmEdge_ConfigureAddProposal(conf, prop) };
+        }
+        let loader = unsafe { WasmEdge_LoaderCreate(conf) };
+        g.owned.push((loader, WasmEdge_LoaderDelete));
+        let validator = unsafe { WasmEdge_ValidatorCreate(conf) };
+        g.owned.push((validator, WasmEdge_ValidatorDelete));
+        let executor = unsafe { WasmEdge_ExecutorCreate(conf, std::ptr::null_mut()) };
+        g.owned.push((executor, WasmEdge_ExecutorDelete));
+        g.executor = executor;
+        let store = unsafe { WasmEdge_StoreCreate() };
+        g.owned.push((store, WasmEdge_StoreDelete));
+
+        // Host module "fvg".
+        let name = unsafe { WasmEdge_StringCreateByCString(b"fvg\0".as_ptr() as *const c_char) };
+        let host = unsafe { WasmEdge_ModuleInstanceCreate(name) };
+        unsafe { WasmEdge_StringDelete(name) };
+        if host.is_null() {
+            return Err(anyhow!("WasmEdge_ModuleInstanceCreate(fvg) returned NULL"));
+        }
+        g.owned.push((host, WasmEdge_ModuleInstanceDelete));
+        let i32t = unsafe { WasmEdge_ValTypeGenI32() };
+        let funcs: [(&[u8], usize, usize, WasmEdgeHostFunc); 5] = [
+            (b"set_size\0", 3, 0, set_size),
+            (b"image_alloc\0", 4, 1, image_alloc),
+            (b"image_update\0", 8, 1, image_update),
+            (b"image_delete\0", 1, 0, image_delete),
+            (b"render\0", 4, 0, render),
+        ];
+        for (fname, np, nr, cb) in funcs {
+            let params = vec![i32t; np];
+            let rets = vec![i32t; nr];
+            let ty = unsafe { WasmEdge_FunctionTypeCreate(params.as_ptr(), np as u32, rets.as_ptr(), nr as u32) };
+            let f = unsafe { WasmEdge_FunctionInstanceCreate(ty, cb, std::ptr::null_mut(), 0) };
+            unsafe { WasmEdge_FunctionTypeDelete(ty) };
+            if f.is_null() {
+                return Err(anyhow!("WasmEdge_FunctionInstanceCreate failed"));
+            }
+            let n = unsafe { WasmEdge_StringCreateByCString(fname.as_ptr() as *const c_char) };
+            unsafe { WasmEdge_ModuleInstanceAddFunction(host, n, f) };
+            unsafe { WasmEdge_StringDelete(n) };
+        }
+        err_from(unsafe { WasmEdge_ExecutorRegisterImport(executor, store, host) }, "ExecutorRegisterImport(fvg)")?;
+
+        let bytes = unsafe { WasmEdge_BytesCreate(wasm.as_ptr(), wasm.len() as u32) };
+        let mut ast: *mut WasmEdgeASTModuleContext = std::ptr::null_mut();
+        let parsed = unsafe { WasmEdge_LoaderParseFromBytes(loader, &mut ast, bytes) };
+        unsafe { WasmEdge_BytesDelete(bytes) };
+        err_from(parsed, "LoaderParseFromBytes")?;
+        g.owned.push((ast, WasmEdge_ASTModuleDelete));
+        err_from(unsafe { WasmEdge_ValidatorValidate(validator, ast) }, "ValidatorValidate")?;
+        let mut inst: *mut WasmEdgeModuleInstanceContext = std::ptr::null_mut();
+        err_from(unsafe { WasmEdge_ExecutorInstantiate(executor, &mut inst, store, ast) }, "ExecutorInstantiate")?;
+        g.owned.push((inst, WasmEdge_ModuleInstanceDelete));
+        for (slot, fname) in g.funcs.iter_mut().zip([&b"fvg_init\0"[..], b"fvg_frame\0", b"fvg_mem_pages\0"]) {
+            let n = unsafe { WasmEdge_StringCreateByCString(fname.as_ptr() as *const c_char) };
+            *slot = unsafe { WasmEdge_ModuleInstanceFindFunction(inst, n) };
+            unsafe { WasmEdge_StringDelete(n) };
+            if slot.is_null() {
+                return Err(anyhow!("export `{}` not found", String::from_utf8_lossy(&fname[..fname.len() - 1])));
+            }
+        }
+        Ok(Box::new(g))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    #[cfg(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64")))]
+    {
+        let _ = wasm;
+        return Err(anyhow!("WasmEdge VMInstantiate SIGTRAPs on arm64_32-apple-watchos"));
+    }
+    #[cfg(not(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64"))))]
+    femtovg_binding::guest(wasm)
+}

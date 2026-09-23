@@ -429,3 +429,171 @@ pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> 
         )
     })
 }
+
+// --- femtovg E2E guest binding -------------------------------------------
+
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use super::*;
+    use crate::femtovg_e2e as e2e;
+
+    extern "C" {
+        fn wasm_runtime_get_module_inst(exec_env: wasm_exec_env_t) -> wasm_module_inst_t;
+        fn wasm_runtime_validate_app_addr(inst: wasm_module_inst_t, app_offset: u64, size: u64) -> bool;
+        fn wasm_runtime_addr_app_to_native(inst: wasm_module_inst_t, app_offset: u64) -> *mut c_void;
+    }
+
+    /// `[ptr, ptr + len)` of the calling instance's linear memory.
+    unsafe fn span<'a>(env: wasm_exec_env_t, ptr: i32, len: usize) -> Option<&'a [u8]> {
+        let inst = wasm_runtime_get_module_inst(env);
+        let off = u32::try_from(ptr).ok()? as u64;
+        if !wasm_runtime_validate_app_addr(inst, off, len as u64) {
+            return None;
+        }
+        let p = wasm_runtime_addr_app_to_native(inst, off) as *const u8;
+        (!p.is_null()).then(|| std::slice::from_raw_parts(p, len))
+    }
+
+    extern "C" fn set_size(_env: wasm_exec_env_t, w: i32, h: i32, dpi: i32) {
+        e2e::host_set_size(w, h, dpi)
+    }
+    extern "C" fn image_alloc(_env: wasm_exec_env_t, w: i32, h: i32, f: i32, fl: i32) -> i32 {
+        e2e::host_image_alloc(w, h, f, fl)
+    }
+    #[allow(clippy::too_many_arguments)]
+    extern "C" fn image_update(
+        env: wasm_exec_env_t, hd: i32, x: i32, y: i32, w: i32, h: i32, f: i32, p: i32, n: i32,
+    ) -> i32 {
+        match unsafe { span(env, p, n.max(0) as usize) } {
+            Some(data) => e2e::host_image_update(hd, x, y, w, h, f, data),
+            None => -1,
+        }
+    }
+    extern "C" fn image_delete(_env: wasm_exec_env_t, hd: i32) {
+        e2e::host_image_delete(hd)
+    }
+    extern "C" fn render(env: wasm_exec_env_t, vp: i32, vn: i32, cp: i32, cn: i32) {
+        let verts = unsafe { span(env, vp, vn.max(0) as usize * 16) };
+        let cmds = unsafe { span(env, cp, cn.max(0) as usize * 4) };
+        if let (Some(v), Some(c)) = (verts, cmds) {
+            e2e::host_render(v, c)
+        }
+    }
+
+    static REGISTER: Once = Once::new();
+
+    /// WAMR keeps the symbol array (and its strings) for the process
+    /// lifetime and resolves `fvg.*` imports against it at load time.
+    fn register() {
+        REGISTER.call_once(|| {
+            let sym = |name: &str, f: *mut c_void, sig: &str| NativeSymbol {
+                symbol: std::ffi::CString::new(name).unwrap().into_raw(),
+                func_ptr: f,
+                signature: std::ffi::CString::new(sig).unwrap().into_raw(),
+                attachment: std::ptr::null_mut(),
+            };
+            let syms = Box::leak(Box::new([
+                sym("set_size", set_size as *mut c_void, "(iii)"),
+                sym("image_alloc", image_alloc as *mut c_void, "(iiii)i"),
+                sym("image_update", image_update as *mut c_void, "(iiiiiiii)i"),
+                sym("image_delete", image_delete as *mut c_void, "(i)"),
+                sym("render", render as *mut c_void, "(iiii)"),
+            ]));
+            let module = std::ffi::CString::new("fvg").unwrap().into_raw();
+            unsafe { wasm_runtime_register_natives(module, syms.as_mut_ptr(), syms.len() as u32) };
+        });
+    }
+
+    pub(crate) struct WamrGuest {
+        exec_env: wasm_exec_env_t,
+        inst: wasm_module_inst_t,
+        module: wasm_module_t,
+        funcs: [wasm_function_inst_t; 3],
+        // WAMR keeps pointers into the bytes for the module's lifetime.
+        _bytes: Vec<u8>,
+    }
+
+    impl WamrGuest {
+        fn call(&mut self, which: usize, args: &[i32]) -> Result<i32> {
+            let mut argv = [0u32; 3];
+            for (a, v) in argv.iter_mut().zip(args) {
+                *a = *v as u32;
+            }
+            let ok = unsafe {
+                wasm_runtime_call_wasm(self.exec_env, self.funcs[which], args.len() as u32, argv.as_mut_ptr())
+            };
+            if !ok {
+                return Err(anyhow!("WAMR call_wasm trap: {}", exception_text(self.inst)));
+            }
+            Ok(argv[0] as i32)
+        }
+    }
+
+    impl e2e::Guest for WamrGuest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            self.call(0, &[scene, width, height])
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            self.call(1, &[index, count])
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            self.call(2, &[])
+        }
+    }
+
+    impl Drop for WamrGuest {
+        fn drop(&mut self) {
+            unsafe {
+                wasm_runtime_destroy_exec_env(self.exec_env);
+                wasm_runtime_deinstantiate(self.inst);
+                wasm_runtime_unload(self.module);
+            }
+        }
+    }
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        ensure_init()?;
+        register();
+        let mut bytes = wasm.to_vec();
+        let module = load_module(&mut bytes)?;
+        let mut err_buf = [0i8; 256];
+        // 1 MiB wasm stack: usvg's parser and femtovg's path code recurse
+        // more than the 32 KiB the micro-benchmarks use. No app heap: the
+        // guest brings its own allocator.
+        let stack = 1024 * 1024;
+        let inst = unsafe {
+            wasm_runtime_instantiate(module, stack, 0, err_buf.as_mut_ptr(), err_buf.len() as u32)
+        };
+        if inst.is_null() {
+            let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }.to_string_lossy().into_owned();
+            unsafe { wasm_runtime_unload(module) };
+            return Err(anyhow!("wasm_runtime_instantiate failed: {msg}"));
+        }
+        let mut funcs = [std::ptr::null_mut(); 3];
+        for (f, name) in funcs.iter_mut().zip(["fvg_init", "fvg_frame", "fvg_mem_pages"]) {
+            let c = std::ffi::CString::new(name)?;
+            *f = unsafe { wasm_runtime_lookup_function(inst, c.as_ptr()) };
+            if f.is_null() {
+                unsafe {
+                    wasm_runtime_deinstantiate(inst);
+                    wasm_runtime_unload(module);
+                }
+                return Err(anyhow!("export `{name}` not found"));
+            }
+        }
+        let exec_env = unsafe { wasm_runtime_create_exec_env(inst, stack) };
+        if exec_env.is_null() {
+            unsafe {
+                wasm_runtime_deinstantiate(inst);
+                wasm_runtime_unload(module);
+            }
+            return Err(anyhow!("wasm_runtime_create_exec_env failed"));
+        }
+        Ok(Box::new(WamrGuest { exec_env, inst, module, funcs, _bytes: bytes }))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    femtovg_binding::guest(wasm)
+}

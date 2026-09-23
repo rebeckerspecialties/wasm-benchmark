@@ -25,6 +25,11 @@ anyhow = "1"
 # tinywasm's own bytecode serializer — stays off). `nightly-tail-calls`
 # comes in through this crate's `nightly-dispatch` feature below.
 tinywasm = { version = "=0.11.0", default-features = false, features = ["std", "parser", "validate"] }
+# femtovg E2E host (feature `femtovg-e2e`): femtovg's wgpu renderer behind
+# its wire replayer, on a headless Metal device.
+femtovg = { path = "../../femtovg", default-features = false, features = ["wgpu", "wire"], optional = true }
+wgpu = { version = "30", optional = true }
+pollster = { version = "0.4", optional = true }
 
 # No build-deps — workloads are pre-compiled into checked-in `.wasm` files
 # (see scripts/build-workloads.sh and workloads-rs/*.rs); build.rs handles
@@ -36,6 +41,14 @@ tinywasm = { version = "=0.11.0", default-features = false, features = ["std", "
 # Pulley's `--cfg=pulley_tail_calls`; scripts/build-lib.sh and
 # scripts/build-host-cli.sh enable both together.
 nightly-dispatch = ["tinywasm/nightly-tail-calls"]
+# The femtovg-to-wasm E2E (docs/femtovg-e2e-abi.md): run_femtovg_e2e CLI and
+# the bench_femtovg_e2e FFI. Needs Metal (macOS / iOS).
+femtovg-e2e = ["dep:femtovg", "dep:wgpu", "dep:pollster"]
+
+[[bin]]
+name = "run_femtovg_e2e"
+path = "src/bin/run_femtovg_e2e.rs"
+required-features = ["femtovg-e2e"]
 
 [[bin]]
 name = "runwasm"
