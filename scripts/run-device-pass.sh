@@ -17,7 +17,9 @@
 #   BENCH_TARGET_MS=2000         timed-window budget per case
 #   WORKLOADS=                   optional case-label filter (app semantics)
 #   E2E=                         e.g. "0,1": run the femtovg E2E on these
-#                                scenes instead of the workload list
+#                                scenes instead of the workload list, one
+#                                launch per (runtime, scene) so each
+#                                scene's footprint peak is its own
 #   FEMTOVG_FRAMES=121 FEMTOVG_PASSES=2
 #   UDID=00008020-001C292A2190003A (iPhone XS Max)  DEVICE_NAME=iphonexs
 #   BUNDLE=com.rebeckerspecialties.wasmbench.ios
@@ -30,7 +32,8 @@
 #                                app jetsam-killed, which would lose every
 #                                later row of the launch.
 #
-# Logs: <out-dir>/<device>-<runtime>-r<rep>.log. Parse with
+# Logs: <out-dir>/<device>-<runtime>-r<rep>.log (-h<i> for split rows,
+# <device>-<runtime>-s<scene>-r<rep>.log in E2E mode). Parse with
 # scripts/summarize-pass.py.
 set -uo pipefail
 OUT="${1:?usage: run-device-pass.sh <out-dir>}"
@@ -48,13 +51,13 @@ HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const
 if [[ -n "${E2E}" ]]; then MARKER="FEMTOVG_E2E done"; else MARKER="BENCH_DONE"; fi
 mkdir -p "${OUT}"
 
-env_json() {  # runtime [workloads] [exclude]
-  local rt="$1" wl="${2:-${WORKLOADS}}" ex="${3:-}" j
+env_json() {  # runtime [workloads] [exclude] [e2e scenes]
+  local rt="$1" wl="${2:-${WORKLOADS}}" ex="${3:-}" scenes="${4:-${E2E}}" j
   j="{\"RUNTIMES\":\"${rt}\",\"BENCH_TARGET_MS\":\"${BENCH_TARGET_MS}\""
   [[ -n "${wl}" ]] && j+=",\"WORKLOADS\":\"${wl}\""
   [[ -n "${ex}" ]] && j+=",\"WORKLOADS_EXCLUDE\":\"${ex}\""
-  if [[ -n "${E2E}" ]]; then
-    j+=",\"FEMTOVG_E2E\":\"${E2E}\",\"FEMTOVG_FRAMES\":\"${FEMTOVG_FRAMES:-121}\""
+  if [[ -n "${scenes}" ]]; then
+    j+=",\"FEMTOVG_E2E\":\"${scenes}\",\"FEMTOVG_FRAMES\":\"${FEMTOVG_FRAMES:-121}\""
     j+=",\"FEMTOVG_PASSES\":\"${FEMTOVG_PASSES:-2}\""
   fi
   echo "${j}}"
@@ -65,11 +68,11 @@ app_pid() {
     | grep -i "wasmbench" | awk '{print $1}' | head -1
 }
 
-launch_once() {  # runtime log [workloads] [exclude] -> 0 if the marker arrived
+launch_once() {  # runtime log [workloads] [exclude] [e2e scenes] -> 0 if the marker arrived
   local rt="$1" log="$2" lpid ts=0
   stdbuf -oL xcrun devicectl device process launch --console --device "${UDID}" \
-    --terminate-existing --environment-variables "$(env_json "${rt}" "${3:-}" "${4:-}")" "${BUNDLE}" \
-    > "${log}" 2>&1 &
+    --terminate-existing --environment-variables "$(env_json "${rt}" "${3:-}" "${4:-}" "${5:-}")" \
+    "${BUNDLE}" > "${log}" 2>&1 &
   lpid=$!
   while (( ts < MAX_WAIT_SECS )); do
     sleep 3
@@ -90,7 +93,7 @@ launch_once() {  # runtime log [workloads] [exclude] -> 0 if the marker arrived
 
 echo "[start] ${DEVICE_NAME} N=${N} runtimes=(${RUNTIMES_LIST}) BENCH_TARGET_MS=${BENCH_TARGET_MS}" \
   "${E2E:+E2E scenes=${E2E}}"
-run_launch() {  # runtime log [workloads] [exclude]
+run_launch() {  # runtime log [workloads] [exclude] [e2e scenes]
   local rt="$1" log="$2" ok=1
   for attempt in 1 2 3; do
     if launch_once "$@"; then ok=0; break; fi
@@ -109,7 +112,12 @@ run_launch() {  # runtime log [workloads] [exclude]
 for rep in $(seq 1 "${N}"); do
   for rt in ${RUNTIMES_LIST}; do
     base="${OUT}/${DEVICE_NAME}-${rt}-r${rep}"
-    if [[ -z "${E2E}" && -z "${WORKLOADS}" && "${SPLIT_RUNTIMES}" == *" ${rt} "* ]]; then
+    if [[ -n "${E2E}" ]]; then
+      IFS=',' read -ra scenes <<< "${E2E}"
+      for sc in "${scenes[@]}"; do
+        run_launch "${rt}" "${OUT}/${DEVICE_NAME}-${rt}-s${sc}-r${rep}.log" "" "" "${sc}"
+      done
+    elif [[ -z "${WORKLOADS}" && "${SPLIT_RUNTIMES}" == *" ${rt} "* ]]; then
       run_launch "${rt}" "${base}.log" "" "$(tr ';' ',' <<< "${HEAVY_ROWS}")"
       i=0
       IFS=';' read -ra heavy <<< "${HEAVY_ROWS}"
