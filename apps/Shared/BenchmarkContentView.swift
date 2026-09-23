@@ -353,6 +353,14 @@ let WORKLOADS: [Workload] = [
     Workload(id: 263, label: "[WE    ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(3, "sqlite3") }),
     Workload(id: 264, label: "[zwasm ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(4, "sqlite3") }),
     Workload(id: 265, label: "[wasmz ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(5, "sqlite3") }),
+    // graphql-validation (Porffor) with graphql-js's real try/catch.
+    Workload(id: 266, label: "[Pulley] graphql-validation (Porffor try/catch)", run: { bench_run_case(0, "graphql_porf_trycatch") }),
+    Workload(id: 267, label: "[ WAMR ] graphql-validation (Porffor try/catch)", run: { bench_run_case(1, "graphql_porf_trycatch") }),
+    Workload(id: 268, label: "[wasm3 ] graphql-validation (Porffor try/catch)", run: { bench_run_case(2, "graphql_porf_trycatch") }),
+    Workload(id: 269, label: "[WE    ] graphql-validation (Porffor try/catch)", run: { bench_run_case(3, "graphql_porf_trycatch") }),
+    Workload(id: 270, label: "[zwasm ] graphql-validation (Porffor try/catch)", run: { bench_run_case(4, "graphql_porf_trycatch") }),
+    Workload(id: 271, label: "[wasmz ] graphql-validation (Porffor try/catch)", run: { bench_run_case(5, "graphql_porf_trycatch") }),
+    Workload(id: 272, label: "[tinywm] graphql-validation (Porffor try/catch)", run: { bench_run_case(6, "graphql_porf_trycatch") }),
 ]
 
 struct WorkloadResult: Identifiable {

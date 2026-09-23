@@ -148,6 +148,18 @@ pub const CASES: &[Case] = &[
         expected: None,
         shape: Shape::PorfforMain,
     },
+    // The same JS with graphql-js's real `try { visit() } catch (e) { if (e
+    // !== abortObj) throw e; }`: one legacy try/catch around the visit, the
+    // visitor's throws unwinding into it.
+    Case {
+        id: "graphql_porf_trycatch",
+        label: "graphql-validation (Porffor try/catch)",
+        wasm: GRAPHQL_VALIDATION_PORF_ACCURATE_WASM,
+        func: "m",
+        arg: 0,
+        expected: None,
+        shape: Shape::PorfforMain,
+    },
     Case {
         id: "sqlite3",
         label: "sqlite3 speedtest1 (in-mem)",
