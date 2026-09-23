@@ -50,21 +50,30 @@ TOOLS="${ROOT}/target/cm-tools"   # built by scripts/build-cm-tools.sh
 WASMTIME_CLI="${WASMTIME_CLI:-${TOOLS}/wasmtime}"
 ZWASM_P3_CLI="${ZWASM_P3_CLI:-${TOOLS}/zwasm-p3}"
 WAMR_CM_IWASM="${WAMR_CM_IWASM:-${TOOLS}/iwasm-cm}"
-# name|component|expected exit
+# name|component|expected exit|stdin payload (the official wasi-testsuite
+# manifests' "write stdin" operation; empty = stdin from /dev/null, since
+# zwasm's P3 runner does not finish while host stdin stays open)
 CM_CASES=(
-  "wasip2-cli-stdout|${COMP}/wasip3/cli-stdout.wasm|0"
-  "wasip3-multi-clock-wait|${COMP}/wasip3_official/multi-clock-wait.wasm|0"
-  "wasip3-cli-exit|${COMP}/wasip3_official/cli-exit.wasm|1"
+  "wasip2-cli-stdout|${COMP}/wasip3/cli-stdout.wasm|0|"
+  "wasip3-multi-clock-wait|${COMP}/wasip3_official/multi-clock-wait.wasm|0|"
+  "wasip3-cli-exit|${COMP}/wasip3_official/cli-exit.wasm|1|"
+  "wasip3-cli-stdout-flush|${COMP}/wasip3_official/cli-stdout-flush.wasm|0|x"
+  "wasip3-cli-stdio-roundtrip|${COMP}/wasip3_official/cli-stdio-roundtrip.wasm|0|Hello, world!"
+  "wasip3-cm-async-bench|${ROOT}/workloads/cm_async_bench.wasm|0|"
 )
-cm_row() {  # runtime case expected cmd...
-  local rt="$1" name="$2" expect="$3"; shift 3
+cm_row() {  # runtime case expected stdin cmd...
+  local rt="$1" name="$2" expect="$3" input="$4"; shift 4
   local out rc
   if [[ ! -x "$1" ]]; then
     printf '{"runtime":"%s","case":"%s","ok":null,"error":"not run: %s missing"}\n' \
       "${rt}" "${name}" "$1" >> "${JSONL}"
     return
   fi
-  out="$(timeout 60 "$@" 2>&1)"; rc=$?
+  if [[ -n "${input}" ]]; then
+    out="$(printf '%s' "${input}" | timeout 120 "$@" 2>&1 >/dev/null)"; rc=$?
+  else
+    out="$(timeout 120 "$@" < /dev/null 2>&1 >/dev/null)"; rc=$?
+  fi
   local ok=false; [[ "${rc}" == "${expect}" ]] && ok=true
   printf '{"runtime":"%s","case":"%s","ok":%s,"exit":%d,"expected_exit":%d,"output":%s}\n' \
     "${rt}" "${name}" "${ok}" "${rc}" "${expect}" \
@@ -73,14 +82,15 @@ cm_row() {  # runtime case expected cmd...
   echo "   ${rt} ${name}: exit ${rc} (want ${expect})"
 }
 for c in "${CM_CASES[@]}"; do
-  IFS='|' read -r name comp expect <<< "${c}"
-  cm_row pulley "${name}" "${expect}" "${WASMTIME_CLI}" run --target pulley64 \
+  IFS='|' read -r name comp expect input <<< "${c}"
+  cm_row pulley "${name}" "${expect}" "${input}" "${WASMTIME_CLI}" run --target pulley64 \
     -W component-model-async=y -S p3=y "${comp}"
-  cm_row zwasm "${name}" "${expect}" "${ZWASM_P3_CLI}" run --engine interp "${comp}"
-  cm_row wamr-cm-fork "${name}" "${expect}" "${WAMR_CM_IWASM}" "${comp}"
+  cm_row zwasm "${name}" "${expect}" "${input}" "${ZWASM_P3_CLI}" run --engine interp "${comp}"
+  cm_row wamr-cm-fork "${name}" "${expect}" "${input}" "${WAMR_CM_IWASM}" "${comp}"
   # Shipped core loaders must reject the component outright.
   BENCH_TARGET_MS=5 MATRIX_JSONL="${JSONL}" MATRIX_REP=0 \
-    "${MATRIX}" --file "${comp}" --func run --arg 0 >/dev/null 2>&1
+    "${MATRIX}" --file "${comp}" --case "${name} (core loader)" --func run --arg 0 \
+    >/dev/null 2>&1
 done
 
 python3 - "${JSONL}" "${OUT}/feature-matrix.md" <<'EOF'
