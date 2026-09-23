@@ -6,8 +6,8 @@
 # slower default `match`-loop dispatch for both, which is what the M4
 # numbers used before 2026-09.
 #
-# No -C linker-plugin-lto here: Apple's macOS ld rejects the
-# -plugin-opt=... flags rustc passes with it for executables.
+# Rust-side fat LTO, as in scripts/build-lib.sh (no -C linker-plugin-lto:
+# Xcode's libLTO cannot read the LLVM-22 bitcode of these Rust versions).
 #
 # Usage: scripts/build-host-cli.sh [cargo build args...]
 #   default: --bins

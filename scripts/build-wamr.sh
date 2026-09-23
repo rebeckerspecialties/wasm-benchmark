@@ -12,7 +12,8 @@
 # All targets share these WAMR cmake settings:
 #   WAMR_BUILD_INTERP=1 + FAST_INTERP=1   (the apples-to-apples vs Pulley path)
 #   WAMR_BUILD_AOT=0 + JIT=0 + FAST_JIT=0  (no native codegen — App-Store-safe)
-#   SIMD=1 + BULK_MEMORY=1 + TAIL_CALL=1 + REF_TYPES=1
+#   SIMD=1 + RELAXED_SIMD=1 + BULK_MEMORY=1 + EXTENDED_CONST_EXPR=1
+#   + TAIL_CALL=1 + REF_TYPES=1 + EXCE_HANDLING=1 (legacy EH)
 #   WAMR_DISABLE_HW_BOUND_CHECK=1          (workaround for the macOS
 #                                          touch_pages stack-walk bug —
 #                                          we don't need stack guards on
@@ -32,19 +33,15 @@ WHICH="${1:-macos}"
 # Idempotent — re-runs detect already-applied patches via reverse-check.
 # Same pattern as build-wasm3.sh / build-wasmz.sh / build-zwasm.sh.
 #
-# Currently applies:
-#   0001-feat-interpreter-legacy-exception-handling-throw-only-
-#     for-fast-interp.patch
-#     — lifts the EXCE_HANDLING + FAST_INTERP cmake ban for the
-#       throw-only subset of legacy wasm-eh; throw propagates via
-#       the existing got_exception path. Enables Porffor-compiled
-#       wasm to load on WAMR's fast-interp. Open as
-#       rebeckerspecialties/wasm-micro-runtime#1 against the
-#       fork; intended for upstream once same-function try/catch
-#       lowering lands (see AGENTS.md → Open follow-up).
+# Currently applies (on upstream main b70d708d):
+#   0001-0017  legacy exception handling for fast-interp: try / catch /
+#              catch_all / rethrow / delegate, tag payloads, result-typed
+#              try regions (fork PRs #1 + #2)
+#   0018-0027  relaxed SIMD for fast-interp (fork PR #3, upstream #4950)
+#   0028-0029  opt-in PROT_NONE linear-memory reservation (fork PR #4)
 # Pinned submodule gitlink is the upstream WAMR base; check it out
 # (detached HEAD) before applying the patch series so that:
-#   (a) patches 0001-0021 always forward-apply cleanly. HEAD may have
+#   (a) patches 0001-0029 always forward-apply cleanly. HEAD may have
 #       feat-branch commits whose content overlaps the patch series,
 #       breaking apply_patch_series.sh's reverse-check.
 #   (b) `git reset --hard <pin>` while on a feature branch would move
@@ -73,13 +70,11 @@ COMMON_DEFS=(
   -DWAMR_BUILD_SIMD=1
   # Relaxed-SIMD (wasm 2.0 extension) — same `0xfd` prefix as the
   # legacy SIMD opcodes, plus 20 spec-assigned sub-opcodes at
-  # 0x100..0x113. Off by default in upstream WAMR (dormant feature
-  # bit `WASM_FEATURE_RELAXED_SIMD` at `aot_runtime.h:32`); our
-  # fork's `patches/wasm-micro-runtime/0016..0018` light up the
-  # fast-interp dispatch + cmake gate, and we set the flag here
-  # so the matmul-relaxed-simd workload + any future relaxed-SIMD
-  # benchmark wasm runs on WAMR. Upstreaming work tracked at
-  # rebeckerspecialties/wasm-micro-runtime#3.
+  # 0x100..0x113. Not implemented in upstream WAMR's fast-interp; our
+  # `patches/wasm-micro-runtime/0018-0027` add the dispatch cases and
+  # the cmake gate (default off), and we set the flag here so the
+  # relaxed-SIMD workloads run on WAMR. Upstreaming tracked at
+  # rebeckerspecialties/wasm-micro-runtime#3 / upstream #4950.
   -DWAMR_BUILD_RELAXED_SIMD=1
   -DWAMR_BUILD_BULK_MEMORY=1
   # Extended constant expressions (i32/i64 add/sub/mul in initializers):
@@ -91,20 +86,14 @@ COMMON_DEFS=(
   -DWAMR_BUILD_EXTENDED_CONST_EXPR=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
-  # Wasm-exceptions support — needed for Porffor-compiled wasm, which
-  # lowers JS try/catch/throw to the wasm-eh section. WAMR upstream
-  # forbids `WAMR_BUILD_EXCE_HANDLING=1` together with `FAST_INTERP=1`
-  # (build-scripts/unsupported_combination.cmake:67). Our fork lifts
-  # that ban for the *throw-only* subset of legacy-EH — modules that
-  # declare tags and execute `throw` but never define a same-function
-  # `try`/`catch` handler. Porffor's emit shape is throw-only in our
-  # test corpus (561 throws, 0 try/catch in graphql-validation-porf),
-  # so this is all we need to make WAMR run the workload correctly.
-  # The throw escapes via the existing `got_exception` bailout, same
-  # path as any other trap; the host sees the exception via
-  # `wasm_runtime_get_exception`. Same-function try/catch lowering is
-  # the natural follow-up — see `core/iwasm/interpreter/wasm_interp_
-  # fast.c::HANDLE_OP(WASM_OP_THROW)` for status.
+  # Legacy wasm exceptions — needed for Porffor-compiled wasm, which
+  # lowers JS try/catch/throw to legacy EH. WAMR upstream forbids
+  # `WAMR_BUILD_EXCE_HANDLING=1` together with `FAST_INTERP=1`
+  # (build-scripts/unsupported_combination.cmake); patches 0001-0017
+  # implement legacy EH in fast-interp and lift the ban. Limits: an
+  # exception payload cannot cross a function boundary (traps, 0014), a
+  # br to a loop entry from inside a try region is rejected at load
+  # (0015), and exnref (try_table / throw_ref) is not implemented.
   -DWAMR_BUILD_EXCE_HANDLING=1
   -DWAMR_BUILD_MULTI_MODULE=0
   -DWAMR_BUILD_LIB_PTHREAD=0
@@ -122,7 +111,7 @@ COMMON_CFLAGS="-O3 -mcpu=apple-a12"
 
 # `-DWASM_LINMEM_RESERVATION_CAP=<bytes>` opts into WAMR's PROT_NONE
 # linear-memory reservation path
-# (`patches/wasm-micro-runtime/0021-…`). Without it, every
+# (`patches/wasm-micro-runtime/0028-…`). Without it, every
 # `memory.grow` call goes through `os_mremap_slow` on darwin —
 # `mmap(new_size) + memcpy(old, new) + munmap(old)` — which first-
 # touch faults every page in the new mapping. For workloads that
@@ -139,10 +128,9 @@ COMMON_CFLAGS="-O3 -mcpu=apple-a12"
 # Cap chosen per-platform:
 #   16 MB on arm64_32-apple-watchos (4 GiB total address space —
 #     leaves headroom for the Rust side + system frameworks).
-#   64 MB on arm64 (iOS / macOS / tvOS) — matches wasmtime's
-#     `memory_reservation(64 MB)` for an apples-to-apples
-#     comparison; Porffor's working set is ~6-10 MB so 64 MB
-#     gives generous headroom.
+#   64 MB on arm64 (iOS / macOS / tvOS) — Porffor's working set is
+#     ~6-10 MB, so 64 MB gives generous headroom. (Pulley reserves
+#     256 MiB per memory; see pulley_engine() in benchmark-core.)
 LINMEM_CAP_64="-DWASM_LINMEM_RESERVATION_CAP=67108864"   # 64 MB
 LINMEM_CAP_32="-DWASM_LINMEM_RESERVATION_CAP=16777216"   # 16 MB
 
