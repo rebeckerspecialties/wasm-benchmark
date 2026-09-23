@@ -1,11 +1,31 @@
 # patches/ — upstream-PR-prep patch stack
 
-Each patch in this directory is the same content as a commit on
-one of our forks, exported via `git format-patch -k -1
---no-signature <sha>` for clean upstream submission. **You don't
-need to apply these to build** — the submodule URLs in
-`../.gitmodules` already point to the fork branches where these
-patches are committed.
+Two kinds of patch live here.
+
+**Runtime series, applied at build time.** Each `scripts/build-<runtime>.sh`
+resets its submodule to the pinned upstream gitlink and applies
+`patches/<runtime>/*.patch` in order through
+`scripts/apply_patch_series.sh` (idempotent: already-applied patches are
+skipped). Current series (2026-09-22):
+
+| series | base | patches | what |
+|---|---|---|---|
+| `wasm-micro-runtime/` | upstream `main` `b70d708d` | 0001-0029 | 0001-0017 fast-interp legacy EH (fork PR #2), 0018-0027 relaxed SIMD (fork PR #3, upstream #4950), 0028-0029 opt-in PROT_NONE linear-memory reservation (fork PR #4). The fork branches are the authoritative copies. |
+| `wasmedge/` | 0.17.2-rc.3 | 0001-0003, 0006-0028 (26) | Apple-mobile guarded-memory fallbacks, interpreter super-instructions, arm64_32 fixes. 0004 retired earlier; 0005 retired in the 0.17.2-rc.3 rebase (upstream). Each rebased patch records its conflict resolution in its message. |
+| `zwasm/` | v2.7.0 | 0001-0002 | 0001 compiles the JIT out of the C API when `-Dengine=interp`; 0002 restores the arm64_32-apple-watchos ILP32 static-lib build. The earlier arm64_32 patch landed as zwasm#98. |
+| `wasmz/` | v0.1.4 | 0002 | arm64_32-apple-watchos support, reworked for v0.1.4. The Zig 0.16 port (0001) landed as wasmz#3. |
+| wasm3 | v0.9.0 | — | the v128-as-opaque-slot patch landed as wasm3#559. |
+
+A patch is never dropped silently: when one lands upstream, the commit
+that retires it says where.
+
+**Fork-branch exports, not applied by any build.** The wasmtime,
+target-lexicon and mach2 changes are commits on our fork branches (the
+submodule URLs in `../.gitmodules` point there); the files below are
+`git format-patch -k -1 --no-signature <sha>` exports of 2026-05
+branches for review and upstream submission. The wasmtime submodule now
+pins `pulley-bench-stack-v49` (v49.0.0 plus the soundness-fixed split of
+PR #2 and phase 4); fusion phases 1–3 below are not on it.
 
 These files exist so:
 - The change is reviewable as a standalone diff alongside this repo's

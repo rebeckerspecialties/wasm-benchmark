@@ -7,31 +7,41 @@ deployment platforms — Apple Watch (arm64_32-apple-watchos), iPhone
 (aarch64-apple-ios), Apple TV (aarch64-apple-tvos), and Mac
 (aarch64-apple-darwin). Compares
 [wasmtime](https://github.com/bytecodealliance/wasmtime)'s **Pulley**
-interpreter against five other pure-interpreter runtimes:
+interpreter against six other pure-interpreter runtimes:
 [WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) fast-interp,
 [wasm3](https://github.com/wasm3/wasm3), [WasmEdge](https://github.com/WasmEdge/WasmEdge)
-(`USE_LLVM=OFF`), [wasmz](https://github.com/Ray-D-Song/wasmz), and
-[zwasm](https://github.com/clojurewasm/zwasm) — on dispatch-heavy
-workloads (synthetic `call_indirect`, real-world xmrsplayer tracker
-player, sqlite3 speedtest1, graphql-validation in two ports — Porffor
-and AssemblyScript).
+(`USE_LLVM=OFF`), [zwasm](https://github.com/clojurewasm/zwasm),
+[wasmz](https://github.com/Ray-D-Song/wasmz) and
+[tinywasm](https://github.com/explodingcamera/tinywasm) — on
+dispatch-heavy workloads (synthetic `call_indirect` and vtable dispatch,
+the xmrsplayer tracker player, sqlite3 speedtest1, graphql-validation in
+two ports — Porffor and AssemblyScript), Wasm 3.0 feature benchmarks
+(tail calls, exceptions, GC, typed function references, relaxed SIMD,
+memory64, multi-memory, extended-const), a WASI 0.3 component-model
+async benchmark, and an end-to-end femtovg-to-wasm vector renderer
+drawn by a Metal host.
+
+Latest results: **[docs/runtime-comparison-2026-09-22.md](docs/runtime-comparison-2026-09-22.md)**
+(every runtime at its 2026-09 release; M4 E-cores and iPhone XS, N=10;
+tinywasm's M4 PMU profile).
 
 The harness drives the
-[per-table-mutability optimization stack on the wasmtime fork](https://github.com/rebeckerspecialties/wasmtime/pull/2)
-and the
-[opcode-fusion stack PR #4](https://github.com/rebeckerspecialties/wasmtime/pull/4)
-that builds on it.
+[per-table-mutability optimization stack on the wasmtime fork](https://github.com/rebeckerspecialties/wasmtime/pull/2);
+the wasmtime submodule carries its July soundness-fixed split plus the
+phase-4 `call_indirectN` arg bundling, rebased onto wasmtime v49.
 
 App-Store constraint: **pure-interpreter only**, no JIT / MAP_JIT /
 copy-and-patch. Pulley is the only legal wasmtime runtime in that
 space. Every comparison runtime is built with JIT/AOT disabled
-(`WAMR_BUILD_JIT=0`, `WASMEDGE_USE_LLVM=OFF`, `-Djit=false`, etc.).
+(`WAMR_BUILD_AOT=0 JIT=0 FAST_JIT=0`, `WASMEDGE_USE_LLVM=OFF`, zwasm
+`-Dengine=interp` with the JIT compiled out; wasm3, wasmz and tinywasm
+have no native tier at all).
 
 ## Quickstart
 
 ```sh
 # Clone with submodules (wasmtime, WAMR, wasm3, WasmEdge, wasmz, zwasm,
-# target-lexicon, mach2, porffor, sightglass — all pinned)
+# femtovg, target-lexicon, mach2, porffor, sightglass — all pinned)
 git clone --recurse-submodules https://github.com/rebeckerspecialties/wasm-benchmark.git
 cd wasm-benchmark
 
@@ -45,9 +55,9 @@ cd wasm-benchmark
 # under patches/<runtime>/ idempotently before each build).
 ./scripts/build-wamr.sh macos       # WAMR libiwasm.a
 ./scripts/build-wasm3.sh macos      # wasm3 libm3.a
-./scripts/build-wasmedge.sh macos   # WasmEdge libwasmedge.a (27 patches)
-./scripts/build-wasmz.sh macos      # wasmz libwasmz.a (Zig 0.16 port)
-./scripts/build-zwasm.sh macos      # zwasm libzwasm.a
+./scripts/build-wasmedge.sh macos   # WasmEdge libwasmedge.a (26 patches)
+./scripts/build-wasmz.sh macos      # wasmz libwasmz.a
+./scripts/build-zwasm.sh macos      # zwasm libzwasm.a (-Dengine=interp)
 
 # Build benchmark-core static lib for a platform
 ./scripts/build-lib.sh macos        # M-series host
@@ -56,9 +66,18 @@ cd wasm-benchmark
 ./scripts/build-lib.sh tvos         # Apple TV 4K (aarch64-apple-tvos)
 ./scripts/build-lib.sh all          # everything
 
-# Run the M4 host CLI (E-core pinned)
-cargo build --release --bin run_dispatch_workloads
-taskpolicy -b ./target/release/run_dispatch_workloads
+# Host CLIs (pinned nightly, --cfg=pulley_tail_calls, fat LTO)
+./scripts/build-host-cli.sh --bin run_matrix
+./scripts/build-host-cli.sh --bin run_femtovg_e2e --features femtovg-e2e
+
+# Every case on one runtime, on the E-cores
+RUNTIMES=wamr taskpolicy -b ./target/release/run_matrix
+
+# The measurement passes behind the report
+./scripts/run-m4-pass.sh out/m4           # M4 E-cores, N=10
+./scripts/run-device-pass.sh out/iphone   # attached iPhone, N=10
+RUNTIMES_LIST=tinywasm ./scripts/run-m4-pmu-pass.sh out/pmu   # M4 PMU (separately)
+./scripts/summarize-pass.py out docs/<report-data-dir>
 ```
 
 iOS / watchOS / tvOS app builds via `xcodebuild` from `apps/`. See
@@ -75,34 +94,36 @@ checkout from any branch should succeed end-to-end without local state.
 ```
 apps/                    SwiftUI app — iOS / watchOS / tvOS / macOS targets
 crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 + WasmEdge +
-                         wasmz + zwasm adapters, workload registration,
-                         PMU-aware harness
+                         zwasm + wasmz + tinywasm adapters, the case table
+                         (cases.rs), the femtovg E2E host, PMU-aware
+                         harness
 docs/                    project docs (feasibility, fusion phases 1–4,
                          cross-runtime comparisons, IC investigation, ...)
 patches/                 upstream-PR-prep patches for each runtime
                          submodule, applied idempotently by build-*.sh
 scripts/                 build, setup, PMU analysis
 workloads-rs/            standalone Rust sources for *.wasm workloads
-workloads-rs-cargo/      cargo-based wasm workload (xmrsplayer-bench)
+workloads-rs-cargo/      cargo-based guests (xmrsplayer-bench, femtovg-guest,
+                         cm-async-bench)
+workloads-wat/           generator for the Wasm 3.0 feature benchmarks
 workloads/               pre-built *.wasm files (checked in)
 # --- submodules ---
 wasmtime/                rebeckerspecialties/wasmtime, branch
-                         `accurate-graphql-needs-legacy-exceptions`
-                         (stacks fusion PR #4 → PR #2 → upstream main).
+                         `pulley-bench-stack-v49` (v49.0.0 + 9 commits).
                          Only wasmtime/target/ is gitignored.
-wasm-micro-runtime/      rebeckerspecialties/wasm-micro-runtime, with
-                         patches/wasm-micro-runtime/0001 applied at
-                         build time (throw-only legacy EH).
-wasm3/                   pinned upstream; patches/wasm3/0001 applied at
-                         build time (v128 opaque slot).
-WasmEdge/                pinned at 3ad922d6; patches/wasmedge/0001-0028
-                         applied at build time (27-patch Apple-mobile
-                         enablement stack).
-wasmz/                   Ray-D-Song/wasmz upstream; patches/wasmz/{0001
-                         Zig 0.16 stdlib port, 0002 arm64_32 watchOS
-                         support} applied at build time.
-zwasm/                   clojurewasm/zwasm upstream; patches/zwasm/0001
-                         arm64_32 watchOS support applied at build time.
+wasm-micro-runtime/      upstream main b70d708d; patches/wasm-micro-runtime/
+                         0001-0029 applied at build time (legacy EH,
+                         relaxed SIMD, PROT_NONE linear memory).
+wasm3/                   v0.9.0, no patches.
+WasmEdge/                0.17.2-rc.3; patches/wasmedge/ (26, Apple-mobile
+                         enablement stack) applied at build time.
+wasmz/                   v0.1.4; patches/wasmz/0002 (arm64_32 watchOS)
+                         applied at build time.
+zwasm/                   v2.7.0; patches/zwasm/0001 (JIT compiled out of
+                         the C API) + 0002 (arm64_32 watchOS) applied at
+                         build time.
+femtovg/                 rebeckerspecialties/femtovg, branch wire-renderer
+                         (the E2E's Renderer wire stream).
 mach2/                   pinned to fork's arm64_32-apple-watchos branch.
 target-lexicon/          pinned to fork's arm64_32-apple-watchos branch.
 porffor/                 pinned to upstream main (JS→wasm AOT compiler).
@@ -111,13 +132,21 @@ sightglass/              pinned to upstream main (sqlite3.wasm source).
 
 ## Where to read more
 
-- **[AGENTS.md](AGENTS.md)** — deep agent context: toolchain pinning,
-  build commands, workload registration pattern, measurement
-  methodology, xctrace gotchas, QoS env var, the Pulley dispatch
-  loop mode selection, **device-side stabilization status**
-  (per-device per-runtime completion matrix), and the **Open
-  follow-up — WAMR fast-interp legacy EH (full spec)** section with
-  the ~720 LOC scope for the next session.
+- **[docs/runtime-comparison-2026-09-22.md](docs/runtime-comparison-2026-09-22.md)** —
+  the 2026-09 refresh: versions, patches and exact build flags of all
+  seven runtimes, the Wasm 3.0 feature matrix with evidence, M4 E-core
+  and iPhone XS tables, the femtovg E2E, and tinywasm's M4 PMU profile
+  with its bottleneck and next experiments.
+- **[docs/tinywasm-iphone12-2026-09-23.md](docs/tinywasm-iphone12-2026-09-23.md)** —
+  tinywasm's PMU and Time Profiler profile on the iPhone 12 E-cores, and
+  the first two measured contributions (−5.6 % cycles).
+- **[docs/femtovg-e2e-abi.md](docs/femtovg-e2e-abi.md)** — the femtovg
+  guest/host split and its import ABI.
+- **[AGENTS.md](AGENTS.md)** — deep agent context: toolchain pinning
+  (and why cross-language LTO is gone), build commands, the case-table
+  registration pattern, the measurement passes, xctrace gotchas, QoS,
+  the Pulley dispatch loop mode selection, device status, and the
+  carried patch series.
 - **[docs/feasibility-report.md](docs/feasibility-report.md)** —
   original arm64_32-apple-watchos feasibility analysis.
 - **[docs/ic-investigation-results.md](docs/ic-investigation-results.md)** —
@@ -166,7 +195,11 @@ sightglass/              pinned to upstream main (sqlite3.wasm source).
 - **[patches/README.md](patches/README.md)** — patch-stack workflow
   for the wasmtime + mach2 + target-lexicon upstream PRs.
 
-## Cross-runtime results across Apple silicon E-cores
+## Cross-runtime results across Apple silicon E-cores (2026-05)
+
+These are the pre-refresh numbers (fusion phases 1–4 on the old
+wasmtime pin, WAMR at `cd390ea0`); the 2026-09 results are in
+[docs/runtime-comparison-2026-09-22.md](docs/runtime-comparison-2026-09-22.md).
 
 Driving question: can WAMR fast-interp replace WasmEdge as the wasm
 runtime in our interpreter-only App-Store-eligible app? The matrix
@@ -226,39 +259,36 @@ than mmap-fallback on iPhone 12; not part of either upstream PR.
   (`eh_correctness.rs`, `relaxed_simd_abuse.rs`,
   `relaxed_simd_diff_fuzz.rs`, `relaxed_simd_spec_testsuite.rs`).
 
-## Current upstream-PR state
+## Current upstream-PR state (checked 2026-09-22)
 
-Wasmtime fork stack (each branch stacks on the previous):
+Wasmtime:
 
-- **upstream PR [bytecodealliance/wasmtime#13259](https://github.com/bytecodealliance/wasmtime/pull/13259)**:
+- **[bytecodealliance/wasmtime#13259](https://github.com/bytecodealliance/wasmtime/pull/13259)**:
   unwinder arm64_32 inline-asm format fix. **Merged.**
-- **fork PR [#2](https://github.com/rebeckerspecialties/wasmtime/pull/2)
-  (`table-mutability-tracking`)**: per-table mutability + four
-  `call_indirect` dispatch elisions. 11 commits, 2227 + 16 tests pass.
-- **fork PR [#4](https://github.com/rebeckerspecialties/wasmtime/pull/4)
-  (`claude/pulley-fusion-xband-brif`)**: opcode-fusion phases 1–4 +
-  trap-on-null correctness fix. 12 commits. Watch SE2 vtable_bi
-  −7.68 % vs phase 3.
-- **`accurate-graphql-needs-legacy-exceptions`**: gates
-  `LEGACY_EXCEPTIONS` through `Config::validate`. Required so the
-  accurate-Porffor `graphql-validation` workload can LOAD on Pulley
-  (Pulley codegen for `try`/`catch` is the integration test for the
-  WAMR full-spec EH work).
+- **fork PR [#2](https://github.com/rebeckerspecialties/wasmtime/pull/2)**:
+  per-table mutability + `call_indirect` elisions (open). Its July
+  soundness-fixed split, plus phase-4 arg bundling and the
+  LEGACY_EXCEPTIONS known-feature fix, is what the submodule carries on
+  v49 (`pulley-bench-stack-v49`). Fork PR #4 (fusion phases 1–4) and the
+  upstream attempts (#13445, #13447, #13909, #13910) are closed.
 
-Runtime-fork PRs (carried in `patches/<runtime>/` until merged):
+Runtime PRs:
 
-- **[rebeckerspecialties/wasm-micro-runtime#1](https://github.com/rebeckerspecialties/wasm-micro-runtime/pull/1)** —
-  throw-only legacy exception handling for FAST_INTERP. Enables Porffor-
-  compiled JS workloads (561 compiler-inserted throws) to run on WAMR.
-- **[rebeckerspecialties/wasm3#1](https://github.com/rebeckerspecialties/wasm3/pull/1)** —
-  v128 as opaque slot so modules with v128 locals parse on wasm3 (also
-  upstream as [wasm3#559](https://github.com/wasm3/wasm3/pull/559)).
+- **[rebeckerspecialties/wasm-micro-runtime#1–#4](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls)** —
+  fast-interp legacy EH (throw-only and full), relaxed SIMD, PROT_NONE
+  linear memory; carried as `patches/wasm-micro-runtime/0001-0029`.
+  Relaxed SIMD is also upstream as
+  [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950) (open).
+- **[wasm3/wasm3#559](https://github.com/wasm3/wasm3/pull/559)** — v128
+  as opaque slot. **Merged** (in v0.9.0; our patch is retired).
 - **[Ray-D-Song/wasmz#3](https://github.com/Ray-D-Song/wasmz/pull/3)** —
-  Zig 0.16 stdlib port + arm64_32 watchOS device support.
-- **[clojurewasm/zwasm#97](https://github.com/clojurewasm/zwasm/pull/97)** —
-  arm64_32 watchOS device support.
+  Zig 0.16 stdlib port. **Merged** (in v0.1.x; our port patch is retired).
+- **[clojurewasm/zwasm#98](https://github.com/clojurewasm/zwasm/pull/98)** —
+  arm64_32 watchOS, the maintainers' re-land of our #97. **Merged**;
+  v2.7.0 regressed that target again, hence `patches/zwasm/0002`.
 - **[WasmEdge/WasmEdge#4802](https://github.com/WasmEdge/WasmEdge/pull/4802)** —
-  partial upstream of the patches/wasmedge/ Apple-mobile stack.
+  SIMD superinstruction primitives, part of the Apple-mobile stack.
+  **Merged**; the rest is carried in `patches/wasmedge/`.
 
 The **target-lexicon + mach2** patches live on `rebeckerspecialties`
 forks (arm64_32-apple-watchos branches); `.gitmodules` already pins
