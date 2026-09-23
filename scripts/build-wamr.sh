@@ -82,6 +82,13 @@ COMMON_DEFS=(
   # rebeckerspecialties/wasm-micro-runtime#3.
   -DWAMR_BUILD_RELAXED_SIMD=1
   -DWAMR_BUILD_BULK_MEMORY=1
+  # Extended constant expressions (i32/i64 add/sub/mul in initializers):
+  # only instantiation-time const-expr evaluation changes, no hot-path
+  # cost. GC / typed function references (WAMR_BUILD_GC=1) also work in
+  # fast-interp but cost +17-42% on call-heavy workloads (fib, vtable,
+  # call_indirect, graphql; M4, 2026-09-22), so the benchmark build
+  # leaves GC off.
+  -DWAMR_BUILD_EXTENDED_CONST_EXPR=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
   # Wasm-exceptions support — needed for Porffor-compiled wasm, which
@@ -104,6 +111,11 @@ COMMON_DEFS=(
   -DWAMR_BUILD_MINI_LOADER=0
   -DWAMR_DISABLE_HW_BOUND_CHECK=1
 )
+
+# Extra -D flags for experiment builds (e.g. feature-matrix probes):
+#   WAMR_EXTRA_DEFS="-DWAMR_BUILD_GC=1" scripts/build-wamr.sh macos
+# shellcheck disable=SC2206
+COMMON_DEFS+=( ${WAMR_EXTRA_DEFS:-} )
 
 # Target-cpu apple-a12 to match the Rust side's `-C target-cpu=apple-a12`.
 COMMON_CFLAGS="-O3 -mcpu=apple-a12"
