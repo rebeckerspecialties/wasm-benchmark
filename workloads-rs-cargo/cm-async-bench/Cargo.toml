@@ -1,0 +1,30 @@
+# Standalone (not a workspace member), like xmrsplayer-bench: a WASI 0.3
+# (`wasi:cli/run@0.3.0`) component. `#![no_std]` so that Rust's std adds
+# no WASI 0.2.6 imports of its own: zwasm's component linker resolves the
+# 0.2.4 interface versions and rejects 0.2.6 (UnknownImport). Output goes
+# through `wasip2` 1.0.0 (wasi:cli/stderr@0.2.4), which both runtimes
+# provide. Built for wasm32-wasip2 (rustc has no wasm32-wasip3 std yet).
+# Build: scripts/build-cm-async-bench.sh
+[workspace]
+
+[package]
+name = "cm-async-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+wasip3 = { version = "=0.9.0", default-features = false }
+wasip2 = { version = "=1.0.0", default-features = false }
+futures = { version = "0.3", default-features = false, features = ["alloc", "async-await"] }
+dlmalloc = { version = "0.2", features = ["global"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

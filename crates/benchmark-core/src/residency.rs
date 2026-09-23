@@ -153,10 +153,17 @@ mod apple {
 /// Snapshot of this process's rusage counters.
 #[cfg(target_vendor = "apple")]
 pub fn proc_usage() -> Option<ProcUsage> {
+    proc_usage_of(unsafe { apple::getpid() })
+}
+
+/// Rusage counters of process `pid` (this process, or an exited child that
+/// has not been reaped yet — see the `rusage_exec` bin).
+#[cfg(target_vendor = "apple")]
+pub fn proc_usage_of(pid: i32) -> Option<ProcUsage> {
     use apple::*;
     let mut ri = RusageInfoV6::default();
     let rc = unsafe {
-        proc_pid_rusage(getpid(), RUSAGE_INFO_V6, &mut ri as *mut _ as *mut std::os::raw::c_void)
+        proc_pid_rusage(pid, RUSAGE_INFO_V6, &mut ri as *mut _ as *mut std::os::raw::c_void)
     };
     if rc != 0 {
         return None;
@@ -183,6 +190,11 @@ pub fn proc_usage() -> Option<ProcUsage> {
 
 #[cfg(not(target_vendor = "apple"))]
 pub fn proc_usage() -> Option<ProcUsage> {
+    None
+}
+
+#[cfg(not(target_vendor = "apple"))]
+pub fn proc_usage_of(_pid: i32) -> Option<ProcUsage> {
     None
 }
 
