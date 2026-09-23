@@ -1,0 +1,45 @@
+From 5103db15833e2f854a756e9ef3a2dc317f7f2bc8 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Wed, 23 Sep 2026 00:23:31 -0700
+Subject: perf: inline the fused binop and compare helpers
+
+---
+ crates/tinywasm/src/interpreter/values.rs | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/crates/tinywasm/src/interpreter/values.rs b/crates/tinywasm/src/interpreter/values.rs
+index b610fd8..dc274eb 100644
+--- a/crates/tinywasm/src/interpreter/values.rs
++++ b/crates/tinywasm/src/interpreter/values.rs
+@@ -278,6 +278,7 @@ macro_rules! impl_value_ops {
+ impl_value_ops!(Value32, i32, exec_binop_32, exec_cmp_32);
+ impl_value_ops!(Value64, i64, exec_binop_64, exec_cmp_64);
+ 
++#[inline(always)]
+ fn exec_binop_32(op: BinOp, lhs: u32, rhs: u32) -> u32 {
+     match op {
+         BinOp::IAdd => lhs.wrapping_add(rhs),
+@@ -301,6 +302,7 @@ fn exec_binop_32(op: BinOp, lhs: u32, rhs: u32) -> u32 {
+     }
+ }
+ 
++#[inline(always)]
+ fn exec_binop_64(op: BinOp, lhs: u64, rhs: u64) -> u64 {
+     match op {
+         BinOp::IAdd => lhs.wrapping_add(rhs),
+@@ -324,6 +326,7 @@ fn exec_binop_64(op: BinOp, lhs: u64, rhs: u64) -> u64 {
+     }
+ }
+ 
++#[inline(always)]
+ fn exec_cmp_32(op: CmpOp, lhs: i32, rhs: i32) -> bool {
+     match op {
+         CmpOp::Eq => lhs == rhs,
+@@ -339,6 +342,7 @@ fn exec_cmp_32(op: CmpOp, lhs: i32, rhs: i32) -> bool {
+     }
+ }
+ 
++#[inline(always)]
+ fn exec_cmp_64(op: CmpOp, lhs: i64, rhs: i64) -> bool {
+     match op {
+         CmpOp::Eq => lhs == rhs,

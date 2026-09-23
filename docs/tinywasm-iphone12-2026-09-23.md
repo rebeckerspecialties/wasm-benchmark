@@ -26,21 +26,27 @@ files: [`tinywasm-iphone12-2026-09-23/`](tinywasm-iphone12-2026-09-23/).
   - Memory operations re-resolve the memory on every access (~60
     instructions and ~12 dependent loads per `i32.load8_u`).
   - Calls and returns touch all three value-width stacks.
-- The two smallest changes, both safe Rust with no behavior change
-  (patches in [`patches/`](tinywasm-iphone12-2026-09-23/patches/)), measured
-  on the iPhone 12 E-cores (N=5 launches per build, cycles per call,
-  geomean of 16 rows):
+- Three changes, now a stack of PRs on `next` in the fork
+  ([#1](https://github.com/rebeckerspecialties/tinywasm/pull/1),
+  [#2](https://github.com/rebeckerspecialties/tinywasm/pull/2),
+  [#3](https://github.com/rebeckerspecialties/tinywasm/pull/3); patches in
+  [`patches/`](tinywasm-iphone12-2026-09-23/patches/)). Measured together on
+  the iPhone 12 E-cores: every build launched 5 times, interleaved, cycles
+  per call, geomean of 16 rows:
 
-  | change | size | cycles | instructions |
+  | change | size | cycles vs `next` | instructions |
   |---|---|---:|---:|
-  | 0001 grow the value stack out of line | +15 / −8 lines | **−4.1 %** | −3.5 % |
-  | 0001 + 0002 inline the fused binop / compare helpers | +4 lines more | **−5.6 %** | −5.5 % |
-  | upper bound: `push` without any growth path | experiment | −7.9 % | −7.7 % |
+  | #1 grow the value stack out of line | +15 / −8 lines, 1 file | **−4.1 %** | −3.5 % |
+  | #1 + #2 inline the fused binop / compare helpers | +4 lines | **−5.3 %** | −5.5 % |
+  | #1 + #2 + #3 reserve each function's operand stack on entry | +173 / −61, 11 files | **−8.0 %** | −7.2 % |
+  | upper bound: #1 + #2 and a `push` with no growth path | experiment | −7.9 % | −7.7 % |
 
-  0001 is the **simplest, most direct first contribution**: +15 / −8
+  #1 is the **simplest, most direct first contribution**: +15 / −8
   lines in one file, fixed and dynamic stacks behave exactly as before, and it
   addresses a spot the maintainer already marked ("Revisit when
-  Vec::push_within_capacity is stable").
+  Vec::push_within_capacity is stable"). #3 keeps the whole upper-bound
+  gain in a mergeable form, but it adds a public `WasmFunction` field and
+  bumps the archive version, so upstream it starts as an issue.
 
 ## Setup
 
@@ -227,13 +233,131 @@ On the M4 Max E-cores, cycles per call, geomean over 15 workloads:
 | 0001 + 0002 | −4.6 % |
 | upper bound | −7.9 % |
 
+## The PR stack on `next`, and the reservation measured
+
+The two changes above and the reservation (theory 1 below) are now a
+stack of three PRs in the fork
+[rebeckerspecialties/tinywasm](https://github.com/rebeckerspecialties/tinywasm),
+on `next` `b45a98a` (the branch the maintainer works on; `main` is 44
+commits behind it):
+
+1. [#1 perf: grow the value stack out of line](https://github.com/rebeckerspecialties/tinywasm/pull/1)
+   (`perf/value-stack-cold-growth`, on `next`)
+2. [#2 perf: inline the fused binop and compare helpers](https://github.com/rebeckerspecialties/tinywasm/pull/2)
+   (`perf/inline-fused-binop-helpers`, on #1)
+3. [#3 perf: reserve each function's operand stack on entry](https://github.com/rebeckerspecialties/tinywasm/pull/3)
+   (`perf/reserve-operand-stack`, on #2)
+
+**PR 3, reserve each function's operand stack on entry.**
+- The parser already tracks the operand stack per lane (`lane_counts` in
+  `visit.rs`) and now records its highest point per function as
+  `WasmFunction::max_stack`.
+- `enter_locals` reserves `locals + max_stack` in each lane when a
+  function is entered, growing a dynamic stack there; it already grew
+  for the locals at that point.
+- The handlers' `push` then traps at capacity instead of calling a
+  growth path.
+- Pushes from outside a function body (host arguments and results,
+  `push_dyn`) keep a growing `push_or_grow`, since no reservation covers
+  them.
+- Costs: a public field on `tinywasm_types::WasmFunction`, archive
+  version `06` (with `examples/rust/src/print.twasm` regenerated), and a
+  stack overflow now detected on function entry rather than at the
+  push that crosses the limit.
+
+**A/B on the iPhone 12 E-cores.** The same 16 rows as above. Five
+builds:
+- `next`;
+- PR 1;
+- PR 1 + 2;
+- the whole stack;
+- an upper bound: PR 1 + 2 with a `push` that has no growth path and no
+  reservation, which behaves the same on fixed stacks (the default) but
+  would trap on dynamic ones.
+
+This time every rep installs and launches each build once, in an order
+rotated per rep (5 reps), so drift hits all builds alike. (The #3 build
+is `b16188b`, which differs from the PR's `bc8a0a1` only in a unit
+test's expected archive header.) The binaries
+were checked for the intended shape: 155 handler call sites of the cold
+growth path in PR 1 and PR 1 + 2, none with the whole stack (only the
+3 lanes' `push_or_grow`), and none in the upper bound.
+
+Per step, geomean over the 16 rows (per-rep data:
+[`ab-stack-iphone12.csv`](tinywasm-iphone12-2026-09-23/ab-stack-iphone12.csv);
+the rep-to-rep spread of each row's cycles is 0.4-0.9 % in the median):
+
+| step | cycles | instructions | rows faster |
+|---|---:|---:|---:|
+| #1 vs `next` | **−4.1 %** | −3.5 % | 16/16 |
+| #2 vs #1 | **−1.3 %** | −2.0 % | 12/16 |
+| #3 vs #2 | **−2.8 %** | −1.9 % | 15/16 |
+| the whole stack vs `next` | **−8.0 %** | −7.2 % | 16/16 |
+| upper bound vs #2 | −2.7 % | −2.4 % | 16/16 |
+| #3 vs the upper bound | −0.1 % | +0.5 % | 8/16 |
+
+- **#1 and #2** reproduce the first A/B above: −4.1 % both times, and
+  −5.3 % against −5.6 %. The four rows #2 does not speed up move by
+  0.5 % or less.
+- **#3 keeps the whole upper-bound gain** on the geomean. Its extra work
+  at function entry shows on the most call-heavy rows. The EH parser
+  (exnref) is the one row slower than with #1 + #2 (+1.3 %, consistent
+  over all 5 reps; +2.3 % against the upper bound), and the tail-call FSM
+  is +1.2 % against the upper bound. Sieve and xmrsplayer come out about
+  3 % faster than the upper bound, which is most likely code layout.
+
+Cycles per call on `next`, and each build as a ratio to it (median of 5
+launches):
+
+| row | `next` Mcycles | #1 | #1 + #2 | whole stack | upper bound |
+|---|---:|---:|---:|---:|---:|
+| fib(30) | 303.8 | 0.964 | 0.931 | 0.913 | 0.905 |
+| matmul relaxed-simd FMA | 8.17 | 0.960 | 0.951 | 0.889 | 0.879 |
+| audio DSP | 3089 | 0.960 | 0.926 | 0.881 | 0.888 |
+| call_indirect | 63.36 | 0.970 | 0.975 | 0.952 | 0.953 |
+| xmrsplayer | 45.52 | 0.943 | 0.946 | 0.909 | 0.938 |
+| vtable_poly4 | 128.5 | 0.984 | 0.961 | 0.937 | 0.934 |
+| graphql-validation (AS) | 36.61 | 0.975 | 0.945 | 0.936 | 0.926 |
+| graphql-validation (Porffor) | 31.03 | 0.970 | 0.958 | 0.957 | 0.952 |
+| sieve (scalar) | 2.04 | 0.909 | 0.908 | 0.857 | 0.889 |
+| crc32 (scalar) | 14.75 | 0.915 | 0.904 | 0.866 | 0.869 |
+| convolution (scalar) | 40.93 | 0.935 | 0.933 | 0.882 | 0.887 |
+| bulk_memory (scalar) | 30.59 | 0.936 | 0.907 | 0.869 | 0.877 |
+| tail-call FSM | 14.59 | 0.978 | 0.967 | 0.953 | 0.942 |
+| EH parser (exnref) | 42.01 | 0.980 | 0.981 | 0.994 | 0.972 |
+| GC binary trees | 284.4 | 0.989 | 0.990 | 0.984 | 0.984 |
+| call_ref twin (call_indirect) | 55.03 | 0.983 | 0.970 | 0.962 | 0.954 |
+| **geomean** | | **0.959** | **0.947** | **0.920** | **0.921** |
+
+The first attempt at this A/B stalled: the phone auto-locked in the
+middle of the second launch, and iOS suspended the app. The benchmark
+app now keeps the screen on while it runs.
+
+**Checks** at each PR's own commit: tinywasm's CI matrix
+(`.github/workflows/test.yaml`) on this Mac. That is `cargo test
+--workspace` and `--examples` on 1.98 and on nightly-2026-07-05 with
+`nightly-tail-calls`, each with and without default features, plus
+clippy on 1.98 and `cargo fmt --check` with the nightly rustfmt.
+- All pass, and the 12 spec suites have 0 failures in every
+  configuration.
+- The examples' wasm was built with the nightly and linked with 1.93.1's
+  `rust-lld`, because this host's 1.98+ `rust-lld` cannot load its
+  libLLVM.
+- There is no Binaryen here, so the `.opt.wasm` inputs are the
+  unoptimized builds.
+- `resume_execution` now runs.
+- For PR 3, the whole suite also passes with the default value stacks
+  switched to dynamic stacks that start empty and grow to exactly each
+  reservation (a local stress configuration, not committed). A function
+  whose recorded maximum undercounted its pushes would trap there.
+
 ## Theories for closing more of the gap
 
 Roughly in order of effort, with the evidence above:
 
-1. **Reserve operand-stack capacity per function** (the upper bound
-   above, mergeable form). −7.9 % on the A14, and it makes most pushing
-   handlers frameless.
+1. **Reserve operand-stack capacity per function.** Done as #3 above:
+   −2.8 % on top of #1 + #2, the whole upper-bound gain, and no handler
+   calls into growth any more.
 2. **Memory-access fast path.** Cache memory 0's store address (or
    width, base and length) in the executor at function entry and module
    switch, and give memory-0 loads and stores with a small offset an
@@ -270,17 +394,20 @@ a preference for no new unstable features or `unsafe`, and the idea was
 reimplemented in safe Rust (`437a77c`, "Similar to #55 but with only
 safe code"). #56 (an external parser fix)
 merged in a week.
-0001 and 0002 fit that bar: safe Rust, no API change, focused. The
-reservation change (item 1) needs an issue first.
+#1 and #2 fit that bar: safe Rust, no API change, focused. #3 changes a
+public type and the archive format, so upstream it starts as an issue.
 
-**Checks run on the branch** (`perf/value-stack-cold-growth` in the local
-tinywasm checkout, both commits on `next` `b45a98a`, rustc 1.98.0 and
-nightly-2026-07-05):
-- `cargo fmt --all -- --check` passes.
-- `cargo clippy --workspace` reports no code warnings. The only warnings
-  are the pre-existing `lints.cargo` manifest notices.
-- The spec suites have 0 failures, both with the default dispatch and
-  with `--features tinywasm/nightly-tail-calls`:
+The maintainer is working on interpreter performance too. Their
+`exp/acc` branch (2026-09-11, one commit on an older `next`) experiments
+with accumulator and register lowering. Its commit message says the
+accumulator work has not paid off so far, and that the parts to bring
+into `next` are a single-pass parser rework and some dispatch tweaks.
+Those touch the same files as #3's parser change (a few lines in
+`push_sizes`) and possibly #1's `push`, so the stack may need a small
+rebase when they land.
+
+The PRs' checks are listed in [The PR stack on `next`](#the-pr-stack-on-next-and-the-reservation-measured);
+the spec suites they run have these sizes:
 
   | suite | tests |
   |---|---:|
@@ -297,11 +424,12 @@ nightly-2026-07-05):
   | `test-wasm-wide-arithmetic` | 109 |
   | `test-wasm-custom` | 113 |
 
-- Unit tests and the integration tests all pass, except
-  `resume_execution`, which was not run. It needs
-  `examples/rust/out/fibonacci.wasm` from `examples/rust/build.sh`, which
-  needs Binaryen's `wasm-opt` (not installed here); run it before
-  sending.
+- `resume_execution` and the examples' tests need the example wasm from
+  `examples/rust/build.sh`. On this host that script cannot run as is,
+  because the nightly's `rust-lld` cannot load its libLLVM and there is
+  no Binaryen. The wasm is built with the same `cargo build` lines and
+  `-C linker=` pointing at 1.93.1's `rust-lld`, and the `.opt.wasm`
+  files are copies of the unoptimized builds.
 
 ## Reproducing
 
@@ -310,12 +438,16 @@ nightly-2026-07-05):
 RUNTIMES_LIST="tinywasm wamr" MODES_wamr="bottleneck:bottlenecks characteristics:call_branch_instructions timeprofile" \
   ./scripts/run-device-pmu.sh out/iphone12-pmu
 
-# A/B: build the app against a local tinywasm checkout, e.g.
-cargo build --release -p benchmark-core --lib --features nightly-dispatch --features femtovg-e2e \
-  --target aarch64-apple-ios --target-dir target/tw-exp \
-  --config 'patch.crates-io.tinywasm.path="../tinywasm/crates/tinywasm"'
-# copy its libbenchmark_core.a over target/aarch64-apple-ios/release/, xcodebuild into a
-# separate -derivedDataPath, install, then
-N=5 RUNTIMES_LIST=tinywasm WORKLOADS='fib(30),call_indirect (200k,...' \
-  UDID=00008101-000A044A3C28801E ./scripts/run-device-pass.sh out/tw-ab/<build>
+# A/B of the PR stack: a tinywasm worktree for the builds, one app per build,
+# then interleaved launches on the phone and the summary
+git -C ~/src/tinywasm worktree add --detach ~/src/tinywasm-worktrees/ios next
+W=~/src/tinywasm-worktrees/ios
+./scripts/tinywasm-ab-build-ios.sh base "$W" b45a98a
+./scripts/tinywasm-ab-build-ios.sh pr1 "$W" 68df3d4
+./scripts/tinywasm-ab-build-ios.sh pr2 "$W" 5103db1
+./scripts/tinywasm-ab-build-ios.sh pr3 "$W" bc8a0a1
+./scripts/tinywasm-ab-build-ios.sh ub "$W" 5103db1 docs/tinywasm-iphone12-2026-09-23/patches/experiment-upper-bound-on-0002.diff
+./scripts/tinywasm-ab-iphone.sh out/tw-stack-ab base pr1 pr2 pr3 ub
+./scripts/tinywasm_ab_summary.py out/tw-stack-ab base pr1 pr2 pr3 ub \
+  --steps pr1:base,pr2:pr1,pr3:pr2,pr3:base,ub:pr2,pr3:ub --csv out/tw-stack-ab.csv
 ```

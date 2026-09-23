@@ -69,17 +69,42 @@ Pick this up cold without re-deriving state:
     `wasm-micro-runtime/product-mini/platforms/darwin/build/`, then
     rebuild the host CLI (rerun-if-changed relinks). Remove the
     `wasm_c_api.c.o` member first (see *WAMR* below) or zwasm crashes.
-- **tinywasm contributions** (2026-09-23): iPhone 12 E-core profile and
-  two measured safe-Rust patches (value-stack growth out of line −4.1 %
-  cycles; + inlined binop helpers −5.6 %) in
-  [`docs/tinywasm-iphone12-2026-09-23.md`](docs/tinywasm-iphone12-2026-09-23.md).
-  Branch `perf/value-stack-cold-growth` in `~/src/tinywasm` (on `next`).
-  tinywasm's CONTRIBUTING requires the issue / PR text to be written by
-  the contributor, not generated. Its M4 PMU profile (every matrix case
-  + the femtovg E2E) is in the 2026-09-22 report: instruction-bound,
-  69 % useful slots, ~42 instructions per dispatched op. Next
-  experiment: reserve operand-stack capacity per function at call entry
-  (upper bound −7.9 % on the A14); needs an upstream issue first.
+- **tinywasm contributions** (2026-09-23): a stack of three PRs in the
+  fork `rebeckerspecialties/tinywasm`, on `next` `b45a98a` (the
+  maintainer's working branch; `main` is 44 commits behind it):
+  [#1](https://github.com/rebeckerspecialties/tinywasm/pull/1)
+  `perf/value-stack-cold-growth` → `next`,
+  [#2](https://github.com/rebeckerspecialties/tinywasm/pull/2)
+  `perf/inline-fused-binop-helpers` → #1,
+  [#3](https://github.com/rebeckerspecialties/tinywasm/pull/3)
+  `perf/reserve-operand-stack` → #2.
+  - Result on the iPhone 12 E-cores (interleaved A/B, 16 rows): −4.1 % /
+    −5.3 % / −8.0 % cycles against `next`. #3 matches the no-growth
+    upper bound.
+  - #3 adds `pub max_stack` to `tinywasm_types::WasmFunction`, bumps the
+    archive to `06` and regenerates `examples/rust/src/print.twasm`, so
+    upstream it needs an issue first.
+  - Evidence and checks:
+    [`docs/tinywasm-iphone12-2026-09-23.md`](docs/tinywasm-iphone12-2026-09-23.md).
+  - Local checkout `~/src/tinywasm`: remote `origin` is upstream,
+    `fork` is ours. Worktrees in `~/src/tinywasm-worktrees/` (`check`
+    for the CI matrix, `ios` for A/B builds).
+  - A/B tooling: `scripts/tinywasm-ab-build-ios.sh`,
+    `scripts/tinywasm-ab-iphone.sh`, `scripts/tinywasm_ab_summary.py`.
+  - tinywasm's CONTRIBUTING requires the upstream issue / PR text to be
+    written by the contributor, not generated.
+  - The fork's Actions tab still needs its one-time "enable workflows"
+    click before upstream's CI runs on these branches.
+  - The maintainer's `exp/acc` (2026-09-11) plans a single-pass parser
+    and dispatch tweaks for `next`; expect a small rebase of #3's
+    parser change.
+  - Build gotchas for tinywasm's own CI matrix on this host:
+    - The example wasm (`examples/rust/build.sh`) needs `-C
+      linker=<1.93.1 rust-lld>`, because newer `rust-lld` can't load its
+      libLLVM here, and there is no Binaryen, so the `.opt.wasm` files
+      are copies of the unoptimized builds.
+    - rustfmt comes from the floating `nightly`.
+    - clippy runs on `1.98`; the pinned nightly has neither tool.
 - **Open follow-ups** found by the 2026-09 refresh (evidence in the
   report):
   - wasmz v0.1.4 bugs to file upstream: wrong result on extended-const
@@ -118,6 +143,7 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
+  - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...>` — interleaved A/B of tinywasm revisions on the iPhone
   - `./scripts/summarize-pass.py <pass-root> <data-dir>` — per-rep CSV + median/range tables
   - `./scripts/feature-matrix.sh [out]` — runtime × feature smoke matrix
   - `target/release/run_matrix` (`RUNTIMES=`, `WORKLOADS=`, `--case`, `--file`) — any case on any runtime
@@ -396,6 +422,11 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   QoS: `run_on_thread` in lib.rs does that. A bare
   `std::thread::spawn` starts at the default QoS and moved the E2E onto
   the P-cores (e_share 0.004) before the fix.
+- **Auto-lock**: a devicectl launch into an awake phone does not reset
+  its idle timer, so an unattended run can hit auto-lock mid-launch and
+  iOS suspends the app (the launch then waits on one row until the
+  launcher times out). Since `6cbac78` the app disables the idle timer
+  for the duration of a run (iOS / tvOS).
 - **iPhone XS Max** used in 2026-09: devicectl UDID
   `00008020-001C292A2190003A`, iOS 18.7.10 (the A12 is not supported by
   iOS 26). Crash logs: `xcrun devicectl device info files --domain-type

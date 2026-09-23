@@ -43,9 +43,11 @@ geometric mean over the 17 cases every runtime runs (N=10 per platform):
   the 1 MB guest with Cranelift at load, which takes ~2.7 s on the A12.
 - **tinywasm is instruction-bound**: 69 % useful slots on the M4 and
   62-90 % on the iPhone 12. It retires 2.55× WAMR's instructions for
-  1.97× WAMR's CPU time. Two small safe-Rust changes recover 5.6 % of its
-  cycles on the iPhone 12. The next experiment is to reserve
-  operand-stack capacity per function (upper bound −7.9 %).
+  1.97× WAMR's CPU time. Three changes, stacked as PRs on tinywasm's
+  `next` in our fork, cut its cycles by 8.0 % on the iPhone 12. Two are
+  small safe-Rust changes (−5.3 %). The third reserves each function's
+  operand stack on entry, for another −2.8 %, which is the whole
+  upper-bound gain.
 - **Build.** Cross-language LTO is impossible at these Rust minimums:
   Rust ≥ 1.95 emits LLVM 22 bitcode, and Xcode 27's libLTO is LLVM 21.
   The Rust side is built with fat LTO instead, and the C, C++ and Zig
@@ -1459,21 +1461,23 @@ levers are the code paths that the iPhone 12 profile located:
 - memory re-resolution on every load and store;
 - calls that touch all three value stacks.
 
-- **Measured.** Two small safe-Rust changes cut cycles by 5.6 % on the
-  iPhone 12 E-cores: growing the value stack out of line (−4.1 % alone)
-  and inlining the fused binop / compare helpers. They pass tinywasm's
-  spec suites; one integration test, which needs Binaryen's `wasm-opt`,
-  still has to run before they go upstream. The patches, the A/B and the
-  checks are in the [iPhone 12 doc](tinywasm-iphone12-2026-09-23.md).
-- **Next experiment: reserve each function's operand-stack capacity at
-  call entry.** With the capacity reserved, `push` inside a function can
-  fail with a trap instead of calling a growth path, which makes most
-  pushing handlers frameless. The upper bound, `push` with no growth path
-  at all, measured −7.9 % cycles on the A14. The experiment is whether a
-  safe form that tinywasm can merge keeps most of that. It changes how
-  stacks grow, so upstream it starts as an issue (tinywasm's
-  CONTRIBUTING.md).
-- **After that**, in the order of the iPhone 12 doc:
+- **Measured: a stack of three PRs** on `next` in the fork
+  ([#1](https://github.com/rebeckerspecialties/tinywasm/pull/1),
+  [#2](https://github.com/rebeckerspecialties/tinywasm/pull/2),
+  [#3](https://github.com/rebeckerspecialties/tinywasm/pull/3)). They cut
+  cycles by 8.0 % on the iPhone 12 E-cores (geomean of 16 rows,
+  interleaved launches):
+  - growing the value stack out of line, −4.1 %;
+  - inlining the fused binop / compare helpers, −1.3 % more;
+  - reserving each function's operand stack on entry, −2.8 % more.
+
+  The reservation was this report's next experiment. It keeps the
+  whole gain of the no-growth upper bound (−0.1 % against it), at the
+  cost of a public `WasmFunction` field and a new archive version, so
+  upstream it starts as an issue. All three pass tinywasm's CI matrix.
+  The A/B, the checks and the patches are in the
+  [iPhone 12 doc](tinywasm-iphone12-2026-09-23.md).
+- **Next**, in the order of the iPhone 12 doc:
   - a memory-0 fast path for loads and stores (`I32Load8U` alone is 35 %
     of convolution's time on the A14);
   - carrying the instruction slice through the `become` handlers;
