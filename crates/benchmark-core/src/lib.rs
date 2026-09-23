@@ -704,6 +704,10 @@ pub(crate) fn measure_calls(
 /// at the default QoS, which on iOS moves work the app queued at `.utility`
 /// (E-cores) onto the P-cores; the big-stack threads the Zig runtimes and
 /// the femtovg E2E need must stay in the class the run was scheduled in.
+///
+/// Called from a run_matrix `case:<id>` thread, the new thread takes that
+/// name instead of `name`, so per-thread profiles (the PMU pass) attribute
+/// a runtime's big-stack thread to its case.
 pub fn run_on_thread<T: Send + 'static>(
     name: &str,
     stack_bytes: usize,
@@ -711,8 +715,12 @@ pub fn run_on_thread<T: Send + 'static>(
 ) -> Result<T> {
     #[cfg(target_vendor = "apple")]
     let qos = unsafe { qos::qos_class_self() };
+    let name = match std::thread::current().name() {
+        Some(parent) if parent.starts_with("case:") => parent.to_string(),
+        _ => name.to_string(),
+    };
     std::thread::Builder::new()
-        .name(name.to_string())
+        .name(name.clone())
         .stack_size(stack_bytes)
         .spawn(move || {
             #[cfg(target_vendor = "apple")]
