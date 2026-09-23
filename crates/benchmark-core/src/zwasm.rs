@@ -391,13 +391,7 @@ fn i32_val(v: i32) -> wasm_val_t {
 fn on_big_stack<T: Send + 'static>(name: &str, body: impl FnOnce() -> Result<T> + Send + 'static)
     -> Result<T>
 {
-    std::thread::Builder::new()
-        .name(name.to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(body)
-        .context("zwasm: failed to spawn dedicated 8 MiB-stack thread")?
-        .join()
-        .map_err(|_| anyhow!("{name} thread panicked"))?
+    crate::run_on_thread(name, 8 * 1024 * 1024, body)?
 }
 
 pub fn run_workload_zwasm_iters(

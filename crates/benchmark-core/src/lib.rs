@@ -697,6 +697,42 @@ pub(crate) fn measure_calls(
     Ok(window.finish(result, n, load_time, samples))
 }
 
+/// Runs `body` on a new thread with a `stack_bytes` stack and the calling
+/// thread's QoS class, and waits for it. A bare `std::thread::spawn` starts
+/// at the default QoS, which on iOS moves work the app queued at `.utility`
+/// (E-cores) onto the P-cores; the big-stack threads the Zig runtimes and
+/// the femtovg E2E need must stay in the class the run was scheduled in.
+pub(crate) fn run_on_thread<T: Send + 'static>(
+    name: &str,
+    stack_bytes: usize,
+    body: impl FnOnce() -> T + Send + 'static,
+) -> Result<T> {
+    #[cfg(target_vendor = "apple")]
+    let qos = unsafe { qos::qos_class_self() };
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .stack_size(stack_bytes)
+        .spawn(move || {
+            #[cfg(target_vendor = "apple")]
+            unsafe {
+                qos::pthread_set_qos_class_self_np(qos, 0);
+            }
+            body()
+        })
+        .with_context(|| format!("failed to spawn {name} thread"))?
+        .join()
+        .map_err(|_| anyhow::anyhow!("{name} thread panicked"))
+}
+
+#[cfg(target_vendor = "apple")]
+mod qos {
+    unsafe extern "C" {
+        /// `qos_class_t` is an unsigned int enum in <sys/qos.h>.
+        pub fn qos_class_self() -> u32;
+        pub fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+    }
+}
+
 /// Measurement loop for cases whose timed unit is more than a call
 /// (`Shape::InstantiateEach`, Porffor): each `sample` does its own timing
 /// and returns `(elapsed, result)`, so work that must stay outside the

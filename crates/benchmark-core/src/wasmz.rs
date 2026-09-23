@@ -219,13 +219,9 @@ pub fn run_workload_wasmz_iters(
     // main thread (the standalone C test environment) provides.
     let wasm_bytes_owned = wasm_bytes.to_vec();
     let fn_name_owned = fn_name.to_string();
-    std::thread::Builder::new()
-        .name("wasmz-runner".to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || run_workload_wasmz_iters_inner(&wasm_bytes_owned, &fn_name_owned, arg, iters))
-        .context("wasmz: failed to spawn dedicated 8 MiB-stack thread")?
-        .join()
-        .map_err(|_| anyhow!("wasmz-runner thread panicked"))?
+    crate::run_on_thread("wasmz-runner", 8 * 1024 * 1024, move || {
+        run_workload_wasmz_iters_inner(&wasm_bytes_owned, &fn_name_owned, arg, iters)
+    })?
 }
 
 fn run_workload_wasmz_iters_inner(
@@ -356,13 +352,9 @@ pub fn run_workload_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<
 pub fn run_instantiate_each_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
     let wasm_bytes_owned = wasm_bytes.to_vec();
     let fn_name_owned = fn_name.to_string();
-    std::thread::Builder::new()
-        .name("wasmz-instantiate".to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || instantiate_each_inner(&wasm_bytes_owned, &fn_name_owned, arg))
-        .context("wasmz: failed to spawn dedicated 8 MiB-stack thread")?
-        .join()
-        .map_err(|_| anyhow!("wasmz-instantiate thread panicked"))?
+    crate::run_on_thread("wasmz-instantiate", 8 * 1024 * 1024, move || {
+        instantiate_each_inner(&wasm_bytes_owned, &fn_name_owned, arg)
+    })?
 }
 
 struct InstGuard(*mut wasmz_instance_t);
@@ -440,13 +432,9 @@ fn instantiate_each_inner(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<
 /// runners.
 pub fn run_graphql_validation_porf_wasmz(wasm_bytes: &[u8]) -> Result<RunReport> {
     let wasm_bytes_owned = wasm_bytes.to_vec();
-    std::thread::Builder::new()
-        .name("wasmz-porf".to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || run_graphql_validation_porf_wasmz_inner(&wasm_bytes_owned))
-        .context("wasmz: failed to spawn 8 MiB-stack thread")?
-        .join()
-        .map_err(|_| anyhow!("wasmz-porf thread panicked"))?
+    crate::run_on_thread("wasmz-porf", 8 * 1024 * 1024, move || {
+        run_graphql_validation_porf_wasmz_inner(&wasm_bytes_owned)
+    })?
 }
 
 fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunReport> {
