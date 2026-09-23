@@ -506,9 +506,15 @@ struct BenchmarkContentView: View {
             let WATCHOS_RUNTIMES_FILTER = ""
             let env = WATCHOS_WORKLOADS_FILTER
             let runtimesEnv = WATCHOS_RUNTIMES_FILTER
+            let excludeEnv = ""
             #else
             let env = ProcessInfo.processInfo.environment["WORKLOADS"] ?? ""
             let runtimesEnv = ProcessInfo.processInfo.environment["RUNTIMES"] ?? ""
+            // Label substrings to leave out (comma-separated). The device
+            // pass runs a runtime's memory-heavy rows in launches of their
+            // own with this, so one row's footprint cannot get the whole
+            // launch killed by jetsam.
+            let excludeEnv = ProcessInfo.processInfo.environment["WORKLOADS_EXCLUDE"] ?? ""
             #endif
             let trimmedW = env.trimmingCharacters(in: .whitespaces)
             let trimmedR = runtimesEnv.trimmingCharacters(in: .whitespaces)
@@ -517,6 +523,10 @@ struct BenchmarkContentView: View {
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
             let runtimes = trimmedR
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                .filter { !$0.isEmpty }
+            let excludes = excludeEnv
                 .split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
@@ -529,8 +539,9 @@ struct BenchmarkContentView: View {
             }
             return WORKLOADS.filter { w in
                 let lc = w.label.lowercased()
-                let workloadOk = needles.isEmpty
-                    || needles.contains(where: { lc.contains($0) })
+                let workloadOk = (needles.isEmpty
+                    || needles.contains(where: { lc.contains($0) }))
+                    && !excludes.contains(where: { lc.contains($0) })
                 let runtimeOk = runtimes.isEmpty
                     || runtimes.contains(where: { rt in
                         // Labels look like `[Pulley] call_indirect ...`

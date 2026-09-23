@@ -22,6 +22,13 @@
 #   UDID=00008020-001C292A2190003A (iPhone XS Max)  DEVICE_NAME=iphonexs
 #   BUNDLE=com.rebeckerspecialties.wasmbench.ios
 #   MAX_WAIT_SECS=2400           per launch
+#   SPLIT_RUNTIMES="zwasm"       runtimes whose heavy rows each get a launch
+#   HEAVY_ROWS="xmrsplayer;graphql-validation (porffor);extended-const;memory64;tail-call fsm"
+#                                ';'-separated label substrings. On the iPhone
+#                                zwasm's footprint reaches ~1.3 GB during
+#                                xmrsplayer and the next heavy row gets the
+#                                app jetsam-killed, which would lose every
+#                                later row of the launch.
 #
 # Logs: <out-dir>/<device>-<runtime>-r<rep>.log. Parse with
 # scripts/summarize-pass.py.
@@ -36,13 +43,16 @@ UDID="${UDID:-00008020-001C292A2190003A}"
 DEVICE_NAME="${DEVICE_NAME:-iphonexs}"
 BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-2400}"
+SPLIT_RUNTIMES=" ${SPLIT_RUNTIMES-zwasm} "
+HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const;memory64;tail-call fsm}"
 if [[ -n "${E2E}" ]]; then MARKER="FEMTOVG_E2E done"; else MARKER="BENCH_DONE"; fi
 mkdir -p "${OUT}"
 
-env_json() {
-  local rt="$1" j
+env_json() {  # runtime [workloads] [exclude]
+  local rt="$1" wl="${2:-${WORKLOADS}}" ex="${3:-}" j
   j="{\"RUNTIMES\":\"${rt}\",\"BENCH_TARGET_MS\":\"${BENCH_TARGET_MS}\""
-  [[ -n "${WORKLOADS}" ]] && j+=",\"WORKLOADS\":\"${WORKLOADS}\""
+  [[ -n "${wl}" ]] && j+=",\"WORKLOADS\":\"${wl}\""
+  [[ -n "${ex}" ]] && j+=",\"WORKLOADS_EXCLUDE\":\"${ex}\""
   if [[ -n "${E2E}" ]]; then
     j+=",\"FEMTOVG_E2E\":\"${E2E}\",\"FEMTOVG_FRAMES\":\"${FEMTOVG_FRAMES:-121}\""
     j+=",\"FEMTOVG_PASSES\":\"${FEMTOVG_PASSES:-2}\""
@@ -55,10 +65,10 @@ app_pid() {
     | grep -i "wasmbench" | awk '{print $1}' | head -1
 }
 
-launch_once() {  # runtime log -> 0 if the marker arrived
+launch_once() {  # runtime log [workloads] [exclude] -> 0 if the marker arrived
   local rt="$1" log="$2" lpid ts=0
   stdbuf -oL xcrun devicectl device process launch --console --device "${UDID}" \
-    --terminate-existing --environment-variables "$(env_json "${rt}")" "${BUNDLE}" \
+    --terminate-existing --environment-variables "$(env_json "${rt}" "${3:-}" "${4:-}")" "${BUNDLE}" \
     > "${log}" 2>&1 &
   lpid=$!
   while (( ts < MAX_WAIT_SECS )); do
@@ -80,20 +90,34 @@ launch_once() {  # runtime log -> 0 if the marker arrived
 
 echo "[start] ${DEVICE_NAME} N=${N} runtimes=(${RUNTIMES_LIST}) BENCH_TARGET_MS=${BENCH_TARGET_MS}" \
   "${E2E:+E2E scenes=${E2E}}"
+run_launch() {  # runtime log [workloads] [exclude]
+  local rt="$1" log="$2" ok=1
+  for attempt in 1 2 3; do
+    if launch_once "$@"; then ok=0; break; fi
+    # Retry only a launch that produced no result lines at all.
+    if grep -qE '^\[\[|^FEMTOVG_E2E \{' "${log}"; then break; fi
+    echo "   $(basename "${log}"): no output (attempt ${attempt}), retrying"
+    sleep 5
+  done
+  lines=$(grep -cE '^\[\[|^FEMTOVG_E2E \{' "${log}" || true)
+  echo "[rep ${rep}/${N}] $(basename "${log}" .log): ${lines} result lines in $(cat "${log}.secs")s$([[ ${ok} -ne 0 ]] && echo ' (no completion marker)')"
+  sleep 2
+}
+
 for rep in $(seq 1 "${N}"); do
   for rt in ${RUNTIMES_LIST}; do
-    log="${OUT}/${DEVICE_NAME}-${rt}-r${rep}.log"
-    ok=1
-    for attempt in 1 2 3; do
-      if launch_once "${rt}" "${log}"; then ok=0; break; fi
-      # Retry only a launch that produced no result lines at all.
-      if grep -qE '^\[|^FEMTOVG_E2E \{' "${log}"; then break; fi
-      echo "   ${rt} rep ${rep}: no output (attempt ${attempt}), retrying"
-      sleep 5
-    done
-    lines=$(grep -cE '^\[\[|^FEMTOVG_E2E \{' "${log}" || true)
-    echo "[rep ${rep}/${N}] ${rt}: ${lines} result lines in $(cat "${log}.secs")s$([[ ${ok} -ne 0 ]] && echo ' (no completion marker)')"
-    sleep 2
+    base="${OUT}/${DEVICE_NAME}-${rt}-r${rep}"
+    if [[ -z "${E2E}" && -z "${WORKLOADS}" && "${SPLIT_RUNTIMES}" == *" ${rt} "* ]]; then
+      run_launch "${rt}" "${base}.log" "" "$(tr ';' ',' <<< "${HEAVY_ROWS}")"
+      i=0
+      IFS=';' read -ra heavy <<< "${HEAVY_ROWS}"
+      for row in "${heavy[@]}"; do
+        i=$((i + 1))
+        run_launch "${rt}" "${base}-h${i}.log" "${row}"
+      done
+    else
+      run_launch "${rt}" "${base}.log"
+    fi
   done
 done
 echo "[done] ${OUT}"
