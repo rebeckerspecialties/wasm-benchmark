@@ -132,6 +132,9 @@ pub struct E2eReport {
     pub all_hash: u64,
     pub max_mem_pages: i32,
     pub phys_footprint_peak: u64,
+    /// Footprint once the GPU device, target and renderer exist, before
+    /// the guest is loaded: the part of the peak no runtime owns.
+    pub phys_footprint_before_guest: u64,
     pub final_texture_hash: u64,
     /// CPU accounting over the measured pass (whole process).
     pub cpu_ns: u64,
@@ -454,6 +457,7 @@ fn run_e2e_on_this_thread(rt: Runtime, variant: Variant, cfg: E2eConfig, png: Op
         }
     }
     let _uninstall = Uninstall;
+    let phys_footprint_before_guest = residency::phys_footprint().map(|(now, _)| now).unwrap_or(0);
 
     let load_start = Instant::now();
     let mut guest = instantiate(rt, variant.wasm()).context("instantiate guest")?;
@@ -531,6 +535,7 @@ fn run_e2e_on_this_thread(rt: Runtime, variant: Variant, cfg: E2eConfig, png: Op
         all_hash,
         max_mem_pages: max_pages,
         phys_footprint_peak,
+        phys_footprint_before_guest,
         final_texture_hash,
         cpu_ns: usage.cpu_ns,
         p_cpu_ns: usage.p_cpu_ns,
@@ -569,7 +574,7 @@ impl E2eReport {
              \"frame_ms_p50\":{:.3},\"frame_ms_p95\":{:.3},\"frame_ms_p99\":{:.3},\"frame_ms_max\":{:.3},\
              \"guest_ms_mean\":{:.3},\"encode_ms_mean\":{:.3},\"gpu_ms_mean\":{:.3},\
              \"verts_total\":{},\"commands_total\":{},\"max_mem_pages\":{},\"linear_memory_peak_bytes\":{},\
-             \"phys_footprint_peak_bytes\":{},\"cpu_ms\":{:.3},\"e_share\":{:.4},\"ipc\":{:.3},\
+             \"phys_footprint_peak_bytes\":{},\"phys_footprint_before_guest_bytes\":{},\"cpu_ms\":{:.3},\"e_share\":{:.4},\"ipc\":{:.3},\
              \"all_hash\":\"{:016x}\",\"final_texture_hash\":\"{:016x}\",\"adapter\":{:?},\"frame_hashes\":[{}],\
              \"frame_verts\":[{}],\"frame_commands\":[{}]}}",
             crate::cases::runtime_token(self.runtime),
@@ -595,6 +600,7 @@ impl E2eReport {
             self.max_mem_pages,
             self.max_mem_pages as u64 * 65536,
             self.phys_footprint_peak,
+            self.phys_footprint_before_guest,
             self.cpu_ns as f64 / 1e6,
             e_share,
             if self.cycles > 0 { self.instructions as f64 / self.cycles as f64 } else { f64::NAN },

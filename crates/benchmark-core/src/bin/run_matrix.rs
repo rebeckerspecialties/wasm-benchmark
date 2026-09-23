@@ -4,7 +4,8 @@
 //!
 //! Environment:
 //!   RUNTIMES=pulley,wamr,...   runtime tokens (default: all linked)
-//!   WORKLOADS=fib,vtable       case-id substrings (default: all)
+//!   WORKLOADS=fib,vtable       case-id substrings (default: all); an
+//!                              entry `=id` matches that id exactly
 //!   BENCH_TARGET_MS=2000       timed-window budget per case (default 200)
 //!   MATRIX_JSONL=path          also append the JSON lines to this file
 //!   MATRIX_REP=3               rep index recorded in each JSON line
@@ -138,7 +139,11 @@ fn main() {
         }
         for case in cases {
             if let Some(ref allow) = workloads {
-                if !allow.iter().any(|a| case.id.contains(a.as_str())) {
+                let hit = |a: &String| match a.strip_prefix('=') {
+                    Some(exact) => case.id == exact,
+                    None => case.id.contains(a.as_str()),
+                };
+                if !allow.iter().any(hit) {
                     continue;
                 }
             }
@@ -159,6 +164,13 @@ fn main() {
                 (Some(a), Some(b)) => a.since(&b),
                 _ => Default::default(),
             };
+            // Process phys_footprint after the case (its instances are
+            // dropped by now) and the process-lifetime ledger peak: with
+            // one case per process (WORKLOADS=<id>) the peak is the case's
+            // own. Unlike resident_size_max, the footprint leaves out pages
+            // the allocator freed but has not returned (MADV_FREE_REUSABLE).
+            let (footprint, footprint_peak) =
+                benchmark_core::residency::phys_footprint().unwrap_or((0, 0));
             let line = match &res {
                 Ok(r) => {
                     let ipc = if r.cycles > 0 { r.instructions as f64 / r.cycles as f64 } else { f64::NAN };
@@ -179,6 +191,7 @@ fn main() {
                             "\"median_ns\":{},\"p99_ns\":{},\"cpu_user_ns\":{},\"cpu_system_ns\":{},",
                             "\"p_cpu_ns\":{},\"e_share\":{},\"instructions\":{},\"cycles\":{},",
                             "\"rss_peak_bytes\":{},\"page_faults\":{},",
+                            "\"phys_footprint_bytes\":{},\"phys_footprint_peak_bytes\":{},",
                             "\"case_instructions\":{},\"case_cycles\":{}}}"
                         ),
                         rep, json_str(token), json_str(case.id), json_str(case.label),
@@ -187,6 +200,7 @@ fn main() {
                         r.cpu_system_ns, r.p_cpu_ns,
                         if e_share(r).is_finite() { format!("{:.4}", e_share(r)) } else { "null".into() },
                         r.instructions, r.cycles, r.rss_peak_bytes, r.page_faults,
+                        footprint, footprint_peak,
                         case_usage.instructions, case_usage.cycles,
                     )
                 }
