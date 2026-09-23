@@ -107,9 +107,11 @@ mod apple {
         pub denom: u32,
     }
 
-    /// Prefix of `struct task_vm_info` (<mach/task_info.h>) through
-    /// `ledger_phys_footprint_peak`; `task_info` fills as many words as
-    /// the passed count allows.
+    /// Prefix of `struct task_vm_info` (<mach/task_info.h>) through the
+    /// rev3 ledger block. The kernel fills a revision's fields only when the
+    /// passed count covers the whole revision (TASK_VM_INFO_REV3_COUNT here),
+    /// so the other 20 rev3 ledgers must be present even though only
+    /// `ledger_phys_footprint_peak` is read.
     #[repr(C)]
     #[derive(Default)]
     pub struct TaskVmInfo {
@@ -136,6 +138,7 @@ mod apple {
         pub min_address: u64,
         pub max_address: u64,
         pub ledger_phys_footprint_peak: i64,
+        pub ledger_rev3_rest: [i64; 20],
     }
 
     pub const TASK_VM_INFO: c_uint = 22;
