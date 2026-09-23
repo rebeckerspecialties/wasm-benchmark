@@ -346,6 +346,13 @@ let WORKLOADS: [Workload] = [
     Workload(id: 258, label: "[zwasm ] extended-const twin: MVP consts", run: { bench_run_case(4, "extconst_init.mvp") }),
     Workload(id: 259, label: "[wasmz ] extended-const twin: MVP consts", run: { bench_run_case(5, "extconst_init.mvp") }),
     Workload(id: 260, label: "[tinywm] extended-const twin: MVP consts", run: { bench_run_case(6, "extconst_init.mvp") }),
+    // sqlite3 on the runtimes without a WASI preview-1 + bench.* import shim:
+    // the row reports N/A with that reason instead of being absent.
+    Workload(id: 261, label: "[ WAMR ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(1, "sqlite3") }),
+    Workload(id: 262, label: "[wasm3 ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(2, "sqlite3") }),
+    Workload(id: 263, label: "[WE    ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(3, "sqlite3") }),
+    Workload(id: 264, label: "[zwasm ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(4, "sqlite3") }),
+    Workload(id: 265, label: "[wasmz ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(5, "sqlite3") }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -608,6 +615,9 @@ struct BenchmarkContentView: View {
                 FileHandle.standardError.write(
                     Data((winnerSummary(results) + "\n").utf8)
                 )
+                // Launchers (scripts/run-device-pass.sh) wait for this line
+                // and then terminate the app, which does not exit by itself.
+                FileHandle.standardError.write(Data("BENCH_DONE\n".utf8))
             }
         }
     }

@@ -5,7 +5,7 @@
 //!
 //!   run_femtovg_e2e --runtime pulley [--variant best|simd128|relaxed|scalar]
 //!                   [--scene 0] [--frames 121] [--size 1024] [--passes 2]
-//!                   [--png final.png] [--jsonl results.jsonl]
+//!                   [--png final.png] [--jsonl results.jsonl] [--rep N]
 //!
 //! Wrap with `taskpolicy -b` for the E-cluster; the JSON records the
 //! measured pass's E-core share.
@@ -39,9 +39,11 @@ fn main() {
     // WAMR's stack-guard setup must run on the main thread first.
     let _ = benchmark_core::wamr::init();
     let png = get("--png").map(std::path::PathBuf::from);
+    // `--rep N` tags the line for multi-run passes (scripts/run-m4-pass.sh).
+    let rep = get("--rep").map(|r| format!("\"rep\":{},", r.parse::<u32>().expect("--rep"))).unwrap_or_default();
     match run_e2e(rt, variant, cfg, png.as_deref()) {
         Ok(report) => {
-            let line = report.to_json();
+            let line = format!("{{{rep}{}", &report.to_json()[1..]);
             println!("{line}");
             if let Some(p) = get("--jsonl") {
                 let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&p).expect("--jsonl");
@@ -50,7 +52,7 @@ fn main() {
         }
         Err(e) => {
             let line = format!(
-                "{{\"runtime\":\"{token}\",\"variant\":\"{}\",\"scene\":{},\"error\":{:?}}}",
+                "{{{rep}\"runtime\":\"{token}\",\"variant\":\"{}\",\"scene\":{},\"error\":{:?}}}",
                 variant.name(),
                 cfg.scene,
                 format!("{e:#}")

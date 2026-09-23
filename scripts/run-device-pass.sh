@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# iPhone measurement pass: N reps × one app launch per runtime, each launch
+# with RUNTIMES=<runtime> so every runtime runs in its own process (no
+# cross-runtime heap or cache state, and one runtime's crash cannot take
+# the others' rows with it). The app runs its worker at .utility QoS
+# (E-cores) unless BENCH_QOS says otherwise, and every result line records
+# the measured E-core share of its timed window.
+#
+# The app does not exit by itself: each launch streams its console to a log
+# until the completion marker appears (BENCH_DONE for the workload list,
+# "FEMTOVG_E2E done" in E2E mode), then the app is terminated. A launch that
+# produces no output at all (a dropped device tunnel) is retried.
+#
+# Usage: scripts/run-device-pass.sh <out-dir>
+#   N=10                         reps
+#   RUNTIMES_LIST="pulley wamr wasm3 wasmedge zwasm wasmz tinywasm"
+#   BENCH_TARGET_MS=2000         timed-window budget per case
+#   WORKLOADS=                   optional case-label filter (app semantics)
+#   E2E=                         e.g. "0,1": run the femtovg E2E on these
+#                                scenes instead of the workload list
+#   FEMTOVG_FRAMES=121 FEMTOVG_PASSES=2
+#   UDID=00008020-001C292A2190003A (iPhone XS Max)  DEVICE_NAME=iphonexs
+#   BUNDLE=com.rebeckerspecialties.wasmbench.ios
+#   MAX_WAIT_SECS=2400           per launch
+#
+# Logs: <out-dir>/<device>-<runtime>-r<rep>.log. Parse with
+# scripts/summarize-pass.py.
+set -uo pipefail
+OUT="${1:?usage: run-device-pass.sh <out-dir>}"
+N="${N:-10}"
+RUNTIMES_LIST="${RUNTIMES_LIST:-pulley wamr wasm3 wasmedge zwasm wasmz tinywasm}"
+BENCH_TARGET_MS="${BENCH_TARGET_MS:-2000}"
+WORKLOADS="${WORKLOADS:-}"
+E2E="${E2E:-}"
+UDID="${UDID:-00008020-001C292A2190003A}"
+DEVICE_NAME="${DEVICE_NAME:-iphonexs}"
+BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
+MAX_WAIT_SECS="${MAX_WAIT_SECS:-2400}"
+if [[ -n "${E2E}" ]]; then MARKER="FEMTOVG_E2E done"; else MARKER="BENCH_DONE"; fi
+mkdir -p "${OUT}"
+
+env_json() {
+  local rt="$1" j
+  j="{\"RUNTIMES\":\"${rt}\",\"BENCH_TARGET_MS\":\"${BENCH_TARGET_MS}\""
+  [[ -n "${WORKLOADS}" ]] && j+=",\"WORKLOADS\":\"${WORKLOADS}\""
+  if [[ -n "${E2E}" ]]; then
+    j+=",\"FEMTOVG_E2E\":\"${E2E}\",\"FEMTOVG_FRAMES\":\"${FEMTOVG_FRAMES:-121}\""
+    j+=",\"FEMTOVG_PASSES\":\"${FEMTOVG_PASSES:-2}\""
+  fi
+  echo "${j}}"
+}
+
+app_pid() {
+  xcrun devicectl device info processes --device "${UDID}" 2>/dev/null \
+    | grep -i "wasmbench" | awk '{print $1}' | head -1
+}
+
+launch_once() {  # runtime log -> 0 if the marker arrived
+  local rt="$1" log="$2" lpid ts=0
+  stdbuf -oL xcrun devicectl device process launch --console --device "${UDID}" \
+    --terminate-existing --environment-variables "$(env_json "${rt}")" "${BUNDLE}" \
+    > "${log}" 2>&1 &
+  lpid=$!
+  while (( ts < MAX_WAIT_SECS )); do
+    sleep 3
+    ts=$((ts + 3))
+    grep -q "^${MARKER}" "${log}" 2>/dev/null && break
+    # The launch ended without the marker (app crash, tunnel drop).
+    kill -0 "${lpid}" 2>/dev/null || break
+  done
+  local pid
+  pid="$(app_pid)"
+  [[ -n "${pid}" ]] && xcrun devicectl device process terminate --device "${UDID}" --pid "${pid}" \
+    > /dev/null 2>&1
+  kill "${lpid}" 2> /dev/null
+  wait "${lpid}" 2> /dev/null
+  echo "${ts}" > "${log}.secs"
+  grep -q "^${MARKER}" "${log}"
+}
+
+echo "[start] ${DEVICE_NAME} N=${N} runtimes=(${RUNTIMES_LIST}) BENCH_TARGET_MS=${BENCH_TARGET_MS}" \
+  "${E2E:+E2E scenes=${E2E}}"
+for rep in $(seq 1 "${N}"); do
+  for rt in ${RUNTIMES_LIST}; do
+    log="${OUT}/${DEVICE_NAME}-${rt}-r${rep}.log"
+    ok=1
+    for attempt in 1 2 3; do
+      if launch_once "${rt}" "${log}"; then ok=0; break; fi
+      # Retry only a launch that produced no result lines at all.
+      if grep -qE '^\[|^FEMTOVG_E2E \{' "${log}"; then break; fi
+      echo "   ${rt} rep ${rep}: no output (attempt ${attempt}), retrying"
+      sleep 5
+    done
+    lines=$(grep -cE '^\[\[|^FEMTOVG_E2E \{' "${log}" || true)
+    echo "[rep ${rep}/${N}] ${rt}: ${lines} result lines in $(cat "${log}.secs")s$([[ ${ok} -ne 0 ]] && echo ' (no completion marker)')"
+    sleep 2
+  done
+done
+echo "[done] ${OUT}"
