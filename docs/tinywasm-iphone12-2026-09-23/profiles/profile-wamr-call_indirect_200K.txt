@@ -1,0 +1,33 @@
+busiest thread: WasmBench (0x3c568)  samples: 11787 (100.0% on E cores)  all threads: 11910
+
+# self time (leaf frame), top 60
+ 98.96%   11664  wasm_interp_call_func_bytecode
+  0.89%     105  _platform_memset
+  0.14%      16  __bzero
+  0.01%       1  _RNvXs0_NvMs_NtNtCsfkCt91rE6pF_5alloc3ffi5c_strNtBa_7CString3newReNtB5_11SpecNewImpl13spec_new_impl
+  0.01%       1  wasm_runtime_call_wasm
+
+# inclusive (on stack), top 60
+100.00%   11787  bench_run_call_indirect_wamr
+100.00%   11787  _dispatch_worker_thread2
+100.00%   11787  _dispatch_root_queue_drain
+100.00%   11787  _dispatch_call_block_and_release
+100.00%   11787  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+100.00%   11787  closure #2 in BenchmarkContentView.runAll()
+100.00%   11787  closure #22 in variable initialization expression of WORKLOADS
+100.00%   11787  <deduplicated_symbol>
+100.00%   11787  start_wqthread
+100.00%   11787  _pthread_wqthread
+100.00%   11787  _dispatch_client_callout
+ 99.99%   11786  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.98%   11785  wasm_runtime_call_wasm
+ 99.98%   11785  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 99.97%   11784  wasm_call_function
+ 99.97%   11784  wasm_interp_call_wasm
+ 98.96%   11664  wasm_interp_call_func_bytecode
+  0.89%     105  _platform_memset
+  0.14%      16  __bzero
+  0.01%       1  wasm_instantiate
+  0.01%       1  memory_instantiate
+  0.01%       1  wasm_runtime_instantiate
+  0.01%       1  _RNvXs0_NvMs_NtNtCsfkCt91rE6pF_5alloc3ffi5c_strNtBa_7CString3newReNtB5_11SpecNewImpl13spec_new_impl

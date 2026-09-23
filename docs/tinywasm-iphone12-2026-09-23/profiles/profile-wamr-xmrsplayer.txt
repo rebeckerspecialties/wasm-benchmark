@@ -1,0 +1,66 @@
+busiest thread: WasmBench (0x3d1bb)  samples: 11786 (100.0% on E cores)  all threads: 11903
+
+# self time (leaf frame), top 60
+ 98.21%   11575  wasm_interp_call_func_bytecode
+  1.20%     142  _platform_memset
+  0.43%      51  __bzero
+  0.05%       6  _platform_memmove
+  0.02%       2  wasm_loader_prepare_bytecode
+  0.01%       1  start_wqthread
+  0.01%       1  wasm_loader_emit_br_info
+  0.01%       1  bsearch
+  0.01%       1  madvise
+  0.01%       1  bh_leb_read
+  0.01%       1  _RNvXs0_NvMs_NtNtCsfkCt91rE6pF_5alloc3ffi5c_strNtBa_7CString3newReNtB5_11SpecNewImpl13spec_new_impl
+  0.01%       1  wasm_interp_call_wasm
+  0.01%       1  wasm_runtime_call_wasm
+  0.01%       1  pthread_self
+  0.01%       1  mach_timebase_info
+
+# inclusive (on stack), top 60
+100.00%   11786  start_wqthread
+ 99.99%   11785  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.99%   11785  bench_run_xmrsplayer_wamr
+ 99.99%   11785  _dispatch_root_queue_drain
+ 99.99%   11785  _pthread_wqthread
+ 99.99%   11785  <deduplicated_symbol>
+ 99.99%   11785  closure #27 in variable initialization expression of WORKLOADS
+ 99.99%   11785  closure #2 in BenchmarkContentView.runAll()
+ 99.99%   11785  _dispatch_client_callout
+ 99.99%   11785  _dispatch_worker_thread2
+ 99.99%   11785  _dispatch_call_block_and_release
+ 99.97%   11783  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.91%   11775  wasm_runtime_call_wasm
+ 99.90%   11774  wasm_call_function
+ 99.90%   11774  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 99.89%   11773  wasm_interp_call_wasm
+ 98.21%   11575  wasm_interp_call_func_bytecode
+  1.20%     142  _platform_memset
+  0.43%      51  __bzero
+  0.05%       6  _platform_memmove
+  0.05%       6  wasm_loader_prepare_bytecode
+  0.05%       6  wasm_runtime_load
+  0.05%       6  wasm_loader_load
+  0.05%       6  load_from_sections
+  0.01%       1  0x2021f08b7
+  0.01%       1  wasm_loader_emit_br_info
+  0.01%       1  check_branch_block
+  0.01%       1  bsearch
+  0.01%       1  madvise
+  0.01%       1  wasm_loader_push_frame_csp
+  0.01%       1  _xzm_xzone_madvise_freelist_chunk
+  0.01%       1  _realloc
+  0.01%       1  memory_realloc
+  0.01%       1  xzm_realloc
+  0.01%       1  _malloc_zone_realloc
+  0.01%       1  bh_leb_read
+  0.01%       1  memory_instantiate
+  0.01%       1  wasm_instantiate
+  0.01%       1  wasm_runtime_instantiate
+  0.01%       1  _RNvXs0_NvMs_NtNtCsfkCt91rE6pF_5alloc3ffi5c_strNtBa_7CString3newReNtB5_11SpecNewImpl13spec_new_impl
+  0.01%       1  pthread_self
+  0.01%       1  _RNvMNtNtNtNtCsg8tlWPf0vnr_3std3sys3pal4unix4timeNtB2_8Timespec3now
+  0.01%       1  clock_gettime_nsec_np
+  0.01%       1  _RNvMNtCsg8tlWPf0vnr_3std4timeNtB2_7Instant7elapsed
+  0.01%       1  mach_timebase_info
+  0.01%       1  clock_gettime

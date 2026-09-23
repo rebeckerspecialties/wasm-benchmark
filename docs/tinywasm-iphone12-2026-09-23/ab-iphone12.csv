@@ -1,0 +1,527 @@
+variant,build,runtime,rep,case,result,iterations,median_ms,cpu_user_ms,e_share,ipc,instructions,cycles
+base,tinywasm next b45a98a,tinywasm,1,fib(30),832040,11,166.835,1822.85,0.998,3.17,10612953271,3349078169
+base,tinywasm next b45a98a,tinywasm,1,matmul relaxed-simd FMA,48907,446,4.495,2000.70,1.000,3.20,11738834519,3663307894
+base,tinywasm next b45a98a,tinywasm,1,audio DSP (1000 frames × 512),761667740,1,1704.988,1690.88,1.000,3.34,10363983034,3099067895
+base,tinywasm next b45a98a,tinywasm,1,call_indirect (200K dispatches),-9175573,57,34.786,1973.64,1.000,2.44,8831329751,3612710753
+base,tinywasm next b45a98a,tinywasm,1,xmrsplayer (1024-frame buffer),-1323583813,84,24.052,2015.19,1.000,2.71,10010677127,3688587903
+base,tinywasm next b45a98a,tinywasm,1,vtable_poly4 (200K),-126115384,28,71.316,1988.64,1.000,2.66,9671605064,3639755743
+base,tinywasm next b45a98a,tinywasm,1,graphql-validation (AS),5,100,19.742,1994.86,1.000,2.34,8538268876,3651184613
+base,tinywasm next b45a98a,tinywasm,1,graphql-validation (Porffor),0,116,16.728,1657.05,1.000,2.10,7523095786,3589468552
+base,tinywasm next b45a98a,tinywasm,1,sieve(10000) [scalar build],1229,1725,1.121,1923.68,1.000,3.14,11066576014,3520006310
+base,tinywasm next b45a98a,tinywasm,1,crc32(64KB) [scalar build],-1910355869,246,8.122,1981.12,1.000,3.20,11583756169,3625132401
+base,tinywasm next b45a98a,tinywasm,1,convolution 256×256 [scalar build],8190685,89,22.338,1982.37,1.000,3.05,11072209277,3627522090
+base,tinywasm next b45a98a,tinywasm,1,bulk_memory (memory.copy/fill) [scalar build],8698902,120,16.757,2001.09,1.000,3.31,12125787694,3662068522
+base,tinywasm next b45a98a,tinywasm,1,tail-call FSM (65536 return_call),-1841735369,253,8.013,2023.03,1.000,3.09,11449159061,3706735851
+base,tinywasm next b45a98a,tinywasm,1,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.111,1978.57,1.000,2.65,9585445684,3622465009
+base,tinywasm next b45a98a,tinywasm,1,GC binary trees (~130K struct.new),-81253392,12,156.628,1833.73,1.000,2.18,7461922004,3418745361
+base,tinywasm next b45a98a,tinywasm,1,call_ref twin: call_indirect (200K),-750120562,66,30.134,1983.80,1.000,2.58,9359580271,3630189983
+base,tinywasm next b45a98a,tinywasm,2,fib(30),832040,11,164.661,1798.94,1.000,3.22,10597189489,3296080196
+base,tinywasm next b45a98a,tinywasm,2,matmul relaxed-simd FMA,48907,449,4.492,2013.65,1.000,3.21,11817576336,3686654078
+base,tinywasm next b45a98a,tinywasm,2,audio DSP (1000 frames × 512),761667740,1,1704.584,1690.08,1.000,3.35,10363893065,3097532370
+base,tinywasm next b45a98a,tinywasm,2,call_indirect (200K dispatches),-9175573,57,35.375,2007.26,1.000,2.40,8831081428,3672221728
+base,tinywasm next b45a98a,tinywasm,2,xmrsplayer (1024-frame buffer),-88237965,78,25.345,1965.08,1.000,2.59,9297163267,3594844582
+base,tinywasm next b45a98a,tinywasm,2,vtable_poly4 (200K),-126115384,28,71.473,1992.95,1.000,2.65,9671479497,3648229697
+base,tinywasm next b45a98a,tinywasm,2,graphql-validation (AS),5,98,19.917,1968.91,1.000,2.32,8359704698,3603158212
+base,tinywasm next b45a98a,tinywasm,2,graphql-validation (Porffor),0,113,16.957,1633.80,1.000,2.06,7328022699,3552756054
+base,tinywasm next b45a98a,tinywasm,2,sieve(10000) [scalar build],1229,1761,1.119,1965.33,1.000,3.14,11297511566,3596746768
+base,tinywasm next b45a98a,tinywasm,2,crc32(64KB) [scalar build],-1910355869,247,8.126,1992.95,1.000,3.19,11631298240,3648762874
+base,tinywasm next b45a98a,tinywasm,2,convolution 256×256 [scalar build],8190685,89,22.399,1983.16,1.000,3.05,11072344397,3629674417
+base,tinywasm next b45a98a,tinywasm,2,bulk_memory (memory.copy/fill) [scalar build],8698902,118,16.889,1983.52,1.000,3.28,11925010328,3633984079
+base,tinywasm next b45a98a,tinywasm,2,tail-call FSM (65536 return_call),-1841735369,246,8.055,1977.54,1.000,3.08,11131244961,3618895980
+base,tinywasm next b45a98a,tinywasm,2,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.038,1970.83,1.000,2.66,9585420966,3608050897
+base,tinywasm next b45a98a,tinywasm,2,GC binary trees (~130K struct.new),-81253392,12,155.710,1829.88,1.000,2.19,7460097506,3407455371
+base,tinywasm next b45a98a,tinywasm,2,call_ref twin: call_indirect (200K),-750120562,66,30.208,1985.19,1.000,2.58,9359605270,3633253474
+base,tinywasm next b45a98a,tinywasm,3,fib(30),832040,11,166.492,1819.28,0.999,3.18,10597297136,3332521294
+base,tinywasm next b45a98a,tinywasm,3,matmul relaxed-simd FMA,48907,451,4.452,2006.28,1.000,3.23,11869620336,3672096772
+base,tinywasm next b45a98a,tinywasm,3,audio DSP (1000 frames × 512),761667740,1,1690.904,1683.53,1.000,3.36,10362638579,3080423613
+base,tinywasm next b45a98a,tinywasm,3,call_indirect (200K dispatches),-9175573,57,34.680,1965.71,1.000,2.45,8831150503,3603492641
+base,tinywasm next b45a98a,tinywasm,3,xmrsplayer (1024-frame buffer),846043454,81,25.400,2046.13,1.000,2.58,9654577783,3745759966
+base,tinywasm next b45a98a,tinywasm,3,vtable_poly4 (200K),-126115384,28,71.314,1989.47,1.000,2.66,9671396010,3640562826
+base,tinywasm next b45a98a,tinywasm,3,graphql-validation (AS),5,99,19.754,1974.15,1.000,2.34,8443311118,3613571856
+base,tinywasm next b45a98a,tinywasm,3,graphql-validation (Porffor),0,111,16.804,1585.45,1.000,2.08,7199727490,3454761452
+base,tinywasm next b45a98a,tinywasm,3,sieve(10000) [scalar build],1229,1785,1.120,1989.53,1.000,3.14,11453317086,3643766167
+base,tinywasm next b45a98a,tinywasm,3,crc32(64KB) [scalar build],-1910355869,249,8.054,1998.31,1.000,3.21,11724871229,3657429622
+base,tinywasm next b45a98a,tinywasm,3,convolution 256×256 [scalar build],8190685,89,22.395,1985.53,1.000,3.05,11072437125,3633347432
+base,tinywasm next b45a98a,tinywasm,3,bulk_memory (memory.copy/fill) [scalar build],8698902,119,16.725,1979.43,1.000,3.31,12026039847,3627962160
+base,tinywasm next b45a98a,tinywasm,3,tail-call FSM (65536 return_call),-1841735369,251,7.992,2001.82,1.000,3.10,11357460073,3662608737
+base,tinywasm next b45a98a,tinywasm,3,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.152,1982.74,1.000,2.64,9585647425,3629848669
+base,tinywasm next b45a98a,tinywasm,3,GC binary trees (~130K struct.new),-81253392,12,156.159,1830.58,1.000,2.19,7460584887,3410366326
+base,tinywasm next b45a98a,tinywasm,3,call_ref twin: call_indirect (200K),-750120562,65,30.263,1960.37,1.000,2.57,9217679888,3586606964
+base,tinywasm next b45a98a,tinywasm,4,fib(30),832040,11,166.646,1819.05,1.000,3.18,10597881635,3334530721
+base,tinywasm next b45a98a,tinywasm,4,matmul relaxed-simd FMA,48907,444,4.471,1983.16,1.000,3.22,11685548687,3628956918
+base,tinywasm next b45a98a,tinywasm,4,audio DSP (1000 frames × 512),761667740,1,1694.729,1686.87,1.000,3.36,10362568430,3086839118
+base,tinywasm next b45a98a,tinywasm,4,call_indirect (200K dispatches),-9175573,58,34.736,2004.65,1.000,2.45,8986352210,3669628968
+base,tinywasm next b45a98a,tinywasm,4,xmrsplayer (1024-frame buffer),1681653048,79,25.101,1976.90,1.000,2.60,9419071003,3621940759
+base,tinywasm next b45a98a,tinywasm,4,vtable_poly4 (200K),-126115384,28,71.028,1982.49,1.000,2.67,9671519979,3628258811
+base,tinywasm next b45a98a,tinywasm,4,graphql-validation (AS),5,101,19.573,1995.13,1.000,2.36,8612753986,3651863756
+base,tinywasm next b45a98a,tinywasm,4,graphql-validation (Porffor),0,117,16.706,1659.48,1.000,2.10,7586409413,3620205182
+base,tinywasm next b45a98a,tinywasm,4,sieve(10000) [scalar build],1229,1525,1.119,1699.27,1.000,3.15,9783572362,3110026195
+base,tinywasm next b45a98a,tinywasm,4,crc32(64KB) [scalar build],-1910355869,243,8.141,1964.95,1.000,3.18,11442445395,3596608122
+base,tinywasm next b45a98a,tinywasm,4,convolution 256×256 [scalar build],8190685,89,22.389,1983.56,1.000,3.05,11073250532,3633899111
+base,tinywasm next b45a98a,tinywasm,4,bulk_memory (memory.copy/fill) [scalar build],8698902,120,16.888,2016.79,1.000,3.28,12126008305,3691620269
+base,tinywasm next b45a98a,tinywasm,4,tail-call FSM (65536 return_call),-1841735369,252,7.974,2006.02,1.000,3.11,11402505638,3670888484
+base,tinywasm next b45a98a,tinywasm,4,"EH parser, exnref (4096 stmts, 25% throw)",830008030,87,23.189,2007.67,1.000,2.64,9698416165,3676837965
+base,tinywasm next b45a98a,tinywasm,4,GC binary trees (~130K struct.new),-81253392,12,156.768,1838.99,1.000,2.18,7460531038,3424659217
+base,tinywasm next b45a98a,tinywasm,4,call_ref twin: call_indirect (200K),-750120562,65,30.323,1966.07,1.000,2.56,9217968634,3597825717
+base,tinywasm next b45a98a,tinywasm,5,fib(30),832040,11,166.390,1819.98,1.000,3.18,10597576582,3336342825
+base,tinywasm next b45a98a,tinywasm,5,matmul relaxed-simd FMA,48907,452,4.495,2028.03,1.000,3.20,11897249075,3717035809
+base,tinywasm next b45a98a,tinywasm,5,audio DSP (1000 frames × 512),761667740,1,1694.491,1676.39,1.000,3.36,10362875933,3083396754
+base,tinywasm next b45a98a,tinywasm,5,call_indirect (200K dispatches),-9175573,57,34.833,1976.82,1.000,2.44,8831186356,3618167961
+base,tinywasm next b45a98a,tinywasm,5,xmrsplayer (1024-frame buffer),1681653048,79,25.218,1983.15,1.000,2.60,9416443246,3628490793
+base,tinywasm next b45a98a,tinywasm,5,vtable_poly4 (200K),-126115384,28,71.228,1985.78,1.000,2.66,9671401623,3634904928
+base,tinywasm next b45a98a,tinywasm,5,graphql-validation (AS),5,100,19.644,1985.79,1.000,2.35,8538455468,3634845352
+base,tinywasm next b45a98a,tinywasm,5,graphql-validation (Porffor),0,116,16.645,1645.57,1.000,2.10,7513777703,3577332419
+base,tinywasm next b45a98a,tinywasm,5,sieve(10000) [scalar build],1229,1729,1.114,1923.52,1.000,3.15,11092326147,3520137460
+base,tinywasm next b45a98a,tinywasm,5,crc32(64KB) [scalar build],-1910355869,245,8.149,1983.42,1.000,3.17,11537516751,3634508821
+base,tinywasm next b45a98a,tinywasm,5,convolution 256×256 [scalar build],8190685,89,22.407,1985.97,1.000,3.05,11072088862,3633725383
+base,tinywasm next b45a98a,tinywasm,5,bulk_memory (memory.copy/fill) [scalar build],8698902,120,16.844,2013.19,1.000,3.29,12125895493,3684597099
+base,tinywasm next b45a98a,tinywasm,5,tail-call FSM (65536 return_call),-1841735369,253,8.009,2021.79,1.000,3.09,11448201032,3700508207
+base,tinywasm next b45a98a,tinywasm,5,"EH parser, exnref (4096 stmts, 25% throw)",830008030,87,23.278,2017.27,1.000,2.63,9697685043,3693368047
+base,tinywasm next b45a98a,tinywasm,5,GC binary trees (~130K struct.new),-81253392,12,157.029,1841.83,1.000,2.17,7460324421,3431003721
+base,tinywasm next b45a98a,tinywasm,5,call_ref twin: call_indirect (200K),-750120562,65,30.225,1958.80,1.000,2.57,9217936679,3585288246
+v1,v1 cold growth,tinywasm,1,fib(30),832040,11,160.749,1753.01,1.000,3.20,10283632799,3215136944
+v1,v1 cold growth,tinywasm,1,matmul relaxed-simd FMA,48907,464,4.290,1988.49,1.000,3.24,11803545598,3640100853
+v1,v1 cold growth,tinywasm,1,audio DSP (1000 frames × 512),761667740,1,1629.594,1620.89,1.000,3.35,9951177632,2966732572
+v1,v1 cold growth,tinywasm,1,call_indirect (200K dispatches),-9175573,59,33.672,1979.04,1.000,2.45,8876260951,3621701384
+v1,v1 cold growth,tinywasm,1,xmrsplayer (1024-frame buffer),1659814254,83,24.242,2001.13,1.000,2.60,9538136136,3662594796
+v1,v1 cold growth,tinywasm,1,vtable_poly4 (200K),-126115384,28,69.784,1945.28,1.000,2.65,9417768450,3559639167
+v1,v1 cold growth,tinywasm,1,graphql-validation (AS),5,101,19.471,1979.71,1.000,2.29,8292433075,3624236570
+v1,v1 cold growth,tinywasm,1,graphql-validation (Porffor),0,120,16.267,1660.53,1.000,2.07,7490601880,3618834452
+v1,v1 cold growth,tinywasm,1,sieve(10000) [scalar build],1229,1975,1.014,2003.19,1.000,3.23,11863294096,3670677570
+v1,v1 cold growth,tinywasm,1,crc32(64KB) [scalar build],-1910355869,273,7.391,2014.81,1.000,3.31,12225078407,3694641188
+v1,v1 cold growth,tinywasm,1,convolution 256×256 [scalar build],8190685,31,21.112,654.04,0.989,3.03,3672029281,1213418241
+v1,v1 cold growth,tinywasm,1,bulk_memory (memory.copy/fill) [scalar build],8698902,127,15.613,1977.51,1.000,3.39,12277841539,3617327395
+v1,v1 cold growth,tinywasm,1,tail-call FSM (65536 return_call),-1841735369,258,7.792,2008.78,1.000,3.10,11403766629,3677220492
+v1,v1 cold growth,tinywasm,1,"EH parser, exnref (4096 stmts, 25% throw)",830008030,89,22.400,1983.55,1.000,2.67,9712156743,3637301092
+v1,v1 cold growth,tinywasm,1,GC binary trees (~130K struct.new),-81253392,12,154.112,1809.52,1.000,2.19,7364443726,3369208257
+v1,v1 cold growth,tinywasm,1,call_ref twin: call_indirect (200K),-750120562,66,29.989,1966.99,1.000,2.54,9131889655,3599013378
+v1,v1 cold growth,tinywasm,2,fib(30),832040,12,160.771,1913.55,0.999,3.20,11217795884,3509720976
+v1,v1 cold growth,tinywasm,2,matmul relaxed-simd FMA,48907,462,4.303,1984.57,1.000,3.24,11752547529,3631501581
+v1,v1 cold growth,tinywasm,2,audio DSP (1000 frames × 512),761667740,1,1628.155,1620.53,1.000,3.36,9950892139,2965392837
+v1,v1 cold growth,tinywasm,2,call_indirect (200K dispatches),-9175573,59,33.814,1986.86,1.000,2.44,8876491338,3635648457
+v1,v1 cold growth,tinywasm,2,xmrsplayer (1024-frame buffer),1258103818,82,24.792,2023.78,1.000,2.54,9423849512,3703194560
+v1,v1 cold growth,tinywasm,2,vtable_poly4 (200K),-126115384,28,69.612,1937.23,1.000,2.65,9419234126,3548794135
+v1,v1 cold growth,tinywasm,2,graphql-validation (AS),5,101,19.279,1959.57,1.000,2.31,8292484620,3586083925
+v1,v1 cold growth,tinywasm,2,graphql-validation (Porffor),0,115,16.310,1592.18,1.000,2.06,7161283379,3474981926
+v1,v1 cold growth,tinywasm,2,sieve(10000) [scalar build],1229,1986,1.013,2012.90,1.000,3.24,11929279979,3687466918
+v1,v1 cold growth,tinywasm,2,crc32(64KB) [scalar build],-1910355869,271,7.370,1995.34,1.000,3.32,12132117036,3650909911
+v1,v1 cold growth,tinywasm,2,convolution 256×256 [scalar build],8190685,95,21.019,1990.51,1.000,3.05,11120563566,3643117662
+v1,v1 cold growth,tinywasm,2,bulk_memory (memory.copy/fill) [scalar build],8698902,130,15.673,2033.78,1.000,3.38,12569505408,3723544756
+v1,v1 cold growth,tinywasm,2,tail-call FSM (65536 return_call),-1841735369,257,7.820,2005.63,1.000,3.09,11359880263,3671046584
+v1,v1 cold growth,tinywasm,2,"EH parser, exnref (4096 stmts, 25% throw)",830008030,87,22.523,1953.09,1.000,2.66,9493514818,3574646880
+v1,v1 cold growth,tinywasm,2,GC binary trees (~130K struct.new),-81253392,12,154.150,1808.05,1.000,2.19,7364248880,3368112168
+v1,v1 cold growth,tinywasm,2,call_ref twin: call_indirect (200K),-750120562,67,29.748,1989.49,1.000,2.55,9270009292,3640393850
+v1,v1 cold growth,tinywasm,3,fib(30),832040,12,160.676,1913.80,1.000,3.20,11217412979,3507889801
+v1,v1 cold growth,tinywasm,3,matmul relaxed-simd FMA,48907,466,4.307,2003.45,1.000,3.23,11854619538,3667514654
+v1,v1 cold growth,tinywasm,3,audio DSP (1000 frames × 512),761667740,1,1630.940,1623.49,1.000,3.35,9950974633,2971433119
+v1,v1 cold growth,tinywasm,3,call_indirect (200K dispatches),-9175573,59,33.718,1980.40,1.000,2.45,8876348343,3624488844
+v1,v1 cold growth,tinywasm,3,xmrsplayer (1024-frame buffer),-1612982694,86,23.240,1986.73,1.000,2.72,9882442954,3636277137
+v1,v1 cold growth,tinywasm,3,vtable_poly4 (200K),-126115384,29,69.438,2002.20,1.000,2.66,9755492144,3668228822
+v1,v1 cold growth,tinywasm,3,graphql-validation (AS),5,101,19.280,1965.87,1.000,2.30,8293172951,3600099203
+v1,v1 cold growth,tinywasm,3,graphql-validation (Porffor),0,121,16.399,1679.02,1.000,2.05,7553173871,3675790406
+v1,v1 cold growth,tinywasm,3,sieve(10000) [scalar build],1229,1906,1.013,1932.14,1.000,3.23,11449084130,3539813198
+v1,v1 cold growth,tinywasm,3,crc32(64KB) [scalar build],-1910355869,274,7.380,2019.14,1.000,3.32,12266928189,3696160955
+v1,v1 cold growth,tinywasm,3,convolution 256×256 [scalar build],8190685,96,21.018,2010.37,1.000,3.05,11237088659,3678782505
+v1,v1 cold growth,tinywasm,3,bulk_memory (memory.copy/fill) [scalar build],8698902,126,15.635,1963.02,1.000,3.39,12182610034,3594775176
+v1,v1 cold growth,tinywasm,3,tail-call FSM (65536 return_call),-1841735369,259,7.785,2015.85,1.000,3.10,11449248713,3690328957
+v1,v1 cold growth,tinywasm,3,"EH parser, exnref (4096 stmts, 25% throw)",830008030,88,22.712,1990.09,1.000,2.64,9603159941,3644345898
+v1,v1 cold growth,tinywasm,3,GC binary trees (~130K struct.new),-81253392,12,154.086,1805.94,1.000,2.19,7364023940,3366657693
+v1,v1 cold growth,tinywasm,3,call_ref twin: call_indirect (200K),-750120562,66,29.761,1957.49,1.000,2.55,9131820805,3582063965
+v1,v1 cold growth,tinywasm,4,fib(30),832040,12,160.585,1913.45,1.000,3.20,11217252817,3506921972
+v1,v1 cold growth,tinywasm,4,matmul relaxed-simd FMA,48907,466,4.288,1995.33,1.000,3.25,11854246926,3651276046
+v1,v1 cold growth,tinywasm,4,audio DSP (1000 frames × 512),761667740,1,1627.788,1620.23,1.000,3.36,9950857454,2963572404
+v1,v1 cold growth,tinywasm,4,call_indirect (200K dispatches),-9175573,55,33.825,1850.94,1.000,2.44,8274710468,3393184714
+v1,v1 cold growth,tinywasm,4,xmrsplayer (1024-frame buffer),1821690159,80,25.092,1998.00,1.000,2.51,9194582659,3656561849
+v1,v1 cold growth,tinywasm,4,vtable_poly4 (200K),-126115384,28,69.489,1942.69,1.000,2.65,9418422834,3557085011
+v1,v1 cold growth,tinywasm,4,graphql-validation (AS),5,100,19.436,1961.06,1.000,2.29,8221605282,3593025064
+v1,v1 cold growth,tinywasm,4,graphql-validation (Porffor),0,121,16.179,1660.58,1.000,2.08,7543119337,3629952189
+v1,v1 cold growth,tinywasm,4,sieve(10000) [scalar build],1229,1679,1.012,1700.13,1.000,3.24,10084539360,3111026352
+v1,v1 cold growth,tinywasm,4,crc32(64KB) [scalar build],-1910355869,271,7.377,1995.56,1.000,3.32,12132258134,3653262179
+v1,v1 cold growth,tinywasm,4,convolution 256×256 [scalar build],8190685,96,20.923,2001.46,1.000,3.07,11237055399,3662473286
+v1,v1 cold growth,tinywasm,4,bulk_memory (memory.copy/fill) [scalar build],8698902,129,15.640,2012.91,1.000,3.39,12470997659,3683899055
+v1,v1 cold growth,tinywasm,4,tail-call FSM (65536 return_call),-1841735369,256,7.791,1991.77,1.000,3.10,11315063570,3644504480
+v1,v1 cold growth,tinywasm,4,"EH parser, exnref (4096 stmts, 25% throw)",830008030,88,22.550,1977.65,1.000,2.65,9602969729,3620513964
+v1,v1 cold growth,tinywasm,4,GC binary trees (~130K struct.new),-81253392,12,153.973,1807.26,1.000,2.19,7365391526,3366276740
+v1,v1 cold growth,tinywasm,4,call_ref twin: call_indirect (200K),-750120562,67,29.842,1986.97,1.000,2.55,9272009513,3638462585
+v1,v1 cold growth,tinywasm,5,fib(30),832040,12,161.094,1914.32,1.000,3.20,11217517135,3507949150
+v1,v1 cold growth,tinywasm,5,matmul relaxed-simd FMA,48907,467,4.290,2001.21,1.000,3.24,11879556980,3661436509
+v1,v1 cold growth,tinywasm,5,audio DSP (1000 frames × 512),761667740,1,1653.513,1629.10,1.000,3.34,9952328636,2982915608
+v1,v1 cold growth,tinywasm,5,call_indirect (200K dispatches),-9175573,59,33.888,1992.71,1.000,2.43,8877320451,3647503273
+v1,v1 cold growth,tinywasm,5,xmrsplayer (1024-frame buffer),-1323583813,84,24.197,2021.78,1.000,2.61,9653230106,3701246781
+v1,v1 cold growth,tinywasm,5,vtable_poly4 (200K),-126115384,28,70.005,1949.33,1.000,2.64,9418869595,3570807517
+v1,v1 cold growth,tinywasm,5,graphql-validation (AS),5,99,19.389,1935.62,1.000,2.29,8130166308,3544205607
+v1,v1 cold growth,tinywasm,5,graphql-validation (Porffor),0,120,16.206,1646.24,1.000,2.08,7497852938,3601507308
+v1,v1 cold growth,tinywasm,5,sieve(10000) [scalar build],1229,1868,1.014,1894.60,1.000,3.23,11221436655,3475293281
+v1,v1 cold growth,tinywasm,5,crc32(64KB) [scalar build],-1910355869,271,7.395,2001.26,1.000,3.31,12132264164,3662615481
+v1,v1 cold growth,tinywasm,5,convolution 256×256 [scalar build],8190685,96,20.967,2005.95,1.000,3.06,11237199478,3671476904
+v1,v1 cold growth,tinywasm,5,bulk_memory (memory.copy/fill) [scalar build],8698902,130,15.656,2028.75,1.000,3.38,12568288466,3714552507
+v1,v1 cold growth,tinywasm,5,tail-call FSM (65536 return_call),-1841735369,258,7.805,2009.69,1.000,3.10,11404095341,3679028107
+v1,v1 cold growth,tinywasm,5,"EH parser, exnref (4096 stmts, 25% throw)",830008030,80,22.501,1793.38,1.000,2.66,8729814802,3284170393
+v1,v1 cold growth,tinywasm,5,GC binary trees (~130K struct.new),-81253392,13,154.141,1957.50,1.000,2.19,7973763048,3645979602
+v1,v1 cold growth,tinywasm,5,call_ref twin: call_indirect (200K),-750120562,67,29.792,1991.34,1.000,2.54,9270100549,3644416682
+v5,v5 v1+inline binop,tinywasm,1,fib(30),832040,12,154.753,1842.57,1.000,3.19,10786388685,3379671392
+v5,v5 v1+inline binop,tinywasm,1,matmul relaxed-simd FMA,48907,442,4.244,1877.26,0.998,3.23,11100652747,3438136246
+v5,v5 v1+inline binop,tinywasm,1,audio DSP (1000 frames × 512),761667740,1,1576.197,1565.01,1.000,3.29,9418277937,2864889496
+v5,v5 v1+inline binop,tinywasm,1,call_indirect (200K dispatches),-9175573,59,33.867,1989.89,1.000,2.41,8787181542,3641687216
+v5,v5 v1+inline binop,tinywasm,1,xmrsplayer (1024-frame buffer),-1464994193,85,23.608,1999.90,1.000,2.63,9614733124,3659997421
+v5,v5 v1+inline binop,tinywasm,1,vtable_poly4 (200K),-126115384,28,67.403,1881.80,1.000,2.65,9112712958,3443919496
+v5,v5 v1+inline binop,tinywasm,1,graphql-validation (AS),5,105,18.776,1986.02,1.000,2.32,8432730455,3641051264
+v5,v5 v1+inline binop,tinywasm,1,graphql-validation (Porffor),0,116,16.239,1603.72,1.000,2.04,7158224325,3508841148
+v5,v5 v1+inline binop,tinywasm,1,sieve(10000) [scalar build],1229,1963,1.010,1984.04,1.000,3.23,11736725747,3631661782
+v5,v5 v1+inline binop,tinywasm,1,crc32(64KB) [scalar build],-1910355869,277,7.283,2014.67,1.000,3.29,12145074141,3687275583
+v5,v5 v1+inline binop,tinywasm,1,convolution 256×256 [scalar build],8190685,94,20.892,1956.64,1.000,3.07,11002901190,3580981085
+v5,v5 v1+inline binop,tinywasm,1,bulk_memory (memory.copy/fill) [scalar build],8698902,133,15.157,2009.95,1.000,3.40,12493014281,3677988789
+v5,v5 v1+inline binop,tinywasm,1,tail-call FSM (65536 return_call),-1841735369,266,7.684,2040.03,1.000,3.06,11426378365,3734006725
+v5,v5 v1+inline binop,tinywasm,1,"EH parser, exnref (4096 stmts, 25% throw)",830008030,89,22.340,1981.17,1.000,2.66,9640248590,3626873106
+v5,v5 v1+inline binop,tinywasm,1,GC binary trees (~130K struct.new),-81253392,12,154.537,1807.57,1.000,2.18,7332714916,3369557539
+v5,v5 v1+inline binop,tinywasm,1,call_ref twin: call_indirect (200K),-750120562,67,29.276,1952.52,1.000,2.53,9028499187,3571929730
+v5,v5 v1+inline binop,tinywasm,2,fib(30),832040,12,154.388,1840.67,1.000,3.20,10784373949,3374475019
+v5,v5 v1+inline binop,tinywasm,2,matmul relaxed-simd FMA,48907,467,4.247,1980.47,1.000,3.23,11716457951,3625211733
+v5,v5 v1+inline binop,tinywasm,2,audio DSP (1000 frames × 512),761667740,1,1571.687,1564.08,1.000,3.29,9418014966,2862534504
+v5,v5 v1+inline binop,tinywasm,2,call_indirect (200K dispatches),-9175573,59,33.904,1992.84,1.000,2.41,8786663937,3646403169
+v5,v5 v1+inline binop,tinywasm,2,xmrsplayer (1024-frame buffer),-1323583813,84,24.061,2010.93,1.000,2.58,9501495119,3680154445
+v5,v5 v1+inline binop,tinywasm,2,vtable_poly4 (200K),-126115384,29,67.637,1950.53,1.000,2.64,9437995653,3569092784
+v5,v5 v1+inline binop,tinywasm,2,graphql-validation (AS),5,102,18.878,1937.12,1.000,2.31,8197005572,3554311651
+v5,v5 v1+inline binop,tinywasm,2,graphql-validation (Porffor),0,122,16.079,1659.74,1.000,2.07,7526110941,3631660103
+v5,v5 v1+inline binop,tinywasm,2,sieve(10000) [scalar build],1229,1978,1.014,2006.15,1.000,3.22,11826028845,3670986975
+v5,v5 v1+inline binop,tinywasm,2,crc32(64KB) [scalar build],-1910355869,277,7.283,2013.53,1.000,3.30,12144981181,3685364939
+v5,v5 v1+inline binop,tinywasm,2,convolution 256×256 [scalar build],8190685,97,20.988,2029.95,1.000,3.06,11353985202,3714021947
+v5,v5 v1+inline binop,tinywasm,2,bulk_memory (memory.copy/fill) [scalar build],8698902,133,15.159,2010.21,1.000,3.40,12493031460,3679206789
+v5,v5 v1+inline binop,tinywasm,2,tail-call FSM (65536 return_call),-1841735369,263,7.701,2022.70,1.000,3.05,11297357601,3701437056
+v5,v5 v1+inline binop,tinywasm,2,"EH parser, exnref (4096 stmts, 25% throw)",830008030,87,22.453,1946.84,1.000,2.64,9424166575,3564228292
+v5,v5 v1+inline binop,tinywasm,2,GC binary trees (~130K struct.new),-81253392,12,153.880,1808.08,1.000,2.18,7331721906,3367429868
+v5,v5 v1+inline binop,tinywasm,2,call_ref twin: call_indirect (200K),-750120562,67,29.267,1956.16,1.000,2.52,9029657359,3583283709
+v5,v5 v1+inline binop,tinywasm,3,fib(30),832040,12,154.272,1839.54,0.999,3.20,10783924588,3370477124
+v5,v5 v1+inline binop,tinywasm,3,matmul relaxed-simd FMA,48907,471,4.246,1996.96,1.000,3.23,11816575893,3654730203
+v5,v5 v1+inline binop,tinywasm,3,audio DSP (1000 frames × 512),761667740,1,1581.060,1572.44,1.000,3.27,9417932389,2877760353
+v5,v5 v1+inline binop,tinywasm,3,call_indirect (200K dispatches),-9175573,59,33.798,1983.34,1.000,2.42,8787442754,3635751808
+v5,v5 v1+inline binop,tinywasm,3,xmrsplayer (1024-frame buffer),-1612982694,86,22.815,1955.32,1.000,2.72,9726887241,3578050916
+v5,v5 v1+inline binop,tinywasm,3,vtable_poly4 (200K),-126115384,29,67.907,1956.31,1.000,2.63,9439534195,3585547009
+v5,v5 v1+inline binop,tinywasm,3,graphql-validation (AS),5,100,19.027,1916.41,1.000,2.29,8039919692,3512501893
+v5,v5 v1+inline binop,tinywasm,3,graphql-validation (Porffor),0,123,16.154,1678.95,1.000,2.06,7587554971,3676179786
+v5,v5 v1+inline binop,tinywasm,3,sieve(10000) [scalar build],1229,1913,1.012,1936.06,1.000,3.23,11437398922,3542526495
+v5,v5 v1+inline binop,tinywasm,3,crc32(64KB) [scalar build],-1910355869,271,7.295,1974.01,1.000,3.29,11881917570,3612165359
+v5,v5 v1+inline binop,tinywasm,3,convolution 256×256 [scalar build],8190685,95,21.018,1989.45,1.000,3.05,11120058157,3641194552
+v5,v5 v1+inline binop,tinywasm,3,bulk_memory (memory.copy/fill) [scalar build],8698902,132,15.212,2000.81,1.000,3.39,12399648814,3662647899
+v5,v5 v1+inline binop,tinywasm,3,tail-call FSM (65536 return_call),-1841735369,260,7.746,2009.83,1.000,3.04,11168358329,3678746064
+v5,v5 v1+inline binop,tinywasm,3,"EH parser, exnref (4096 stmts, 25% throw)",830008030,88,22.512,1970.76,1.000,2.64,9533278127,3610440918
+v5,v5 v1+inline binop,tinywasm,3,GC binary trees (~130K struct.new),-81253392,12,154.506,1813.28,1.000,2.17,7331596838,3377530510
+v5,v5 v1+inline binop,tinywasm,3,call_ref twin: call_indirect (200K),-750120562,67,29.341,1953.23,1.000,2.52,9029828235,3578801377
+v5,v5 v1+inline binop,tinywasm,4,fib(30),832040,12,155.571,1850.67,1.000,3.18,10785204450,3392530824
+v5,v5 v1+inline binop,tinywasm,4,matmul relaxed-simd FMA,48907,473,4.245,2005.03,1.000,3.23,11866675501,3669470131
+v5,v5 v1+inline binop,tinywasm,4,audio DSP (1000 frames × 512),761667740,1,1572.730,1563.41,1.000,3.29,9418078271,2861264717
+v5,v5 v1+inline binop,tinywasm,4,call_indirect (200K dispatches),-9175573,59,33.753,1983.82,1.000,2.42,8786810838,3630061462
+v5,v5 v1+inline binop,tinywasm,4,xmrsplayer (1024-frame buffer),1890055750,88,22.764,1995.01,1.000,2.72,9954840055,3657654634
+v5,v5 v1+inline binop,tinywasm,4,vtable_poly4 (200K),-126115384,29,67.780,1951.14,1.000,2.64,9440472553,3574488166
+v5,v5 v1+inline binop,tinywasm,4,graphql-validation (AS),5,104,18.966,1991.10,1.000,2.29,8353456163,3648549425
+v5,v5 v1+inline binop,tinywasm,4,graphql-validation (Porffor),0,123,16.102,1674.24,1.000,2.07,7588157484,3668549947
+v5,v5 v1+inline binop,tinywasm,4,sieve(10000) [scalar build],1229,1895,1.011,1917.12,1.000,3.23,11330102697,3508798647
+v5,v5 v1+inline binop,tinywasm,4,crc32(64KB) [scalar build],-1910355869,274,7.296,1995.87,1.000,3.29,12013555998,3653498026
+v5,v5 v1+inline binop,tinywasm,4,convolution 256×256 [scalar build],8190685,96,20.995,2009.50,1.000,3.06,11237198788,3677992713
+v5,v5 v1+inline binop,tinywasm,4,bulk_memory (memory.copy/fill) [scalar build],8698902,132,15.152,1996.28,1.000,3.39,12398905347,3653112401
+v5,v5 v1+inline binop,tinywasm,4,tail-call FSM (65536 return_call),-1841735369,264,7.687,2025.17,1.000,3.06,11340441786,3707951621
+v5,v5 v1+inline binop,tinywasm,4,"EH parser, exnref (4096 stmts, 25% throw)",830008030,88,24.138,2116.17,1.000,2.46,9532325210,3873816689
+v5,v5 v1+inline binop,tinywasm,4,GC binary trees (~130K struct.new),-81253392,12,155.204,1813.42,1.000,2.17,7334529700,3386306102
+v5,v5 v1+inline binop,tinywasm,4,call_ref twin: call_indirect (200K),-750120562,67,29.545,1967.34,1.000,2.51,9029047838,3600689049
+v5,v5 v1+inline binop,tinywasm,5,fib(30),832040,12,154.269,1840.94,0.999,3.20,10784048169,3373161651
+v5,v5 v1+inline binop,tinywasm,5,matmul relaxed-simd FMA,48907,471,4.249,1998.09,1.000,3.23,11817902370,3658140808
+v5,v5 v1+inline binop,tinywasm,5,audio DSP (1000 frames × 512),761667740,1,1576.949,1566.62,1.000,3.28,9418207514,2867149253
+v5,v5 v1+inline binop,tinywasm,5,call_indirect (200K dispatches),-9175573,59,33.911,1992.46,1.000,2.41,8787051177,3647462327
+v5,v5 v1+inline binop,tinywasm,5,xmrsplayer (1024-frame buffer),-1464994193,85,24.056,2037.83,1.000,2.58,9615207038,3729676469
+v5,v5 v1+inline binop,tinywasm,5,vtable_poly4 (200K),-126115384,29,67.573,1945.70,1.000,2.65,9440223000,3564680219
+v5,v5 v1+inline binop,tinywasm,5,graphql-validation (AS),5,105,18.709,1982.85,1.000,2.32,8432050391,3633322038
+v5,v5 v1+inline binop,tinywasm,5,graphql-validation (Porffor),0,123,16.130,1684.81,1.000,2.06,7589383354,3686413720
+v5,v5 v1+inline binop,tinywasm,5,sieve(10000) [scalar build],1229,1885,1.012,1907.63,1.000,3.23,11270050695,3491252591
+v5,v5 v1+inline binop,tinywasm,5,crc32(64KB) [scalar build],-1910355869,277,7.283,2014.61,1.000,3.29,12145096377,3687306004
+v5,v5 v1+inline binop,tinywasm,5,convolution 256×256 [scalar build],8190685,95,20.906,1976.39,1.000,3.07,11120095692,3617632878
+v5,v5 v1+inline binop,tinywasm,5,bulk_memory (memory.copy/fill) [scalar build],8698902,133,15.149,2009.45,1.000,3.40,12493157417,3678515440
+v5,v5 v1+inline binop,tinywasm,5,tail-call FSM (65536 return_call),-1841735369,264,7.696,2028.94,1.000,3.05,11340483399,3713628265
+v5,v5 v1+inline binop,tinywasm,5,"EH parser, exnref (4096 stmts, 25% throw)",830008030,89,22.273,1975.12,1.000,2.66,9641348463,3620446260
+v5,v5 v1+inline binop,tinywasm,5,GC binary trees (~130K struct.new),-81253392,12,154.338,1803.60,1.000,2.18,7332125476,3361192357
+v5,v5 v1+inline binop,tinywasm,5,call_ref twin: call_indirect (200K),-750120562,66,29.493,1933.35,1.000,2.51,8894148829,3538219524
+v4,v4 upper bound,tinywasm,1,fib(30),832040,12,150.965,1798.91,0.998,3.21,10602795303,3300113654
+v4,v4 upper bound,tinywasm,1,matmul relaxed-simd FMA,48907,510,3.946,2011.28,1.000,3.29,12115445402,3681769992
+v4,v4 upper bound,tinywasm,1,audio DSP (1000 frames × 512),761667740,1,1537.565,1525.97,1.000,3.25,9101265453,2796963574
+v4,v4 upper bound,tinywasm,1,call_indirect (200K dispatches),-9175573,60,32.993,1970.00,1.000,2.43,8787579243,3609561068
+v4,v4 upper bound,tinywasm,1,xmrsplayer (1024-frame buffer),-1464994193,85,23.564,2003.19,0.998,2.56,9404019456,3676989854
+v4,v4 upper bound,tinywasm,1,vtable_poly4 (200K),-126115384,30,66.022,1969.66,1.000,2.65,9562965540,3605939675
+v4,v4 upper bound,tinywasm,1,graphql-validation (AS),5,106,18.555,1984.63,1.000,2.29,8314510821,3633548320
+v4,v4 upper bound,tinywasm,1,graphql-validation (Porffor),0,123,15.731,1635.80,1.000,2.07,7411875940,3581969946
+v4,v4 upper bound,tinywasm,1,sieve(10000) [scalar build],1229,1960,0.990,1941.97,1.000,3.20,11360325002,3554636960
+v4,v4 upper bound,tinywasm,1,crc32(64KB) [scalar build],-1910355869,288,7.010,2015.83,1.000,3.33,12284526406,3689652663
+v4,v4 upper bound,tinywasm,1,convolution 256×256 [scalar build],8190685,102,19.846,2016.30,1.000,3.11,11489127059,3690346298
+v4,v4 upper bound,tinywasm,1,bulk_memory (memory.copy/fill) [scalar build],8698902,138,14.743,2024.40,1.000,3.41,12659917439,3710442336
+v4,v4 upper bound,tinywasm,1,tail-call FSM (65536 return_call),-1841735369,266,7.517,1996.42,1.000,3.09,11287563026,3657600612
+v4,v4 upper bound,tinywasm,1,"EH parser, exnref (4096 stmts, 25% throw)",830008030,90,22.126,1983.17,1.000,2.65,9612082085,3630853111
+v4,v4 upper bound,tinywasm,1,GC binary trees (~130K struct.new),-81253392,13,153.753,1956.05,1.000,2.16,7880027304,3643012018
+v4,v4 upper bound,tinywasm,1,call_ref twin: call_indirect (200K),-750120562,69,29.044,1989.97,1.000,2.52,9191373618,3641986656
+v4,v4 upper bound,tinywasm,2,fib(30),832040,12,150.848,1795.06,0.999,3.22,10589555006,3288482786
+v4,v4 upper bound,tinywasm,2,matmul relaxed-simd FMA,48907,509,3.936,2001.20,1.000,3.30,12093695175,3665452836
+v4,v4 upper bound,tinywasm,2,audio DSP (1000 frames × 512),761667740,1,1520.440,1510.33,1.000,3.29,9100562115,2764820870
+v4,v4 upper bound,tinywasm,2,call_indirect (200K dispatches),-9175573,60,33.310,1981.93,1.000,2.41,8786234851,3644068001
+v4,v4 upper bound,tinywasm,2,xmrsplayer (1024-frame buffer),1659814254,83,23.938,1981.44,1.000,2.53,9167382292,3626110681
+v4,v4 upper bound,tinywasm,2,vtable_poly4 (200K),-126115384,30,65.841,1963.35,1.000,2.66,9563399196,3594251207
+v4,v4 upper bound,tinywasm,2,graphql-validation (AS),5,87,18.804,1640.07,1.000,2.27,6817865928,3006702463
+v4,v4 upper bound,tinywasm,2,graphql-validation (Porffor),0,122,16.159,1657.44,1.000,2.01,7360204964,3657350571
+v4,v4 upper bound,tinywasm,2,sieve(10000) [scalar build],1229,1866,0.989,1848.34,1.000,3.20,10815145445,3382471972
+v4,v4 upper bound,tinywasm,2,crc32(64KB) [scalar build],-1910355869,286,7.007,2001.29,1.000,3.33,12199142968,3663028936
+v4,v4 upper bound,tinywasm,2,convolution 256×256 [scalar build],8190685,101,19.843,1996.83,1.000,3.11,11376283464,3654207658
+v4,v4 upper bound,tinywasm,2,bulk_memory (memory.copy/fill) [scalar build],8698902,138,14.714,2025.42,1.000,3.41,12660813989,3712989528
+v4,v4 upper bound,tinywasm,2,tail-call FSM (65536 return_call),-1841735369,270,7.551,2033.95,1.000,3.08,11456483846,3722503576
+v4,v4 upper bound,tinywasm,2,"EH parser, exnref (4096 stmts, 25% throw)",830008030,90,22.156,1986.89,1.000,2.64,9612437541,3637606930
+v4,v4 upper bound,tinywasm,2,GC binary trees (~130K struct.new),-81253392,12,153.620,1803.41,1.000,2.17,7276799519,3358337034
+v4,v4 upper bound,tinywasm,2,call_ref twin: call_indirect (200K),-750120562,68,29.131,1966.19,1.000,2.52,9058136671,3598037459
+v4,v4 upper bound,tinywasm,3,fib(30),832040,13,150.687,1944.59,1.000,3.22,11472883941,3565298172
+v4,v4 upper bound,tinywasm,3,matmul relaxed-simd FMA,48907,510,3.942,2007.60,1.000,3.30,12115103823,3675117242
+v4,v4 upper bound,tinywasm,3,audio DSP (1000 frames × 512),761667740,1,1505.008,1493.80,1.000,3.32,9101396284,2738465005
+v4,v4 upper bound,tinywasm,3,call_indirect (200K dispatches),-9175573,60,33.132,1979.39,1.000,2.43,8785989200,3622830348
+v4,v4 upper bound,tinywasm,3,xmrsplayer (1024-frame buffer),155573075,87,23.582,2041.20,1.000,2.57,9608003597,3736200586
+v4,v4 upper bound,tinywasm,3,vtable_poly4 (200K),-126115384,30,66.154,1973.16,1.000,2.65,9562419304,3610770599
+v4,v4 upper bound,tinywasm,3,graphql-validation (AS),5,106,18.739,1994.12,1.000,2.28,8315729718,3654767485
+v4,v4 upper bound,tinywasm,3,graphql-validation (Porffor),0,124,15.884,1663.40,1.000,2.05,7470800584,3643376068
+v4,v4 upper bound,tinywasm,3,sieve(10000) [scalar build],1229,2021,0.989,2002.46,1.000,3.20,11713438358,3664475343
+v4,v4 upper bound,tinywasm,3,crc32(64KB) [scalar build],-1910355869,288,7.006,2015.23,1.000,3.33,12284179746,3687455872
+v4,v4 upper bound,tinywasm,3,convolution 256×256 [scalar build],8190685,101,19.865,1999.55,1.000,3.11,11376280041,3659234896
+v4,v4 upper bound,tinywasm,3,bulk_memory (memory.copy/fill) [scalar build],8698902,137,14.699,2008.25,1.000,3.42,12566592313,3674651709
+v4,v4 upper bound,tinywasm,3,tail-call FSM (65536 return_call),-1841735369,272,7.529,2044.67,1.000,3.08,11543506547,3745256274
+v4,v4 upper bound,tinywasm,3,"EH parser, exnref (4096 stmts, 25% throw)",830008030,90,22.185,1988.38,1.000,2.64,9613564432,3642819772
+v4,v4 upper bound,tinywasm,3,GC binary trees (~130K struct.new),-81253392,12,154.324,1809.90,1.000,2.16,7276892339,3371852634
+v4,v4 upper bound,tinywasm,3,call_ref twin: call_indirect (200K),-750120562,69,28.542,1965.86,1.000,2.55,9191128435,3597876804
+v4,v4 upper bound,tinywasm,4,fib(30),832040,13,150.696,1944.39,1.000,3.22,11472264528,3563464835
+v4,v4 upper bound,tinywasm,4,matmul relaxed-simd FMA,48907,496,3.943,1954.67,1.000,3.29,11782330277,3577974912
+v4,v4 upper bound,tinywasm,4,audio DSP (1000 frames × 512),761667740,1,1506.133,1495.94,1.000,3.32,9100641013,2738626642
+v4,v4 upper bound,tinywasm,4,call_indirect (200K dispatches),-9175573,56,35.676,1988.37,1.000,2.25,8200998937,3639972923
+v4,v4 upper bound,tinywasm,4,xmrsplayer (1024-frame buffer),-2074729185,89,22.511,1997.19,1.000,2.69,9829378733,3658027550
+v4,v4 upper bound,tinywasm,4,vtable_poly4 (200K),-126115384,30,65.970,1967.39,1.000,2.66,9562596293,3600772739
+v4,v4 upper bound,tinywasm,4,graphql-validation (AS),5,107,18.419,1982.13,1.000,2.31,8384177003,3633882408
+v4,v4 upper bound,tinywasm,4,graphql-validation (Porffor),0,121,16.052,1636.61,1.000,2.02,7303253745,3606989826
+v4,v4 upper bound,tinywasm,4,sieve(10000) [scalar build],1229,1924,0.990,1907.96,1.000,3.19,11152765182,3494046139
+v4,v4 upper bound,tinywasm,4,crc32(64KB) [scalar build],-1910355869,289,7.009,2022.60,1.000,3.33,12327240343,3702346342
+v4,v4 upper bound,tinywasm,4,convolution 256×256 [scalar build],8190685,102,19.855,2017.45,1.000,3.11,11488913638,3691186769
+v4,v4 upper bound,tinywasm,4,bulk_memory (memory.copy/fill) [scalar build],8698902,137,14.732,2012.58,1.000,3.41,12567478576,3687992091
+v4,v4 upper bound,tinywasm,4,tail-call FSM (65536 return_call),-1841735369,270,7.512,2025.29,1.000,3.09,11456412294,3706283523
+v4,v4 upper bound,tinywasm,4,"EH parser, exnref (4096 stmts, 25% throw)",830008030,90,22.114,1980.99,1.000,2.65,9611867537,3626562198
+v4,v4 upper bound,tinywasm,4,GC binary trees (~130K struct.new),-81253392,12,153.784,1802.77,1.000,2.17,7276677179,3357393418
+v4,v4 upper bound,tinywasm,4,call_ref twin: call_indirect (200K),-750120562,66,29.959,1969.55,1.000,2.44,8791625090,3603643549
+v4,v4 upper bound,tinywasm,5,fib(30),832040,13,150.763,1946.99,1.000,3.21,11472954932,3568819454
+v4,v4 upper bound,tinywasm,5,matmul relaxed-simd FMA,48907,511,3.929,2005.64,1.000,3.31,12138470051,3669830092
+v4,v4 upper bound,tinywasm,5,audio DSP (1000 frames × 512),761667740,1,1520.232,1507.90,1.000,3.29,9101450698,2764243145
+v4,v4 upper bound,tinywasm,5,call_indirect (200K dispatches),-9175573,60,33.166,1982.39,1.000,2.42,8785734799,3627716314
+v4,v4 upper bound,tinywasm,5,xmrsplayer (1024-frame buffer),1890055750,88,22.972,2016.05,1.000,2.63,9717960344,3689632375
+v4,v4 upper bound,tinywasm,5,vtable_poly4 (200K),-126115384,30,65.742,1961.48,1.000,2.66,9562255917,3588542952
+v4,v4 upper bound,tinywasm,5,graphql-validation (AS),5,97,18.428,1801.89,1.000,2.30,7604331963,3303378864
+v4,v4 upper bound,tinywasm,5,graphql-validation (Porffor),0,122,16.090,1667.03,1.000,2.02,7337444880,3627293973
+v4,v4 upper bound,tinywasm,5,sieve(10000) [scalar build],1229,1891,0.990,1875.10,1.000,3.19,10960259849,3431246782
+v4,v4 upper bound,tinywasm,5,crc32(64KB) [scalar build],-1910355869,289,7.020,2026.21,1.000,3.32,12326903364,3708051926
+v4,v4 upper bound,tinywasm,5,convolution 256×256 [scalar build],8190685,102,19.965,2029.16,1.000,3.10,11488707131,3711786001
+v4,v4 upper bound,tinywasm,5,bulk_memory (memory.copy/fill) [scalar build],8698902,137,14.731,2014.12,1.000,3.41,12566559060,3686009306
+v4,v4 upper bound,tinywasm,5,tail-call FSM (65536 return_call),-1841735369,269,7.506,2016.93,1.000,3.09,11414736199,3695627140
+v4,v4 upper bound,tinywasm,5,"EH parser, exnref (4096 stmts, 25% throw)",830008030,89,22.326,1979.57,1.000,2.62,9506879670,3625419765
+v4,v4 upper bound,tinywasm,5,GC binary trees (~130K struct.new),-81253392,12,153.635,1805.62,1.000,2.16,7276954924,3364032262
+v4,v4 upper bound,tinywasm,5,call_ref twin: call_indirect (200K),-750120562,66,28.757,1891.87,1.000,2.54,8791022474,3460422328
+base2,tinywasm next b45a98a (re-run),tinywasm,1,fib(30),832040,11,166.494,1821.14,0.998,3.18,10610477072,3340930898
+base2,tinywasm next b45a98a (re-run),tinywasm,1,matmul relaxed-simd FMA,48907,401,4.471,1791.06,1.000,3.22,10554181413,3278890249
+base2,tinywasm next b45a98a (re-run),tinywasm,1,audio DSP (1000 frames × 512),761667740,1,1686.551,1673.12,1.000,3.38,10363706610,3066488627
+base2,tinywasm next b45a98a (re-run),tinywasm,1,call_indirect (200K dispatches),-9175573,57,35.000,1985.88,1.000,2.43,8831405467,3634694311
+base2,tinywasm next b45a98a (re-run),tinywasm,1,xmrsplayer (1024-frame buffer),1821690159,80,25.070,1999.72,1.000,2.61,9535638430,3659945146
+base2,tinywasm next b45a98a (re-run),tinywasm,1,vtable_poly4 (200K),-126115384,28,71.298,1982.30,1.000,2.67,9671720782,3628530194
+base2,tinywasm next b45a98a (re-run),tinywasm,1,graphql-validation (AS),5,98,19.882,1965.60,1.000,2.32,8359782428,3597550681
+base2,tinywasm next b45a98a (re-run),tinywasm,1,graphql-validation (Porffor),0,115,16.777,1642.14,1.000,2.09,7450608680,3572384281
+base2,tinywasm next b45a98a (re-run),tinywasm,1,sieve(10000) [scalar build],1229,1810,1.118,2013.78,1.000,3.15,11612125784,3685330062
+base2,tinywasm next b45a98a (re-run),tinywasm,1,crc32(64KB) [scalar build],-1910355869,246,8.113,1979.99,1.000,3.20,11583453998,3623236182
+base2,tinywasm next b45a98a (re-run),tinywasm,1,convolution 256×256 [scalar build],8190685,89,22.386,1983.92,1.000,3.05,11072324576,3630896379
+base2,tinywasm next b45a98a (re-run),tinywasm,1,bulk_memory (memory.copy/fill) [scalar build],8698902,117,16.736,1948.40,1.000,3.31,11822699126,3566596014
+base2,tinywasm next b45a98a (re-run),tinywasm,1,tail-call FSM (65536 return_call),-1841735369,248,7.986,1977.31,1.000,3.10,11222735610,3622402343
+base2,tinywasm next b45a98a (re-run),tinywasm,1,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.155,1982.89,1.000,2.64,9587053693,3631940958
+base2,tinywasm next b45a98a (re-run),tinywasm,1,GC binary trees (~130K struct.new),-81253392,12,155.661,1830.91,1.000,2.19,7460536148,3408891560
+base2,tinywasm next b45a98a (re-run),tinywasm,1,call_ref twin: call_indirect (200K),-750120562,66,30.290,1989.22,1.000,2.57,9360186554,3641161875
+base2,tinywasm next b45a98a (re-run),tinywasm,2,fib(30),832040,11,166.290,1819.40,1.000,3.18,10597026242,3332279821
+base2,tinywasm next b45a98a (re-run),tinywasm,2,matmul relaxed-simd FMA,48907,453,4.489,2030.25,1.000,3.21,11922569928,3716009444
+base2,tinywasm next b45a98a (re-run),tinywasm,2,audio DSP (1000 frames × 512),761667740,1,1682.612,1672.92,1.000,3.38,10362878634,3062318290
+base2,tinywasm next b45a98a (re-run),tinywasm,2,call_indirect (200K dispatches),-9175573,57,34.751,1972.28,1.000,2.45,8831073185,3610961369
+base2,tinywasm next b45a98a (re-run),tinywasm,2,xmrsplayer (1024-frame buffer),1258103818,82,24.262,1979.87,1.000,2.70,9772772929,3623421220
+base2,tinywasm next b45a98a (re-run),tinywasm,2,vtable_poly4 (200K),-126115384,28,71.554,1994.85,1.000,2.65,9671480822,3651056668
+base2,tinywasm next b45a98a (re-run),tinywasm,2,graphql-validation (AS),5,97,19.742,1930.29,1.000,2.34,8275429076,3532428103
+base2,tinywasm next b45a98a (re-run),tinywasm,2,graphql-validation (Porffor),0,119,16.523,1678.12,1.000,2.12,7705414689,3643090424
+base2,tinywasm next b45a98a (re-run),tinywasm,2,sieve(10000) [scalar build],1229,1778,1.116,1979.19,1.000,3.15,11406769475,3621963238
+base2,tinywasm next b45a98a (re-run),tinywasm,2,crc32(64KB) [scalar build],-1910355869,247,8.038,1981.15,1.000,3.21,11630987403,3626631632
+base2,tinywasm next b45a98a (re-run),tinywasm,2,convolution 256×256 [scalar build],8190685,88,22.399,1962.84,1.000,3.05,10949340437,3593239775
+base2,tinywasm next b45a98a (re-run),tinywasm,2,bulk_memory (memory.copy/fill) [scalar build],8698902,116,16.762,1932.97,1.000,3.31,11725740009,3547306906
+base2,tinywasm next b45a98a (re-run),tinywasm,2,tail-call FSM (65536 return_call),-1841735369,248,8.001,1980.29,1.000,3.10,11221898307,3624849472
+base2,tinywasm next b45a98a (re-run),tinywasm,2,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.091,1977.38,1.000,2.65,9585651337,3620923677
+base2,tinywasm next b45a98a (re-run),tinywasm,2,GC binary trees (~130K struct.new),-81253392,12,156.096,1829.29,1.000,2.19,7460096785,3407241079
+base2,tinywasm next b45a98a (re-run),tinywasm,2,call_ref twin: call_indirect (200K),-750120562,66,30.339,1992.04,1.000,2.57,9359957079,3646143789
+base2,tinywasm next b45a98a (re-run),tinywasm,3,fib(30),832040,11,166.515,1818.72,1.000,3.18,10597232920,3332854293
+base2,tinywasm next b45a98a (re-run),tinywasm,3,matmul relaxed-simd FMA,48907,453,4.473,2024.39,1.000,3.22,11922631865,3705629520
+base2,tinywasm next b45a98a (re-run),tinywasm,3,audio DSP (1000 frames × 512),761667740,1,1687.453,1673.29,1.000,3.38,10364066236,3063715833
+base2,tinywasm next b45a98a (re-run),tinywasm,3,call_indirect (200K dispatches),-9175573,57,34.956,1983.48,1.000,2.43,8830893565,3629475889
+base2,tinywasm next b45a98a (re-run),tinywasm,3,xmrsplayer (1024-frame buffer),1681653048,79,25.042,1966.18,1.000,2.62,9417227264,3600182743
+base2,tinywasm next b45a98a (re-run),tinywasm,3,vtable_poly4 (200K),-126115384,28,70.811,1969.97,1.000,2.68,9671596123,3605739837
+base2,tinywasm next b45a98a (re-run),tinywasm,3,graphql-validation (AS),5,99,19.775,1971.08,1.000,2.34,8442942954,3607650548
+base2,tinywasm next b45a98a (re-run),tinywasm,3,graphql-validation (Porffor),0,117,16.775,1676.69,1.000,2.09,7581998062,3633787685
+base2,tinywasm next b45a98a (re-run),tinywasm,3,sieve(10000) [scalar build],1229,1769,1.113,1967.01,1.000,3.15,11348873585,3600062311
+base2,tinywasm next b45a98a (re-run),tinywasm,3,crc32(64KB) [scalar build],-1910355869,248,8.128,2001.58,1.000,3.19,11677748636,3662851560
+base2,tinywasm next b45a98a (re-run),tinywasm,3,convolution 256×256 [scalar build],8190685,89,22.419,1985.15,1.000,3.04,11074433400,3639398700
+base2,tinywasm next b45a98a (re-run),tinywasm,3,bulk_memory (memory.copy/fill) [scalar build],8698902,118,16.775,1969.78,1.000,3.31,11924738635,3605585096
+base2,tinywasm next b45a98a (re-run),tinywasm,3,tail-call FSM (65536 return_call),-1841735369,247,7.990,1969.96,1.000,3.10,11177234079,3607136780
+base2,tinywasm next b45a98a (re-run),tinywasm,3,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.107,1980.60,1.000,2.64,9587222564,3628739125
+base2,tinywasm next b45a98a (re-run),tinywasm,3,GC binary trees (~130K struct.new),-81253392,12,155.602,1829.47,1.000,2.19,7461426236,3408811939
+base2,tinywasm next b45a98a (re-run),tinywasm,3,call_ref twin: call_indirect (200K),-750120562,65,30.326,1962.40,1.000,2.57,9218042994,3591103154
+base2,tinywasm next b45a98a (re-run),tinywasm,4,fib(30),832040,11,166.574,1820.43,1.000,3.18,10597439243,3335140596
+base2,tinywasm next b45a98a (re-run),tinywasm,4,matmul relaxed-simd FMA,48907,453,4.475,2024.11,1.000,3.22,11923123714,3708117950
+base2,tinywasm next b45a98a (re-run),tinywasm,4,audio DSP (1000 frames × 512),761667740,1,1681.521,1673.70,1.000,3.38,10362710456,3063541273
+base2,tinywasm next b45a98a (re-run),tinywasm,4,call_indirect (200K dispatches),-9175573,57,34.818,1975.24,1.000,2.44,8831155727,3615688156
+base2,tinywasm next b45a98a (re-run),tinywasm,4,xmrsplayer (1024-frame buffer),1681653048,79,25.277,1987.68,1.000,2.59,9416869304,3638453699
+base2,tinywasm next b45a98a (re-run),tinywasm,4,vtable_poly4 (200K),-126115384,27,71.731,1930.48,1.000,2.64,9326043189,3533290262
+base2,tinywasm next b45a98a (re-run),tinywasm,4,graphql-validation (AS),5,98,19.871,1965.20,1.000,2.32,8359819342,3596698801
+base2,tinywasm next b45a98a (re-run),tinywasm,4,graphql-validation (Porffor),0,119,16.698,1694.27,1.000,2.10,7709720416,3676423393
+base2,tinywasm next b45a98a (re-run),tinywasm,4,sieve(10000) [scalar build],1229,1676,1.123,1872.07,1.000,3.14,10752416065,3425981317
+base2,tinywasm next b45a98a (re-run),tinywasm,4,crc32(64KB) [scalar build],-1910355869,245,8.127,1971.70,1.000,3.19,11542852127,3622504317
+base2,tinywasm next b45a98a (re-run),tinywasm,4,convolution 256×256 [scalar build],8190685,90,22.393,2007.67,1.000,3.05,11196499748,3673606213
+base2,tinywasm next b45a98a (re-run),tinywasm,4,bulk_memory (memory.copy/fill) [scalar build],8698902,120,16.751,1998.41,1.000,3.32,12125876296,3657596635
+base2,tinywasm next b45a98a (re-run),tinywasm,4,tail-call FSM (65536 return_call),-1841735369,252,7.987,2009.25,1.000,3.10,11402549330,3675937489
+base2,tinywasm next b45a98a (re-run),tinywasm,4,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.049,1970.71,1.000,2.66,9586156239,3609604031
+base2,tinywasm next b45a98a (re-run),tinywasm,4,GC binary trees (~130K struct.new),-81253392,12,155.844,1832.20,1.000,2.19,7460585212,3412522660
+base2,tinywasm next b45a98a (re-run),tinywasm,4,call_ref twin: call_indirect (200K),-750120562,66,30.195,1985.71,1.000,2.58,9359679165,3634549668
+base2,tinywasm next b45a98a (re-run),tinywasm,5,fib(30),832040,11,166.814,1818.86,1.000,3.17,10599502992,3340533637
+base2,tinywasm next b45a98a (re-run),tinywasm,5,matmul relaxed-simd FMA,48907,447,4.472,1996.99,1.000,3.22,11764379043,3655025819
+base2,tinywasm next b45a98a (re-run),tinywasm,5,audio DSP (1000 frames × 512),761667740,1,1680.401,1668.60,1.000,3.39,10362775077,3060657465
+base2,tinywasm next b45a98a (re-run),tinywasm,5,call_indirect (200K dispatches),-9175573,57,34.990,1986.60,1.000,2.43,8831041101,3635345709
+base2,tinywasm next b45a98a (re-run),tinywasm,5,xmrsplayer (1024-frame buffer),1821690159,80,25.070,1995.02,1.000,2.61,9535415043,3651769420
+base2,tinywasm next b45a98a (re-run),tinywasm,5,vtable_poly4 (200K),-126115384,28,71.331,1986.50,1.000,2.66,9673367918,3638835767
+base2,tinywasm next b45a98a (re-run),tinywasm,5,graphql-validation (AS),5,100,19.712,1990.36,1.000,2.34,8537996908,3642585834
+base2,tinywasm next b45a98a (re-run),tinywasm,5,graphql-validation (Porffor),0,115,16.804,1641.78,1.000,2.08,7453033634,3576352041
+base2,tinywasm next b45a98a (re-run),tinywasm,5,sieve(10000) [scalar build],1229,1822,1.114,2026.41,1.000,3.15,11689092339,3708863055
+base2,tinywasm next b45a98a (re-run),tinywasm,5,crc32(64KB) [scalar build],-1910355869,253,8.057,2029.75,1.000,3.20,11914042562,3719393086
+base2,tinywasm next b45a98a (re-run),tinywasm,5,convolution 256×256 [scalar build],8190685,89,22.421,1986.43,1.000,3.05,11072429733,3635862030
+base2,tinywasm next b45a98a (re-run),tinywasm,5,bulk_memory (memory.copy/fill) [scalar build],8698902,120,16.760,2000.08,1.000,3.31,12128590582,3663782216
+base2,tinywasm next b45a98a (re-run),tinywasm,5,tail-call FSM (65536 return_call),-1841735369,253,7.991,2016.40,1.000,3.10,11448103497,3690588036
+base2,tinywasm next b45a98a (re-run),tinywasm,5,"EH parser, exnref (4096 stmts, 25% throw)",830008030,86,23.195,1987.15,1.000,2.63,9586202487,3638918022
+base2,tinywasm next b45a98a (re-run),tinywasm,5,GC binary trees (~130K struct.new),-81253392,12,156.004,1832.48,1.000,2.18,7461338282,3414828420
+base2,tinywasm next b45a98a (re-run),tinywasm,5,call_ref twin: call_indirect (200K),-750120562,66,30.179,1981.57,1.000,2.58,9359579156,3625760814
+reference,runtime-refresh build,pulley,1,fib(30),832040,22,82.289,1796.84,0.999,2.36,7782973029,3292400852
+reference,runtime-refresh build,pulley,1,matmul relaxed-simd FMA,48907,860,2.332,2006.61,1.000,2.84,10420638786,3671818577
+reference,runtime-refresh build,pulley,1,audio DSP (1000 frames × 512),761667740,1,1084.777,1080.09,1.000,2.68,5296995401,1976169605
+reference,runtime-refresh build,pulley,1,call_indirect (200K dispatches),-9175573,70,28.288,1974.45,1.000,1.70,6150435176,3612799472
+reference,runtime-refresh build,pulley,1,graphql-validation (AS),5,162,13.142,2134.72,1.000,1.42,5563209686,3923921284
+reference,runtime-refresh build,pulley,1,graphql-validation (Porffor),0,130,15.165,1594.40,1.000,1.07,3884859715,3617752388
+reference,runtime-refresh build,pulley,1,xmrsplayer (1024-frame buffer),841571285,133,15.733,2077.24,1.000,2.06,7848749648,3801320461
+reference,runtime-refresh build,pulley,1,vtable_poly4 (200K),-126115384,41,47.301,1931.80,1.000,2.09,7408640284,3536942286
+reference,runtime-refresh build,pulley,1,sieve(10000) [scalar build],1229,3201,0.609,1950.51,1.000,2.93,10467732507,3574222517
+reference,runtime-refresh build,pulley,1,crc32(64KB) [scalar build],-1910355869,472,4.222,1988.94,1.000,3.01,10966886567,3640497947
+reference,runtime-refresh build,pulley,1,convolution 256×256 [scalar build],8190685,175,11.288,1969.29,1.000,3.20,11522582802,3605078763
+reference,runtime-refresh build,pulley,1,bulk_memory (memory.copy/fill) [scalar build],8698902,110,18.020,1976.46,1.000,2.42,8763292581,3616472944
+reference,runtime-refresh build,pulley,1,tail-call FSM (65536 return_call),-1841735369,531,3.743,1986.54,1.000,2.32,8426273505,3635923301
+reference,runtime-refresh build,pulley,1,"EH parser, exnref (4096 stmts, 25% throw)",830008030,122,15.552,1889.25,1.000,2.03,7004336969,3457478620
+reference,runtime-refresh build,pulley,1,GC binary trees (~130K struct.new),-81253392,17,116.019,1962.64,1.000,2.54,9134015169,3593561739
+reference,runtime-refresh build,pulley,1,call_ref twin: call_indirect (200K),-750120562,97,20.452,1978.28,1.000,1.83,6620913140,3620403943
+reference,runtime-refresh build,pulley,2,fib(30),832040,23,82.193,1878.33,1.000,2.36,8137984723,3444377531
+reference,runtime-refresh build,pulley,2,matmul relaxed-simd FMA,48907,874,2.286,1990.05,1.000,2.91,10590070338,3642606981
+reference,runtime-refresh build,pulley,2,audio DSP (1000 frames × 512),761667740,1,1086.625,1069.91,1.000,2.70,5297046740,1963066853
+reference,runtime-refresh build,pulley,2,call_indirect (200K dispatches),-9175573,72,27.527,1976.66,1.000,1.75,6328636078,3619993286
+reference,runtime-refresh build,pulley,2,graphql-validation (AS),5,162,13.174,2150.52,1.000,1.41,5562821361,3936160602
+reference,runtime-refresh build,pulley,2,graphql-validation (Porffor),0,132,15.040,1605.13,1.000,1.08,3937136505,3646902113
+reference,runtime-refresh build,pulley,2,xmrsplayer (1024-frame buffer),-1316682453,124,16.263,2013.13,1.000,1.99,7317895703,3686199092
+reference,runtime-refresh build,pulley,2,vtable_poly4 (200K),-126115384,40,47.796,1913.13,1.000,2.06,7226257162,3501056174
+reference,runtime-refresh build,pulley,2,sieve(10000) [scalar build],1229,3227,0.608,1966.13,1.000,2.93,10551421962,3597013261
+reference,runtime-refresh build,pulley,2,crc32(64KB) [scalar build],-1910355869,474,4.219,1996.32,1.000,3.01,11013598495,3653898613
+reference,runtime-refresh build,pulley,2,convolution 256×256 [scalar build],8190685,171,11.270,1922.70,1.000,3.20,11258800194,3517493315
+reference,runtime-refresh build,pulley,2,bulk_memory (memory.copy/fill) [scalar build],8698902,110,18.035,1977.61,1.000,2.42,8765017202,3621600095
+reference,runtime-refresh build,pulley,2,tail-call FSM (65536 return_call),-1841735369,524,3.744,1960.14,1.000,2.32,8315094264,3587870208
+reference,runtime-refresh build,pulley,2,"EH parser, exnref (4096 stmts, 25% throw)",830008030,124,15.748,1946.03,1.000,2.00,7119126410,3563270391
+reference,runtime-refresh build,pulley,2,GC binary trees (~130K struct.new),-81253392,16,119.151,1896.50,1.000,2.48,8596985569,3471715174
+reference,runtime-refresh build,pulley,2,call_ref twin: call_indirect (200K),-750120562,100,19.889,1981.81,1.000,1.88,6825474638,3627332145
+reference,runtime-refresh build,pulley,3,fib(30),832040,24,82.544,1961.30,0.999,2.36,8494594674,3599806197
+reference,runtime-refresh build,pulley,3,matmul relaxed-simd FMA,48907,876,2.289,2001.57,1.000,2.89,10620109089,3669081699
+reference,runtime-refresh build,pulley,3,audio DSP (1000 frames × 512),761667740,1,1104.011,1079.05,1.000,2.68,5299230195,1977961892
+reference,runtime-refresh build,pulley,3,call_indirect (200K dispatches),-9175573,70,27.670,1920.28,1.000,1.75,6154986350,3520074287
+reference,runtime-refresh build,pulley,3,graphql-validation (AS),5,164,13.026,2151.37,1.000,1.43,5634606956,3939817233
+reference,runtime-refresh build,pulley,3,graphql-validation (Porffor),0,133,14.035,1608.29,1.000,1.13,3941286158,3494961626
+reference,runtime-refresh build,pulley,3,xmrsplayer (1024-frame buffer),-1724340116,122,16.471,1989.12,1.000,1.97,7201549812,3647352582
+reference,runtime-refresh build,pulley,3,vtable_poly4 (200K),-126115384,40,48.305,1929.12,1.000,2.05,7227385123,3529834645
+reference,runtime-refresh build,pulley,3,sieve(10000) [scalar build],1229,3206,0.609,1954.19,1.000,2.93,10484085401,3577225132
+reference,runtime-refresh build,pulley,3,crc32(64KB) [scalar build],-1910355869,464,4.218,1954.39,1.000,3.01,10781993056,3577395157
+reference,runtime-refresh build,pulley,3,convolution 256×256 [scalar build],8190685,177,11.283,1994.19,1.000,3.19,11656442652,3651697037
+reference,runtime-refresh build,pulley,3,bulk_memory (memory.copy/fill) [scalar build],8698902,107,18.267,1940.54,1.000,2.40,8526604019,3553590799
+reference,runtime-refresh build,pulley,3,tail-call FSM (65536 return_call),-1841735369,499,3.745,1867.52,1.000,2.32,7919675449,3418901422
+reference,runtime-refresh build,pulley,3,"EH parser, exnref (4096 stmts, 25% throw)",830008030,128,15.320,1952.83,1.000,2.06,7349378732,3575261528
+reference,runtime-refresh build,pulley,3,GC binary trees (~130K struct.new),-81253392,17,115.079,1949.97,1.000,2.56,9135734942,3571247030
+reference,runtime-refresh build,pulley,3,call_ref twin: call_indirect (200K),-750120562,99,19.897,1963.81,1.000,1.88,6759801601,3597985927
+reference,runtime-refresh build,wamr,1,fib(30),832040,17,112.485,1901.93,1.000,2.51,8748253149,3485936195
+reference,runtime-refresh build,wamr,1,matmul relaxed-simd FMA,48907,1120,1.768,1979.01,1.000,3.03,10995892033,3624186801
+reference,runtime-refresh build,wamr,1,audio DSP (1000 frames × 512),761667740,2,788.641,1568.64,1.000,1.85,5304836554,2872715225
+reference,runtime-refresh build,wamr,1,call_indirect (200K dispatches),-9175573,124,16.090,1981.68,1.000,2.18,7922876451,3635762171
+reference,runtime-refresh build,wamr,1,xmrsplayer (1024-frame buffer),1218231417,153,12.988,1980.33,1.000,2.03,7378666223,3630205008
+reference,runtime-refresh build,wamr,1,graphql-validation (AS),5,250,9.524,2384.56,1.000,1.54,6723689283,4366141011
+reference,runtime-refresh build,wamr,1,graphql-validation (Porffor),0,199,10.556,1589.45,1.000,1.62,6421181749,3965623330
+reference,runtime-refresh build,wamr,1,vtable_poly4 (200K),-126115384,59,33.394,1981.90,1.000,2.28,8268418482,3627732854
+reference,runtime-refresh build,wamr,1,sieve(10000) [scalar build],1229,4784,0.478,2188.09,1.000,2.26,9066281895,4005395925
+reference,runtime-refresh build,wamr,1,crc32(64KB) [scalar build],-1910355869,634,3.173,2060.91,1.000,2.24,8459978257,3773068963
+reference,runtime-refresh build,wamr,1,convolution 256×256 [scalar build],8190685,192,9.402,1835.98,1.000,1.97,6615404856,3362797416
+reference,runtime-refresh build,wamr,1,bulk_memory (memory.copy/fill) [scalar build],8698902,214,8.675,1898.76,1.000,2.31,8032765167,3481300199
+reference,runtime-refresh build,wamr,1,tail-call FSM (65536 return_call),-1841735369,257,7.627,1957.92,1.000,2.93,10498549643,3584457067
+reference,runtime-refresh build,wamr,1,call_ref twin: call_indirect (200K),-750120562,130,15.132,1962.77,1.000,2.31,8309178290,3592384697
+reference,runtime-refresh build,wamr,2,fib(30),832040,17,111.246,1882.83,1.000,2.53,8749590378,3456785967
+reference,runtime-refresh build,wamr,2,matmul relaxed-simd FMA,48907,1131,1.766,1998.44,1.000,3.03,11103350763,3658474507
+reference,runtime-refresh build,wamr,2,audio DSP (1000 frames × 512),761667740,2,789.676,1568.66,1.000,1.85,5304247334,2874533098
+reference,runtime-refresh build,wamr,2,call_indirect (200K dispatches),-9175573,127,15.707,1988.62,1.000,2.23,8109469410,3640733474
+reference,runtime-refresh build,wamr,2,xmrsplayer (1024-frame buffer),1704145993,159,12.905,2043.72,1.000,2.05,7667839944,3744695842
+reference,runtime-refresh build,wamr,2,graphql-validation (AS),5,253,9.488,2403.48,1.000,1.55,6805994872,4401148818
+reference,runtime-refresh build,wamr,2,graphql-validation (Porffor),0,187,10.590,1491.93,1.000,1.64,6060980489,3701610708
+reference,runtime-refresh build,wamr,2,vtable_poly4 (200K),-126115384,60,33.010,2002.01,1.000,2.29,8408254205,3663936954
+reference,runtime-refresh build,wamr,2,sieve(10000) [scalar build],1229,4508,0.478,2079.95,1.000,2.24,8543682923,3808842964
+reference,runtime-refresh build,wamr,2,crc32(64KB) [scalar build],-1910355869,630,3.172,2045.69,1.000,2.24,8407863402,3749839154
+reference,runtime-refresh build,wamr,2,convolution 256×256 [scalar build],8190685,212,9.323,1994.94,1.000,2.00,7304252097,3653312969
+reference,runtime-refresh build,wamr,2,bulk_memory (memory.copy/fill) [scalar build],8698902,192,8.617,1712.99,1.000,2.30,7205934633,3137428132
+reference,runtime-refresh build,wamr,2,tail-call FSM (65536 return_call),-1841735369,254,7.658,1940.62,1.000,2.92,10375482294,3551360910
+reference,runtime-refresh build,wamr,2,call_ref twin: call_indirect (200K),-750120562,131,15.194,1984.32,1.000,2.31,8373823934,3632798299
+reference,runtime-refresh build,wamr,3,fib(30),832040,17,114.937,1892.11,0.999,2.52,8755554550,3474635466
+reference,runtime-refresh build,wamr,3,matmul relaxed-simd FMA,48907,1134,1.772,2006.83,1.000,3.03,11137237326,3678196717
+reference,runtime-refresh build,wamr,3,audio DSP (1000 frames × 512),761667740,2,797.647,1577.20,1.000,1.84,5305832328,2888918355
+reference,runtime-refresh build,wamr,3,call_indirect (200K dispatches),-9175573,124,16.018,1978.10,1.000,2.19,7919100774,3622242633
+reference,runtime-refresh build,wamr,3,xmrsplayer (1024-frame buffer),463092629,158,12.875,2023.82,1.000,2.05,7624417588,3715780598
+reference,runtime-refresh build,wamr,3,graphql-validation (AS),5,253,9.519,2409.46,1.000,1.54,6806220488,4412016669
+reference,runtime-refresh build,wamr,3,graphql-validation (Porffor),0,187,10.522,1506.39,1.000,1.62,6016141124,3723960934
+reference,runtime-refresh build,wamr,3,vtable_poly4 (200K),-126115384,60,33.756,2016.33,1.000,2.28,8409808102,3695596671
+reference,runtime-refresh build,wamr,3,sieve(10000) [scalar build],1229,4815,0.478,2235.73,1.000,2.23,9124895617,4092752328
+reference,runtime-refresh build,wamr,3,crc32(64KB) [scalar build],-1910355869,623,3.171,2010.68,1.000,2.26,8314460162,3682336970
+reference,runtime-refresh build,wamr,3,convolution 256×256 [scalar build],8190685,214,9.319,2001.89,1.000,2.01,7372265657,3662878803
+reference,runtime-refresh build,wamr,3,bulk_memory (memory.copy/fill) [scalar build],8698902,228,8.814,2027.58,1.000,2.31,8555439027,3710740895
+reference,runtime-refresh build,wamr,3,tail-call FSM (65536 return_call),-1841735369,260,7.647,1984.30,1.000,2.92,10620862466,3631389621
+reference,runtime-refresh build,wamr,3,call_ref twin: call_indirect (200K),-750120562,71,15.300,1082.77,1.000,2.29,4538877308,1982579284
+reference,runtime-refresh build,wasm3,1,fib(30),832040,24,81.309,1939.31,0.999,2.48,8809546977,3556499791
+reference,runtime-refresh build,wasm3,1,audio DSP (1000 frames × 512),761667740,4,439.463,1746.72,1.000,2.49,7965988173,3197770117
+reference,runtime-refresh build,wasm3,1,call_indirect (200K dispatches),-9175573,167,11.766,1952.57,1.000,2.06,7368627140,3584426287
+reference,runtime-refresh build,wasm3,1,xmrsplayer (1024-frame buffer),-1016271564,232,8.609,1986.14,1.000,1.70,6165685119,3634622414
+reference,runtime-refresh build,wasm3,1,graphql-validation (AS),5,242,8.095,1974.04,1.000,1.31,4726343061,3615149373
+reference,runtime-refresh build,wasm3,1,vtable_poly4 (200K),-126115384,78,24.950,1940.45,1.000,2.30,8178667491,3551306116
+reference,runtime-refresh build,wasm3,1,sieve(10000) [scalar build],1229,7838,0.240,1881.42,0.999,3.10,10662823898,3444970026
+reference,runtime-refresh build,wasm3,1,crc32(64KB) [scalar build],-1910355869,1045,1.899,1979.18,1.000,2.91,10527960849,3623412390
+reference,runtime-refresh build,wasm3,1,convolution 256×256 [scalar build],8190685,289,6.854,1978.48,1.000,2.25,8160838383,3620675919
+reference,runtime-refresh build,wasm3,1,bulk_memory (memory.copy/fill) [scalar build],8698902,321,6.054,1940.27,1.000,2.51,8902167702,3551437953
+reference,runtime-refresh build,wasm3,1,tail-call FSM (65536 return_call),-1841735369,358,5.567,1991.60,1.000,1.72,6268062038,3644514553
+reference,runtime-refresh build,wasm3,1,call_ref twin: call_indirect (200K),-750120562,197,10.238,2051.52,1.000,2.51,9403898125,3753955546
+reference,runtime-refresh build,wasm3,2,fib(30),832040,24,81.399,1938.64,1.000,2.48,8807171798,3554364722
+reference,runtime-refresh build,wasm3,2,audio DSP (1000 frames × 512),761667740,4,474.286,1887.17,1.000,2.31,7964943523,3453695454
+reference,runtime-refresh build,wasm3,2,call_indirect (200K dispatches),-9175573,165,11.245,1847.71,1.000,2.15,7282887480,3391517349
+reference,runtime-refresh build,wasm3,2,xmrsplayer (1024-frame buffer),95160813,217,9.045,1967.23,1.000,1.60,5768043221,3600275044
+reference,runtime-refresh build,wasm3,2,graphql-validation (AS),5,249,7.982,2003.74,1.000,1.33,4861803553,3667837972
+reference,runtime-refresh build,wasm3,2,vtable_poly4 (200K),-126115384,77,25.051,1923.77,1.000,2.29,8073665696,3520481693
+reference,runtime-refresh build,wasm3,2,sieve(10000) [scalar build],1229,8303,0.240,1999.44,1.000,3.09,11288896256,3658362999
+reference,runtime-refresh build,wasm3,2,crc32(64KB) [scalar build],-1910355869,1044,1.910,1983.97,1.000,2.90,10516619732,3631629676
+reference,runtime-refresh build,wasm3,2,convolution 256×256 [scalar build],8190685,289,6.865,1981.61,1.000,2.25,8160763495,3626682340
+reference,runtime-refresh build,wasm3,2,bulk_memory (memory.copy/fill) [scalar build],8698902,327,6.058,1978.21,1.000,2.50,9069284006,3622552875
+reference,runtime-refresh build,wasm3,2,tail-call FSM (65536 return_call),-1841735369,355,5.568,1975.01,1.000,1.72,6215693475,3614762433
+reference,runtime-refresh build,wasm3,2,call_ref twin: call_indirect (200K),-750120562,197,10.150,2020.28,1.000,2.54,9405354584,3699307209
+reference,runtime-refresh build,wasm3,3,fib(30),832040,24,81.334,1945.55,0.996,2.47,8841466520,3576772705
+reference,runtime-refresh build,wasm3,3,audio DSP (1000 frames × 512),761667740,4,438.731,1743.71,1.000,2.50,7964853812,3191253800
+reference,runtime-refresh build,wasm3,3,call_indirect (200K dispatches),-9175573,177,11.229,1975.32,1.000,2.15,7810054855,3628019906
+reference,runtime-refresh build,wasm3,3,xmrsplayer (1024-frame buffer),1416807453,209,9.438,1966.17,1.000,1.54,5558701242,3601285448
+reference,runtime-refresh build,wasm3,3,graphql-validation (AS),5,240,8.130,1961.39,1.000,1.31,4687385201,3591623493
+reference,runtime-refresh build,wasm3,3,vtable_poly4 (200K),-126115384,79,25.017,1969.86,1.000,2.30,8283697536,3605415838
+reference,runtime-refresh build,wasm3,3,sieve(10000) [scalar build],1229,7616,0.240,1827.56,1.000,3.10,10357280280,3345829867
+reference,runtime-refresh build,wasm3,3,crc32(64KB) [scalar build],-1910355869,1057,1.905,2003.53,1.000,2.90,10649004148,3672595587
+reference,runtime-refresh build,wasm3,3,convolution 256×256 [scalar build],8190685,291,6.857,1994.68,1.000,2.25,8219017496,3652582291
+reference,runtime-refresh build,wasm3,3,bulk_memory (memory.copy/fill) [scalar build],8698902,328,6.078,1988.90,1.000,2.50,9096442446,3641201949
+reference,runtime-refresh build,wasm3,3,tail-call FSM (65536 return_call),-1841735369,358,5.572,1991.34,1.000,1.72,6269285235,3648759632
+reference,runtime-refresh build,wasm3,3,call_ref twin: call_indirect (200K),-750120562,191,10.522,2013.28,1.000,2.47,9119939655,3687154814

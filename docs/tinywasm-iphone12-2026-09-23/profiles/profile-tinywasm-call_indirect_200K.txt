@@ -1,0 +1,100 @@
+busiest thread: WasmBench (0x33196)  samples: 11760 (99.9% on E cores)  all threads: 11882
+
+# self time (leaf frame), top 60
+ 12.96%    1524  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet32
+ 10.82%    1272  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_typed_callKb0_EBa_
+  9.52%    1119  _RNvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB5_8Executor14exec_return_32
+  9.20%    1082  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor18exec_call_indirectKb0_EBa_
+  7.22%     849  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted12CallIndirect
+  6.63%     780  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7I32Load
+  6.59%     775  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpLocalLocal32
+  5.33%     627  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalSet32
+  3.88%     456  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8Return32
+  3.46%     407  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalTee32
+  3.25%     382  _RNvNtNtCsiu4FEgNcf0E_8tinywasm11interpreter6values13exec_binop_32
+  3.14%     369  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14IncLocalJump32
+  2.92%     343  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15MulLocalConst32
+  2.82%     332  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AddConst32
+  2.24%     264  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AndConst32
+  1.98%     233  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11LocalCopy32
+  1.96%     230  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted16ShrULocalConst32
+  1.77%     208  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11ShrUConst32
+  1.38%     162  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15CmpLocalLocal32
+  0.67%      79  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Clz
+  0.65%      76  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Ctz
+  0.56%      66  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8Select32
+  0.52%      61  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted9I32Popcnt
+  0.45%      53  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10XorConst32
+  0.01%       1  _platform_memmove
+  0.01%       1  _platform_strcmp_noMTE
+  0.01%       1  __open
+  0.01%       1  getMethodFromRelativeList(relative_list_list_t<method_list_t>*, objc_selector*)
+  0.01%       1  look_up_class
+  0.01%       1  swift_getForeignTypeMetadata
+  0.01%       1  swift::TargetMetadata<swift::InProcess>::getTypeContextDescriptor() const
+  0.01%       1  __CFSearchStringROM
+  0.01%       1  objc_msgSend$hash
+  0.01%       1  _RNvNtCsrpAx3gGG88_4core3fmt5write
+  0.01%       1  clock_gettime_nsec_np
+
+# inclusive (on stack), top 60
+100.00%   11760  _dispatch_call_block_and_release
+100.00%   11760  start_wqthread
+100.00%   11760  _dispatch_client_callout
+100.00%   11760  _pthread_wqthread
+ 99.95%   11754  _dispatch_root_queue_drain
+ 99.95%   11754  _dispatch_worker_thread2
+ 99.95%   11754  <deduplicated_symbol>
+ 99.92%   11751  bench_run_case
+ 99.92%   11751  closure #120 in variable initialization expression of WORKLOADS
+ 99.92%   11751  _RNvNtCs9e6pHsgSdNO_14benchmark_core5cases8run_case
+ 99.92%   11751  _RNvNtCs9e6pHsgSdNO_14benchmark_core8tinywasm27run_workload_tinywasm_iters
+ 99.92%   11751  closure #2 in BenchmarkContentView.runAll()
+ 99.92%   11751  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.91%   11749  _RNvMs_NtCsiu4FEgNcf0E_8tinywasm4funcINtB4_13FunctionTypedllE4callCs9e6pHsgSdNO_14benchmark_core
+ 67.47%    7934  _RNvMNtCsiu4FEgNcf0E_8tinywasm11interpreterNtB2_18InterpreterRuntime4exec
+ 26.05%    3064  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted12CallIndirect
+ 13.00%    1529  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8Return32
+ 12.96%    1524  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet32
+ 10.82%    1272  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_typed_callKb0_EBa_
+  9.52%    1119  _RNvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB5_8Executor14exec_return_32
+  9.20%    1082  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor18exec_call_indirectKb0_EBa_
+  6.63%     780  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7I32Load
+  6.59%     775  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpLocalLocal32
+  5.33%     627  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalSet32
+  3.46%     407  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalTee32
+  3.25%     382  _RNvNtNtCsiu4FEgNcf0E_8tinywasm11interpreter6values13exec_binop_32
+  3.14%     369  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14IncLocalJump32
+  2.92%     343  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15MulLocalConst32
+  2.82%     332  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AddConst32
+  2.24%     264  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AndConst32
+  1.98%     233  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11LocalCopy32
+  1.96%     230  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted16ShrULocalConst32
+  1.77%     208  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11ShrUConst32
+  1.38%     162  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15CmpLocalLocal32
+  0.67%      79  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Clz
+  0.65%      76  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Ctz
+  0.56%      66  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8Select32
+  0.52%      61  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted9I32Popcnt
+  0.45%      53  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10XorConst32
+  0.31%      36  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core8tinywasm27run_workload_tinywasm_iterss_0B5_
+  0.05%       6  _dispatch_root_queue_drain_deferred_wlh
+  0.05%       6  _dispatch_lane_serial_drain
+  0.05%       6  _dispatch_lane_invoke
+  0.05%       6  _dispatch_workloop_worker_thread
+  0.04%       5  -[BSXPCServiceConnectionEventHandler connection:handleMessage:]
+  0.04%       5  BSXPCServiceConnectionExecuteCallOut
+  0.04%       5  +[BSXPCServiceConnectionProxy decodeArguments:outArgs:fromMessage:forConnection:]
+  0.04%       5  _BSXPCDecodeObjectForKey
+  0.04%       5  __63-[BSXPCServiceConnectionEventHandler connection:handleMessage:]_block_invoke
+  0.04%       5  _BSXPCDecodeObjectFromContext
+  0.04%       5  +[BSXPCServiceConnectionProxy invokeMethod:onTarget:withMessage:forConnection:completion:]
+  0.04%       5  -[BSXPCServiceConnection _connection_handleMessage:fromPeer:withHandoff:]
+  0.03%       4  -[FBSSceneParameters initWithXPCDictionary:]
+  0.03%       4  BSCreateDeserializedBSXPCEncodableObjectFromXPCDictionary
+  0.03%       4  -[FBSSettingsDiff initWithXPCDictionary:]
+  0.03%       4  -[BSKeyedSettings initWithXPCDictionary:]
+  0.03%       4  BSDeserializeBSXPCEncodableObjectFromXPCDictionaryWithKey
+  0.03%       4  BSCreateDeserializedBSXPCEncodableObjectFromXPCDictionaryWithKey
+  0.03%       4  -[BSSettingsDiff initWithBSXPCCoder:]
+  0.03%       3  0x1a8ce76a7

@@ -1,0 +1,77 @@
+busiest thread: WasmBench (0x3de02)  samples: 11799 (100.0% on E cores)  all threads: 11920
+
+# self time (leaf frame), top 60
+ 98.18%   11584  wasm_interp_call_func_bytecode
+  1.47%     174  _platform_memset
+  0.25%      29  __bzero
+  0.02%       2  wasm_loader_prepare_bytecode
+  0.02%       2  _platform_memmove
+  0.02%       2  DYLD-STUB$$memset
+  0.01%       1  initializeAndMaybeRelock(objc_class*, objc_object*, locker_mixin<lockdebug::lock_mixin<objc_lock_base_t>>&, bool)
+  0.01%       1  <deduplicated_symbol>
+  0.01%       1  dyld4::PrebuiltLoader::contains(dyld4::RuntimeState&, void const*, void const**, unsigned long long*, unsigned char*) const
+  0.01%       1  bsearch
+  0.01%       1  __mprotect
+  0.01%       1  wasm_runtime_call_wasm
+
+# inclusive (on stack), top 60
+100.00%   11799  _dispatch_client_callout
+100.00%   11799  start_wqthread
+100.00%   11799  _dispatch_root_queue_drain
+100.00%   11799  _dispatch_worker_thread2
+100.00%   11799  _pthread_wqthread
+ 99.99%   11798  <deduplicated_symbol>
+ 99.99%   11798  _dispatch_call_block_and_release
+ 99.97%   11795  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.97%   11795  closure #2 in BenchmarkContentView.runAll()
+ 99.97%   11795  bench_run_graphql_validation_as_wamr
+ 99.97%   11795  closure #32 in variable initialization expression of WORKLOADS
+ 99.97%   11795  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.92%   11790  wasm_runtime_call_wasm
+ 99.92%   11790  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 99.92%   11789  wasm_interp_call_wasm
+ 99.92%   11789  wasm_call_function
+ 98.18%   11584  wasm_interp_call_func_bytecode
+  1.47%     174  _platform_memset
+  0.25%      29  __bzero
+  0.03%       3  _dispatch_once_callout
+  0.03%       3  load_from_sections
+  0.03%       3  wasm_runtime_load
+  0.03%       3  wasm_loader_prepare_bytecode
+  0.03%       3  wasm_loader_load
+  0.02%       2  0x1b6805b1f
+  0.02%       2  0x1a8ce76a7
+  0.02%       2  0x1a8ce58b7
+  0.02%       2  0x1a8c3baf3
+  0.02%       2  0x1a8ce5893
+  0.02%       2  0x1a8ce75e3
+  0.02%       2  0x1b680549b
+  0.02%       2  _dispatch_lane_barrier_sync_invoke_and_complete
+  0.02%       2  wasm_instantiate
+  0.02%       2  wasm_runtime_instantiate
+  0.02%       2  memory_instantiate
+  0.02%       2  _platform_memmove
+  0.02%       2  DYLD-STUB$$memset
+  0.01%       1  0x1b6805603
+  0.01%       1  lookUpImpOrForward
+  0.01%       1  -[BSMutableServiceInterface setServer:]
+  0.01%       1  __vetProtocol
+  0.01%       1  _objc_msgSend_uncached
+  0.01%       1  initializeAndMaybeRelock(objc_class*, objc_object*, locker_mixin<lockdebug::lock_mixin<objc_lock_base_t>>&, bool)
+  0.01%       1  dyld4::APIs::dlopen_from(char const*, int, void*)
+  0.01%       1  __186+[BSXPCServiceConnectionProxy proxyForConnection:handshake:withProtocol:activationGeneration:activeXPCConnection:xpcConnectionTargetQueue:replyQueue:target:attributes:assertionProvider:]_block_invoke
+  0.01%       1  dyld3::stat(char const*, stat*)
+  0.01%       1  dyld4::Loader::getLoader(Diagnostics&, dyld4::RuntimeState&, char const*, dyld4::Loader::LoadOptions const&)
+  0.01%       1  +[BSXPCServiceConnectionProxy proxyForConnection:handshake:withProtocol:activationGeneration:activeXPCConnection:xpcConnectionTargetQueue:replyQueue:target:attributes:assertionProvider:]
+  0.01%       1  0x1b68056d3
+  0.01%       1  dyld4::Loader::forEachPath(Diagnostics&, dyld4::RuntimeState&, char const*, dyld4::Loader::LoadOptions const&, void (char const*, dyld4::ProcessConfig::PathOverrides::Type, bool&) block_pointer)
+  0.01%       1  stat_with_subsystem
+  0.01%       1  invocation function for block in dyld4::Loader::getLoader(Diagnostics&, dyld4::RuntimeState&, char const*, dyld4::Loader::LoadOptions const&)
+  0.01%       1  -[BSXPCServiceConnection remoteTargetWithAssertionAttributes:enforcingLaunchConstraints:]
+  0.01%       1  dyld4::APIs::dlopen_from(char const*, int, void*)::$_0::operator()() const::'lambda'()::operator()() const
+  0.01%       1  dyld4::APIs::dlopen_from(char const*, int, void*)::$_0::operator()() const
+  0.01%       1  dyld4::Loader::forEachResolvedAtPathVar(dyld4::RuntimeState&, char const*, dyld4::Loader::LoadOptions const&, dyld4::ProcessConfig::PathOverrides::Type, bool&, void (char const*, dyld4::ProcessConfig::PathOverrides::Type, bool&) block_pointer)
+  0.01%       1  -[BSXPCServiceConnectionEventHandler remoteTargetWithHandshake:assertionAttributes:]
+  0.01%       1  dyld4::SyscallDelegate::fileExists(char const*, dyld4::FileID*, int*) const
+  0.01%       1  void dyld4::RuntimeLocks::withLoadersWriteLockAndProtectedStack<dyld4::APIs::dlopen_from(char const*, int, void*)::$_0::operator()() const::'lambda'()>(dyld4::APIs::dlopen_from(char const*, int, void*)::$_0::operator()() const::'lambda'())::'lambda'()::operator()() const
+  0.01%       1  BSObjCClassCreate

@@ -1,0 +1,125 @@
+busiest thread: WasmBench (0x34a65)  samples: 11729 (100.0% on E cores)  all threads: 11855
+
+# self time (leaf frame), top 60
+ 12.16%    1426  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet32
+  4.52%     530  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15SetLocalConst32
+  4.42%     518  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7Const32
+  4.23%     496  _RNvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB5_8Executor16exec_call_direct
+  4.16%     488  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10I32Store16
+  3.35%     393  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted12JumpIfZero32
+  3.21%     377  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocalTee32
+  3.10%     364  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb1_KB1v_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  2.46%     288  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15AddLocalConst32
+  2.45%     287  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalTee32
+  2.23%     261  _RNvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB5_8Executor16exec_return_void
+  2.07%     243  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8Select32
+  1.97%     231  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11GlobalSet32
+  1.91%     224  _RNvNtNtCsiu4FEgNcf0E_8tinywasm11interpreter6values13exec_binop_32
+  1.87%     219  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted20BinOpLocalConstSet32
+  1.81%     212  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15JumpIfNonZero32
+  1.51%     177  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb1_Kb0_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  1.47%     172  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15AndLocalConst32
+  1.43%     168  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted4Call
+  1.42%     166  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpStackConst32
+  1.40%     164  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalSet32
+  1.31%     154  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted9I32Load8U
+  1.29%     151  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14IncLocalJump32
+  1.26%     148  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocal16U32
+  1.24%     146  _platform_memset
+  1.20%     141  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted18BinOpGlobalConst32
+  1.18%     138  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocalSet32
+  1.13%     132  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32LtS
+  1.04%     122  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11BranchTable
+  1.01%     119  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted19JumpCmpLocalLocal32
+  0.98%     115  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted4Jump
+  0.93%     109  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10ReturnVoid
+  0.86%     101  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32GtS
+  0.85%     100  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8I32Store
+  0.84%      99  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localtKj2_lKb0_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromtE4fromEBa_
+  0.84%      98  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpStackLocal32
+  0.78%      92  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10IncLocal32
+  0.77%      90  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted20BinOpStackLocalTee32
+  0.77%      90  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AddConst32
+  0.77%      90  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted12I32Extend16S
+  0.75%      88  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7I32Load
+  0.73%      86  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocal16S32
+  0.73%      86  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localsKj2_lKb0_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromsE4fromEBa_
+  0.70%      82  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11LoadLocal32
+  0.70%      82  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted19JumpCmpStackConst32
+  0.69%      81  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localhKj1_lKb1_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromhE4fromEBa_
+  0.60%      70  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb0_KB1v_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  0.55%      64  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localhKj1_lKb0_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromhE4fromEBa_
+  0.52%      61  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted16LoadLocalTee8U32
+  0.49%      57  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17LoadLocalTee16S32
+  0.48%      56  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AndConst32
+  0.45%      53  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localsKj2_lKb1_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromsE4fromEBa_
+  0.44%      52  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted16ShrULocalConst32
+  0.43%      50  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted13LoadLocal8U32
+  0.41%      48  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Sub
+  0.39%      46  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15CmpLocalLocal32
+  0.39%      46  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localhKj1_lKb1_Kb0_NvYlINtNtCsrpAx3gGG88_4core7convert4FromhE4fromEBa_
+  0.34%      40  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted19JumpCmpStackLocal32
+  0.34%      40  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet64
+  0.33%      39  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Mul
+
+# inclusive (on stack), top 60
+100.00%   11729  start_wqthread
+100.00%   11729  _dispatch_worker_thread2
+100.00%   11729  _pthread_wqthread
+100.00%   11729  _dispatch_root_queue_drain
+100.00%   11729  _dispatch_client_callout
+ 99.99%   11728  <deduplicated_symbol>
+ 99.98%   11727  _dispatch_call_block_and_release
+ 99.97%   11726  _RNvNtCs9e6pHsgSdNO_14benchmark_core5cases8run_case
+ 99.97%   11726  closure #2 in BenchmarkContentView.runAll()
+ 99.97%   11726  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.97%   11726  closure #121 in variable initialization expression of WORKLOADS
+ 99.97%   11725  bench_run_case
+ 99.97%   11725  _RNvNtCs9e6pHsgSdNO_14benchmark_core8tinywasm27run_workload_tinywasm_iters
+ 99.91%   11719  _RNvMs_NtCsiu4FEgNcf0E_8tinywasm4funcINtB4_13FunctionTypedllE4callCs9e6pHsgSdNO_14benchmark_core
+ 57.48%    6742  _RNvMNtCsiu4FEgNcf0E_8tinywasm11interpreterNtB2_18InterpreterRuntime4exec
+ 12.16%    1426  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet32
+  6.81%     799  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted4Call
+  6.13%     719  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocalTee32
+  4.52%     530  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15SetLocalConst32
+  4.42%     518  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7Const32
+  4.23%     496  _RNvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB5_8Executor16exec_call_direct
+  4.16%     488  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10I32Store16
+  3.35%     393  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted12JumpIfZero32
+  3.10%     364  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb1_KB1v_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  3.04%     356  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10ReturnVoid
+  2.69%     315  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocalSet32
+  2.46%     288  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15AddLocalConst32
+  2.45%     287  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalTee32
+  2.23%     261  _RNvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB5_8Executor16exec_return_void
+  2.07%     243  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8Select32
+  2.00%     235  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocal16U32
+  1.97%     231  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11GlobalSet32
+  1.91%     224  _RNvNtNtCsiu4FEgNcf0E_8tinywasm11interpreter6values13exec_binop_32
+  1.87%     219  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted20BinOpLocalConstSet32
+  1.81%     212  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15JumpIfNonZero32
+  1.51%     177  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb1_Kb0_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  1.47%     172  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted15AndLocalConst32
+  1.42%     166  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpStackConst32
+  1.40%     164  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalSet32
+  1.33%     156  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14LoadLocal16S32
+  1.31%     154  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted9I32Load8U
+  1.29%     151  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted14IncLocalJump32
+  1.24%     146  _platform_memset
+  1.23%     144  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11LoadLocal32
+  1.20%     141  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted18BinOpGlobalConst32
+  1.18%     138  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted16LoadLocalTee8U32
+  1.13%     132  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32LtS
+  1.04%     122  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11BranchTable
+  1.01%     119  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted19JumpCmpLocalLocal32
+  0.98%     115  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted4Jump
+  0.93%     109  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted13LoadLocal8U32
+  0.90%     105  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17LoadLocalTee16S32
+  0.86%     101  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32GtS
+  0.85%     100  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8I32Store
+  0.84%      99  _RINvMs2_NtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localtKj2_lKb0_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromtE4fromEBa_
+  0.84%      98  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpStackLocal32
+  0.78%      92  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10IncLocal32
+  0.77%      90  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted20BinOpStackLocalTee32
+  0.77%      90  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10AddConst32
+  0.77%      90  _RNvMNtNtNtCsiu4FEgNcf0E_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted12I32Extend16S
