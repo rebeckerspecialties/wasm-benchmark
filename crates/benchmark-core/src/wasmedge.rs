@@ -236,14 +236,14 @@ struct WasmEdgeValType {
     _data: [u8; 8],
 }
 
-// HostFunc_t signature per wasmedge_instance.h.
+// `WasmEdge_HostFunc_t` per wasmedge_instance.h: (Data, CallFrameCxt,
+// Params, Returns). The value counts are the function type's; there are no
+// length arguments.
 type WasmEdgeHostFunc = extern "C" fn(
     data: *mut c_void,
     frame: *const WasmEdgeCallingFrameContext,
     params: *const WasmEdgeValue,
-    param_len: u32,
     returns: *mut WasmEdgeValue,
-    return_len: u32,
 ) -> WasmEdgeResult;
 
 // The Porffor host-print stub. Signature `(f64) -> ()` — Porffor calls
@@ -253,9 +253,7 @@ extern "C" fn wasmedge_porf_b(
     _data: *mut c_void,
     _frame: *const WasmEdgeCallingFrameContext,
     _params: *const WasmEdgeValue,
-    _param_len: u32,
     _returns: *mut WasmEdgeValue,
-    _return_len: u32,
 ) -> WasmEdgeResult {
     WasmEdgeResult { code: 0 }
 }
