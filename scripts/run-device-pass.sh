@@ -23,7 +23,7 @@
 #   BUNDLE=com.rebeckerspecialties.wasmbench.ios
 #   MAX_WAIT_SECS=2400           per launch
 #   SPLIT_RUNTIMES="zwasm"       runtimes whose heavy rows each get a launch
-#   HEAVY_ROWS="xmrsplayer;graphql-validation (porffor);extended-const;memory64;tail-call fsm"
+#   HEAVY_ROWS="xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm"
 #                                ';'-separated label substrings. On the iPhone
 #                                zwasm's footprint reaches ~1.3 GB during
 #                                xmrsplayer and the next heavy row gets the
@@ -44,7 +44,7 @@ DEVICE_NAME="${DEVICE_NAME:-iphonexs}"
 BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-2400}"
 SPLIT_RUNTIMES=" ${SPLIT_RUNTIMES-zwasm} "
-HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const;memory64;tail-call fsm}"
+HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm}"
 if [[ -n "${E2E}" ]]; then MARKER="FEMTOVG_E2E done"; else MARKER="BENCH_DONE"; fi
 mkdir -p "${OUT}"
 
@@ -94,8 +94,10 @@ run_launch() {  # runtime log [workloads] [exclude]
   local rt="$1" log="$2" ok=1
   for attempt in 1 2 3; do
     if launch_once "$@"; then ok=0; break; fi
-    # Retry only a launch that produced no result lines at all.
+    # Retry only a launch that produced no result lines at all, and not
+    # one the OS killed (jetsam's SIGKILL is a result, not a tunnel drop).
     if grep -qE '^\[\[|^FEMTOVG_E2E \{' "${log}"; then break; fi
+    if grep -q "terminated due to signal" "${log}"; then break; fi
     echo "   $(basename "${log}"): no output (attempt ${attempt}), retrying"
     sleep 5
   done

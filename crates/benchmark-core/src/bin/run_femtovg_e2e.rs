@@ -41,9 +41,23 @@ fn main() {
     let png = get("--png").map(std::path::PathBuf::from);
     // `--rep N` tags the line for multi-run passes (scripts/run-m4-pass.sh).
     let rep = get("--rep").map(|r| format!("\"rep\":{},", r.parse::<u32>().expect("--rep"))).unwrap_or_default();
-    match run_e2e(rt, variant, cfg, png.as_deref()) {
+    // Instructions and cycles over the whole run (load, init, every pass):
+    // the denominators for the PMU pass, whose per-thread counts cover the
+    // E2E thread's whole life.
+    let before = benchmark_core::residency::proc_usage();
+    let result = run_e2e(rt, variant, cfg, png.as_deref());
+    let run = match (benchmark_core::residency::proc_usage(), before) {
+        (Some(a), Some(b)) => a.since(&b),
+        _ => Default::default(),
+    };
+    match result {
         Ok(report) => {
-            let line = format!("{{{rep}{}", &report.to_json()[1..]);
+            let line = format!(
+                "{{{rep}\"run_instructions\":{},\"run_cycles\":{},{}",
+                run.instructions,
+                run.cycles,
+                &report.to_json()[1..]
+            );
             println!("{line}");
             if let Some(p) = get("--jsonl") {
                 let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&p).expect("--jsonl");

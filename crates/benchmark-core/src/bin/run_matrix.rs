@@ -8,6 +8,10 @@
 //!   BENCH_TARGET_MS=2000       timed-window budget per case (default 200)
 //!   MATRIX_JSONL=path          also append the JSON lines to this file
 //!   MATRIX_REP=3               rep index recorded in each JSON line
+//!   MATRIX_THREAD_PER_CASE=1   run each case on its own thread named
+//!                              `case:<id>` (caller's QoS). The PMU pass
+//!                              uses it: xctrace's per-thread counter
+//!                              table then attributes counts to cases.
 //!
 //! Ad-hoc mode, for smoke modules and one-off checks:
 //!   run_matrix --file x.wasm --func f [--arg N] [--expect V]
@@ -99,6 +103,7 @@ fn main() {
     let runtimes = list_env("RUNTIMES");
     let workloads = list_env("WORKLOADS");
     let rep: i64 = std::env::var("MATRIX_REP").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let thread_per_case = std::env::var_os("MATRIX_THREAD_PER_CASE").is_some();
     let mut jsonl = std::env::var("MATRIX_JSONL").ok().map(|p| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -137,7 +142,23 @@ fn main() {
                     continue;
                 }
             }
-            let res = run_case(*rt, case);
+            // Process instructions and cycles over the whole case (load,
+            // warmups and timed window), the denominators for the PMU
+            // pass's per-thread counts in thread-per-case mode.
+            let usage_before = benchmark_core::residency::proc_usage();
+            let res = if thread_per_case {
+                let (rt, case) = (*rt, *case);
+                benchmark_core::run_on_thread(&format!("case:{}", case.id), 8 << 20, move || {
+                    run_case(rt, &case)
+                })
+                .and_then(|r| r)
+            } else {
+                run_case(*rt, case)
+            };
+            let case_usage = match (benchmark_core::residency::proc_usage(), usage_before) {
+                (Some(a), Some(b)) => a.since(&b),
+                _ => Default::default(),
+            };
             let line = match &res {
                 Ok(r) => {
                     let ipc = if r.cycles > 0 { r.instructions as f64 / r.cycles as f64 } else { f64::NAN };
@@ -157,7 +178,8 @@ fn main() {
                             "\"result\":{},\"iterations\":{},\"load_ns\":{},\"min_ns\":{},",
                             "\"median_ns\":{},\"p99_ns\":{},\"cpu_user_ns\":{},\"cpu_system_ns\":{},",
                             "\"p_cpu_ns\":{},\"e_share\":{},\"instructions\":{},\"cycles\":{},",
-                            "\"rss_peak_bytes\":{},\"page_faults\":{}}}"
+                            "\"rss_peak_bytes\":{},\"page_faults\":{},",
+                            "\"case_instructions\":{},\"case_cycles\":{}}}"
                         ),
                         rep, json_str(token), json_str(case.id), json_str(case.label),
                         r.result, r.iterations, r.load_time.as_nanos(), r.run_min.as_nanos(),
@@ -165,6 +187,7 @@ fn main() {
                         r.cpu_system_ns, r.p_cpu_ns,
                         if e_share(r).is_finite() { format!("{:.4}", e_share(r)) } else { "null".into() },
                         r.instructions, r.cycles, r.rss_peak_bytes, r.page_faults,
+                        case_usage.instructions, case_usage.cycles,
                     )
                 }
                 Err(e) => {

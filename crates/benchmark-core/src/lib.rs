@@ -704,7 +704,7 @@ pub(crate) fn measure_calls(
 /// at the default QoS, which on iOS moves work the app queued at `.utility`
 /// (E-cores) onto the P-cores; the big-stack threads the Zig runtimes and
 /// the femtovg E2E need must stay in the class the run was scheduled in.
-pub(crate) fn run_on_thread<T: Send + 'static>(
+pub fn run_on_thread<T: Send + 'static>(
     name: &str,
     stack_bytes: usize,
     body: impl FnOnce() -> T + Send + 'static,
