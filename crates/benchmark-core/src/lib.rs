@@ -902,6 +902,19 @@ pub(crate) fn pulley_engine() -> Result<Engine> {
     // gc_trees workload never silently runs on the null (never-reclaiming)
     // collector.
     config.collector(wasmtime::Collector::DeferredReferenceCounting);
+    // Pulley never uses guard pages or signals-based traps (every bounds
+    // check is explicit), so wasmtime's 64-bit default of a 4 GiB
+    // reservation per linear memory and for the GC heap buys it nothing but
+    // address space. On iOS, two such reservations do not fit: a linear
+    // memory plus the GC heap that exnref exceptions live in, or
+    // multi-memory's three memories, fail with "mmap failed to reserve
+    // 0x100000000 bytes". 256 MiB each, on every platform so that the M4
+    // and the devices run one configuration; a memory that grows past it
+    // moves.
+    config.memory_reservation(256 << 20);
+    config.memory_reservation_for_growth(0);
+    config.gc_heap_reservation(256 << 20);
+    config.gc_heap_reservation_for_growth(0);
     into_anyhow(Engine::new(&config)).context("Engine::new failed")
 }
 
