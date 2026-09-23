@@ -193,8 +193,9 @@ pub(crate) struct Loaded {
     instance: *mut wasm_instance_t,
     exports: wasm_extern_vec_t,
     export_names: Vec<String>,
-    // Host funcs handed to wasm_instance_new stay owned by the store.
-    _host_funcs: Vec<*mut wasm_func_t>,
+    // Host funcs are owned by the store; their externs are reused by
+    // every (re)instantiation.
+    host_externs: Vec<*mut wasm_extern_t>,
 }
 
 impl Drop for Loaded {
@@ -254,7 +255,7 @@ impl Loaded {
                 instance: std::ptr::null_mut(),
                 exports: wasm_extern_vec_t { size: 0, data: std::ptr::null_mut() },
                 export_names: Vec::new(),
-                _host_funcs: Vec::new(),
+                host_externs: Vec::new(),
             };
             if l.engine.is_null() {
                 bail!("wasm_engine_new returned NULL");
@@ -270,8 +271,6 @@ impl Loaded {
             if l.module.is_null() {
                 bail!("wasm_module_new failed (invalid wasm or unsupported feature)");
             }
-
-            let mut externs: Vec<*mut wasm_extern_t> = Vec::with_capacity(imports.len());
             for imp in imports {
                 let ty = functype(imp.params, imp.results);
                 let f = wasm_func_new(l.store, ty, imp.callback);
@@ -279,30 +278,8 @@ impl Loaded {
                 if f.is_null() {
                     bail!("wasm_func_new returned NULL");
                 }
-                l._host_funcs.push(f);
-                externs.push(wasm_func_as_extern(f));
+                l.host_externs.push(wasm_func_as_extern(f));
             }
-            let mut import_vec = wasm_extern_vec_t { size: 0, data: std::ptr::null_mut() };
-            wasm_extern_vec_new(&mut import_vec, externs.len(), externs.as_ptr());
-            let mut trap: *mut wasm_trap_t = std::ptr::null_mut();
-            l.instance = zwasm_instance_new_ex(l.store, l.module, &import_vec, &mut trap,
-                                               ZWASM_ENGINE_INTERP);
-            // The vec only borrowed the externs (the store owns the funcs).
-            import_vec.size = 0;
-            import_vec.data = std::ptr::null_mut();
-            if l.instance.is_null() {
-                if !trap.is_null() {
-                    bail!("zwasm_instance_new_ex trapped: {}", trap_text(trap));
-                }
-                bail!("zwasm_instance_new_ex failed (missing imports or unsupported feature)");
-            }
-            let mut engine_kind: i32 = -1;
-            if !zwasm_instance_engine(l.instance, &mut engine_kind)
-                || engine_kind != ZWASM_ENGINE_INTERP as i32
-            {
-                bail!("zwasm instance is not interpreter-backed (engine kind {engine_kind})");
-            }
-
             let mut etypes = wasm_exporttype_vec_t { size: 0, data: std::ptr::null_mut() };
             wasm_module_exports(l.module, &mut etypes);
             for i in 0..etypes.size {
@@ -311,13 +288,48 @@ impl Loaded {
                 l.export_names.push(String::from_utf8_lossy(bytes).into_owned());
             }
             wasm_exporttype_vec_delete(&mut etypes);
-            wasm_instance_exports(l.instance, &mut l.exports);
-            if l.exports.size != l.export_names.len() {
-                bail!("zwasm export count mismatch ({} externs vs {} export types)",
-                      l.exports.size, l.export_names.len());
-            }
+            l.instantiate()?;
             Ok(l)
         }
+    }
+
+    /// Replace the current instance (if any) with a fresh, interp-forced
+    /// one of the same module, reusing the store's host funcs.
+    pub(crate) fn instantiate(&mut self) -> Result<()> {
+        unsafe {
+            if !self.instance.is_null() {
+                wasm_extern_vec_delete(&mut self.exports);
+                self.exports = wasm_extern_vec_t { size: 0, data: std::ptr::null_mut() };
+                wasm_instance_delete(self.instance);
+                self.instance = std::ptr::null_mut();
+            }
+            // The vec only borrows the externs (the store owns the funcs).
+            let import_vec = wasm_extern_vec_t {
+                size: self.host_externs.len(),
+                data: self.host_externs.as_ptr() as *mut *mut wasm_extern_t,
+            };
+            let mut trap: *mut wasm_trap_t = std::ptr::null_mut();
+            self.instance = zwasm_instance_new_ex(self.store, self.module, &import_vec,
+                                                  &mut trap, ZWASM_ENGINE_INTERP);
+            if self.instance.is_null() {
+                if !trap.is_null() {
+                    bail!("zwasm_instance_new_ex trapped: {}", trap_text(trap));
+                }
+                bail!("zwasm_instance_new_ex failed (missing imports or unsupported feature)");
+            }
+            let mut engine_kind: i32 = -1;
+            if !zwasm_instance_engine(self.instance, &mut engine_kind)
+                || engine_kind != ZWASM_ENGINE_INTERP as i32
+            {
+                bail!("zwasm instance is not interpreter-backed (engine kind {engine_kind})");
+            }
+            wasm_instance_exports(self.instance, &mut self.exports);
+            if self.exports.size != self.export_names.len() {
+                bail!("zwasm export count mismatch ({} externs vs {} export types)",
+                      self.exports.size, self.export_names.len());
+            }
+        }
+        Ok(())
     }
 
     fn export(&self, name: &str) -> Result<*mut wasm_extern_t> {
@@ -424,10 +436,14 @@ pub fn run_graphql_validation_porf_zwasm(wasm_bytes: &[u8]) -> Result<RunReport>
             &bytes,
             &[HostImport { params: &[WASM_F64], results: &[], callback: porf_print_stub }],
         )?;
-        let f = l.func("m")?;
+        let mut l = l;
         let load_time = load_start.elapsed();
+        // Each sample instantiates a fresh instance and runs m() once:
+        // instantiate + m() is the timed unit on every runtime, because
+        // Porffor never frees and grows memory across calls.
         crate::measure_calls(load_time, 0, || {
-            let r = call_raw(f, &[], 2).context("zwasm m() trapped")?;
+            l.instantiate()?;
+            let r = call_raw(l.func("m")?, &[], 2).context("zwasm m() trapped")?;
             Ok(r[1].of as u32 as i32)
         })
     })

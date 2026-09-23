@@ -125,9 +125,27 @@ pub fn runtime_token(rt: Runtime) -> &'static str {
     RUNTIMES.iter().find(|r| r.0 == rt).map(|r| r.1).unwrap_or("?")
 }
 
+/// (runtime, case id, reason) pairs that crash the whole process (SIGSEGV
+/// inside the runtime), which would take every later row of an app launch
+/// or CLI run down with them. They are reported as N/A with the reason,
+/// never silently dropped. Re-check on every runtime bump.
+pub const KNOWN_CRASHES: &[(Runtime, &str, &str)] = &[
+    (Runtime::Wasmz, "sieve",
+     "wasmz v0.1.4 segfaults on this module's v128 ops (the scalar build runs)"),
+    (Runtime::Wasmz, "crc32",
+     "wasmz v0.1.4 segfaults on this module's v128 ops (the scalar build runs)"),
+];
+
+pub fn known_crash(rt: Runtime, case_id: &str) -> Option<&'static str> {
+    KNOWN_CRASHES.iter().find(|k| k.0 == rt && k.1 == case_id).map(|k| k.2)
+}
+
 /// Run one case on one runtime. A result that disagrees with the
 /// consensus reference is an error: a fast wrong answer is not a result.
 pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
+    if let Some(reason) = known_crash(rt, case.id) {
+        return Err(anyhow!("N/A — not run: {reason}"));
+    }
     let r = match case.shape {
         Shape::I32ToI32 => run_workload_with(rt, case.wasm, case.func, case.arg),
         Shape::PorfforMain => match rt {

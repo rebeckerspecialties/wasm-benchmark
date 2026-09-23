@@ -443,30 +443,32 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
     }
     let _mg = ModGuard(module);
 
-    let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
-    let err = unsafe {
-        wasmz_instance_new_with_linker(store, module, linker, &mut instance)
-    };
-    if !err.is_null() {
-        return Err(anyhow!(
-            "wasmz_instance_new_with_linker failed: {}",
-            err_msg(err)
-        ));
-    }
-    struct InstGuard(*mut wasmz_instance_t);
-    impl Drop for InstGuard {
-        fn drop(&mut self) {
-            unsafe { wasmz_instance_delete(self.0) };
-        }
-    }
-    let _ig = InstGuard(instance);
-
     let cname = std::ffi::CString::new("m")?;
 
     let load_time = load_start.elapsed();
 
-    // m() → (f64, i32). 0 params, 2 results.
+    // m() → (f64, i32). 0 params, 2 results. Each sample instantiates a
+    // fresh instance and runs m() once: instantiate + m() is the timed
+    // unit on every runtime, because Porffor never frees and grows memory
+    // across calls.
     let call = || -> Result<i32> {
+        let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
+        let err = unsafe {
+            wasmz_instance_new_with_linker(store, module, linker, &mut instance)
+        };
+        if !err.is_null() {
+            return Err(anyhow!(
+                "wasmz_instance_new_with_linker failed: {}",
+                err_msg(err)
+            ));
+        }
+        struct InstGuard(*mut wasmz_instance_t);
+        impl Drop for InstGuard {
+            fn drop(&mut self) {
+                unsafe { wasmz_instance_delete(self.0) };
+            }
+        }
+        let _ig = InstGuard(instance);
         let mut results: [WasmzVal; 2] = [WasmzVal { kind: WASMZ_VAL_I32, _pad: [0; 4], of: [0; 16] }; 2];
         // Pre-fill result kinds so the underlying call knows how to
         // marshal them. Per wasmz.h convention.

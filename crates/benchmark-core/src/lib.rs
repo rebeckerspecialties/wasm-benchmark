@@ -1838,11 +1838,17 @@ pub extern "C" fn bench_run_factorial_wasmz(n: i32) -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_wasmz(n: i32) -> BenchReport {
+    if let Some(reason) = cases::known_crash(Runtime::Wasmz, "sieve") {
+        return report_from(Err(anyhow::anyhow!("N/A — not run: {reason}")));
+    }
     report_from_checked(wasmz::run_workload_wasmz(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_wasmz() -> BenchReport {
+    if let Some(reason) = cases::known_crash(Runtime::Wasmz, "crc32") {
+        return report_from(Err(anyhow::anyhow!("N/A — not run: {reason}")));
+    }
     report_from_checked(wasmz::run_workload_wasmz(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 

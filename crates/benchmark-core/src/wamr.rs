@@ -324,6 +324,11 @@ pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> 
         // allocations add up across the graphql-validation call tree.
         // 8 KB / 64 KB both overflow mid-validation with
         // "wasm operand stack overflow".
+        //
+        // The timed sample is instantiate + m(), the same as every other
+        // runtime's Porffor runner: Porffor never frees, so each run of
+        // the program starts from a fresh instance.
+        let it_start = if timed { Some(Instant::now()) } else { None };
         let module_inst = unsafe {
             wasm_runtime_instantiate(
                 module,
@@ -360,7 +365,6 @@ pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> 
             _pad: 0,
             payload: WasmValPayload { i64_: 0 },
         }; 2];
-        let it_start = if timed { Some(Instant::now()) } else { None };
         let ok = unsafe {
             wasm_runtime_call_wasm_v(exec_env, func, 2, results.as_mut_ptr(), 0)
         };

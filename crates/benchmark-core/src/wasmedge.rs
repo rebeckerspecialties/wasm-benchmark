@@ -557,8 +557,12 @@ fn run_graphql_validation_porf_wasmedge_inner(wasm_bytes: &[u8]) -> Result<RunRe
 
     let load_time = load_start.elapsed();
 
-    // m() → (f64, i32) — 0 params, 2 returns.
+    // m() → (f64, i32) — 0 params, 2 returns. Each sample re-instantiates
+    // (VMInstantiate replaces the VM's active module instance) and runs
+    // m() once: instantiate + m() is the timed unit on every runtime,
+    // because Porffor never frees and grows memory across calls.
     let call = || -> Result<i32> {
+        err_from(unsafe { WasmEdge_VMInstantiate(vm) }, "VMInstantiate")?;
         let mut returns: [WasmEdgeValue; 2] = [WasmEdgeValue { _bytes: [0u8; 24] }; 2];
         err_from(
             unsafe {
