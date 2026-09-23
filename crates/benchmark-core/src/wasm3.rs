@@ -221,3 +221,67 @@ pub fn run_workload_wasm3_iters(
 pub fn run_workload_wasm3(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
     run_workload_wasm3_iters(wasm_bytes, fn_name, arg, 0)
 }
+
+/// `Shape::InstantiateEach` on wasm3. A parsed `IM3Module` belongs to the
+/// runtime it is loaded into and is freed with it, so wasm3 has no
+/// instantiate step that can be repeated on its own: every sample parses
+/// the bytes into a fresh runtime, loads (instantiates) it, looks up the
+/// function (wasm3 compiles lazily, so this compiles it) and calls it. The
+/// runtime is freed after the clock stops.
+pub fn run_instantiate_each_wasm3(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    init()?;
+    let load_start = Instant::now();
+    let env: IM3Environment = unsafe { m3_NewEnvironment() };
+    if env.is_null() {
+        return Err(anyhow!("m3_NewEnvironment returned NULL"));
+    }
+    struct EnvGuard(IM3Environment);
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe { m3_FreeEnvironment(self.0) };
+        }
+    }
+    let _env_guard = EnvGuard(env);
+    let bytes_owned = wasm_bytes.to_vec();
+    let cname = std::ffi::CString::new(fn_name)?;
+    let load_time = load_start.elapsed();
+
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
+        let runtime: IM3Runtime =
+            unsafe { m3_NewRuntime(env, WASM3_STACK_BYTES, std::ptr::null_mut()) };
+        if runtime.is_null() {
+            return Err(anyhow!("m3_NewRuntime returned NULL"));
+        }
+        struct RuntimeGuard(IM3Runtime);
+        impl Drop for RuntimeGuard {
+            fn drop(&mut self) {
+                unsafe { m3_FreeRuntime(self.0) };
+            }
+        }
+        let runtime_guard = RuntimeGuard(runtime);
+        let mut module: IM3Module = std::ptr::null_mut();
+        m3_ok(unsafe {
+            m3_ParseModule(env, &mut module, bytes_owned.as_ptr(), bytes_owned.len() as c_uint)
+        })
+        .map_err(|e| anyhow!("wasm3 m3_ParseModule failed: {e}"))?;
+        if let Err(e) = m3_ok(unsafe { m3_LoadModule(runtime, module) }) {
+            unsafe { m3_FreeModule(module) };
+            return Err(anyhow!("wasm3 m3_LoadModule failed: {e}"));
+        }
+        let mut func: IM3Function = std::ptr::null_mut();
+        m3_ok(unsafe { m3_FindFunction(&mut func, runtime, cname.as_ptr()) })
+            .map_err(|e| anyhow!("wasm3 m3_FindFunction({fn_name}) failed: {e}"))?;
+        let arg_owned: i32 = arg;
+        let argv: [*const c_void; 1] = [&arg_owned as *const i32 as *const c_void];
+        m3_ok(unsafe { m3_Call(func, 1, argv.as_ptr()) })
+            .map_err(|e| anyhow!("wasm3 m3_Call trap: {e}"))?;
+        let mut ret: i32 = 0;
+        let retptrs: [*mut c_void; 1] = [&mut ret as *mut i32 as *mut c_void];
+        m3_ok(unsafe { m3_GetResults(func, 1, retptrs.as_ptr()) })
+            .map_err(|e| anyhow!("wasm3 m3_GetResults failed: {e}"))?;
+        let elapsed = t.elapsed();
+        drop(runtime_guard);
+        Ok((elapsed, ret))
+    })
+}

@@ -94,42 +94,21 @@ pub fn run_graphql_validation_porf(wasm_bytes: &[u8]) -> Result<RunReport> {
         .context("graphql-validation-porf: link host print")?;
     let load_time = load_start.elapsed();
 
-    // Single full instantiation for warmup timing (sets the iteration
-    // count budget).
-    let warm_start = Instant::now();
-    {
-        let mut store = Store::new(&engine, ());
-        let instance = into_anyhow(linker.instantiate(&mut store, &module))
-            .context("graphql-validation-porf: instantiate (warmup) failed")?;
-        let m = into_anyhow(
-            instance.get_typed_func::<(), (f64, i32)>(&mut store, "m"),
-        )
-        .context("graphql-validation-porf: export `m` not found")?;
-        let _ = into_anyhow(m.call(&mut store, ()))
-            .context("graphql-validation-porf: m() trapped")?;
-    }
-    let warm = warm_start.elapsed();
-    let n = crate::pick_iters(warm, Duration::from_millis(200));
-
-    let window = crate::Window::start();
-
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
+    // Timed unit: fresh Store + instantiate + m(); the Store is dropped
+    // (memory released) after the clock stops, as on every runtime.
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
         let mut store = Store::new(&engine, ());
         let instance = into_anyhow(linker.instantiate(&mut store, &module))
             .context("graphql-validation-porf: instantiate failed")?;
-        let m = into_anyhow(
-            instance.get_typed_func::<(), (f64, i32)>(&mut store, "m"),
-        )
-        .context("graphql-validation-porf: export `m` not found")?;
-        let _ = into_anyhow(m.call(&mut store, ()))
+        let m = into_anyhow(instance.get_typed_func::<(), (f64, i32)>(&mut store, "m"))
+            .context("graphql-validation-porf: export `m` not found")?;
+        let (_, r) = into_anyhow(m.call(&mut store, ()))
             .context("graphql-validation-porf: m() trapped")?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
-        // Store dropped here; memory released.
-    }
-
-    Ok(window.finish(0, n, load_time, samples))
+        let elapsed = t.elapsed();
+        drop(store);
+        Ok((elapsed, r))
+    })
 }
 
 fn make_engine() -> Result<Engine> {

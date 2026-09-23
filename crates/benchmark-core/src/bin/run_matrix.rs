@@ -11,7 +11,10 @@
 //!
 //! Ad-hoc mode, for smoke modules and one-off checks:
 //!   run_matrix --file x.wasm --func f [--arg N] [--expect V]
+//!              [--case NAME] [--instantiate-each]
 //! runs just that module (`f: i32 -> i32`, no imports) on RUNTIMES.
+//! `--case` sets the recorded case id (default: the file stem);
+//! `--instantiate-each` times instantiate + call per sample.
 //!
 //! Wrap with `taskpolicy -b` to schedule on the E-cluster; every JSON line
 //! records `e_share`, the measured fraction of the timed window's CPU
@@ -68,8 +71,17 @@ fn adhoc_case() -> Option<Vec<Case>> {
     let arg = get("--arg").map(|v| v.parse().expect("--arg")).unwrap_or(0);
     let expected = get("--expect").map(|v| v.parse().expect("--expect"));
     let id: &'static str = Box::leak(
-        std::path::Path::new(&file).file_stem().unwrap().to_string_lossy().into_owned().into_boxed_str(),
+        get("--case")
+            .unwrap_or_else(|| {
+                std::path::Path::new(&file).file_stem().unwrap().to_string_lossy().into_owned()
+            })
+            .into_boxed_str(),
     );
+    let shape = if args.iter().any(|a| a == "--instantiate-each") {
+        Shape::InstantiateEach
+    } else {
+        Shape::I32ToI32
+    };
     Some(vec![Case {
         id,
         label: id,
@@ -77,7 +89,7 @@ fn adhoc_case() -> Option<Vec<Case>> {
         func: Box::leak(func.into_boxed_str()),
         arg,
         expected,
-        shape: Shape::I32ToI32,
+        shape,
     }])
 }
 

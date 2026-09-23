@@ -640,6 +640,29 @@ pub(crate) fn measure_calls(
     Ok(window.finish(result, n, load_time, samples))
 }
 
+/// Measurement loop for cases whose timed unit is more than a call
+/// (`Shape::InstantiateEach`, Porffor): each `sample` does its own timing
+/// and returns `(elapsed, result)`, so work that must stay outside the
+/// timed region (tearing the fresh instance down) happens after the clock
+/// stops. Same warmup and sizing as `measure_calls`.
+pub(crate) fn measure_samples(
+    load_time: Duration,
+    mut sample: impl FnMut() -> Result<(Duration, i32)>,
+) -> Result<RunReport> {
+    sample().context("init warmup failed")?;
+    let (warm, mut result) = sample().context("steady warmup failed")?;
+    let n = pick_iters(warm, Duration::from_millis(200));
+
+    let window = Window::start();
+    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let (elapsed, r) = sample()?;
+        result = r;
+        samples.push(elapsed.as_nanos() as u64);
+    }
+    Ok(window.finish(result, n, load_time, samples))
+}
+
 /// Generic runner: load `wasm_bytes` via Pulley, look up `fn_name`, then run
 /// it `iters` times (auto-tuned if `iters == 0`) and report per-phase
 /// timings + Apple task-info derived CPU / RSS / page-fault deltas.
@@ -665,6 +688,50 @@ pub fn run_workload_with(
     }
 }
 
+/// `Shape::InstantiateEach`: every sample instantiates `wasm_bytes` afresh
+/// and calls `fn_name(arg)` once; instantiate + call is timed, the instance
+/// is torn down after the clock stops. For cases whose hot path runs at
+/// instantiation (constant expressions, segment initialization).
+pub fn run_instantiate_each_with(
+    rt: Runtime,
+    wasm_bytes: &[u8],
+    fn_name: &str,
+    arg: i32,
+) -> Result<RunReport> {
+    match rt {
+        Runtime::Pulley => run_workload_instantiate_each(wasm_bytes, fn_name, arg),
+        Runtime::Wamr => wamr::run_instantiate_each_wamr(wasm_bytes, fn_name, arg),
+        Runtime::Wasm3 => wasm3::run_instantiate_each_wasm3(wasm_bytes, fn_name, arg),
+        Runtime::WasmEdge => wasmedge::run_instantiate_each_wasmedge(wasm_bytes, fn_name, arg),
+        Runtime::Zwasm => zwasm::run_instantiate_each_zwasm(wasm_bytes, fn_name, arg),
+        Runtime::Wasmz => wasmz::run_instantiate_each_wasmz(wasm_bytes, fn_name, arg),
+        Runtime::Tinywasm => tinywasm::run_instantiate_each_tinywasm(wasm_bytes, fn_name, arg),
+    }
+}
+
+/// Pulley side of `Shape::InstantiateEach`: one compiled `Module`, then a
+/// fresh `Store` + `Instance` per sample.
+pub fn run_workload_instantiate_each(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    let load_start = Instant::now();
+    let engine = pulley_engine()?;
+    let module = into_anyhow(Module::from_binary(&engine, wasm_bytes))
+        .context("Module::from_binary failed — invalid wasm or unsupported feature?")?;
+    let load_time = load_start.elapsed();
+    measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut store = Store::new(&engine, ());
+        let instance = into_anyhow(Instance::new(&mut store, &module, &[]))
+            .context("Instance::new failed")?;
+        let f = into_anyhow(instance.get_typed_func::<i32, i32>(&mut store, fn_name))
+            .with_context(|| format!("export `{fn_name}` not found or wrong signature"))?;
+        let r = into_anyhow(f.call(&mut store, arg))
+            .with_context(|| format!("`{fn_name}({arg})` trapped"))?;
+        let elapsed = t.elapsed();
+        drop(store);
+        Ok((elapsed, r))
+    })
+}
+
 pub fn run_workload_iters(
     wasm_bytes: &[u8],
     fn_name: &str,
@@ -672,38 +739,7 @@ pub fn run_workload_iters(
     iters: u32,
 ) -> Result<RunReport> {
     let load_start = Instant::now();
-    let pulley_target = if cfg!(target_pointer_width = "64") {
-        "pulley64"
-    } else {
-        "pulley32"
-    };
-    let mut config = wasmtime::Config::new();
-    into_anyhow(config.target(pulley_target).map(|_| ()))
-        .with_context(|| format!("Config::target({pulley_target}) failed"))?;
-    // simd128 + relaxed-simd both on (defaults, made explicit). Non-
-    // deterministic relaxed-simd lets Pulley use Vfma32x4/Vfma64x2.
-    config.wasm_simd(true);
-    config.wasm_relaxed_simd(true);
-    config.relaxed_simd_deterministic(false);
-    // Tail calls: defaults to true except with Winch (we don't use Winch).
-    // Made explicit so the `fib_tail` workload's `return_call` opcodes are
-    // accepted regardless of any future default change.
-    config.wasm_tail_call(true);
-    // Bulk memory is default-on; explicit for the bulk_memory workload.
-    config.wasm_bulk_memory(true);
-    // Legacy wasm-eh (phase-3) — Porffor lowers JS try/catch to the
-    // legacy `try`/`catch tag` opcodes. The wasmtime API for this is
-    // marked deprecated upstream ("internal usage with the spec
-    // testsuite") but it's the only way to make our Porffor-compiled
-    // graphql-validation workload load. The new (phase-4) `try_table`
-    // proposal isn't relevant: Porffor doesn't emit it.
-    #[allow(deprecated)]
-    config.wasm_legacy_exceptions(true);
-    // Note: `wasm_reference_types` is gated behind wasmtime's `gc` feature
-    // (which we don't enable). The plain wasm 1.0 `call_indirect` op our
-    // workload uses works fine without it.
-    let engine = into_anyhow(Engine::new(&config))
-        .context("Engine::new failed")?;
+    let engine = pulley_engine()?;
     let module = into_anyhow(Module::from_binary(&engine, wasm_bytes))
         .context("Module::from_binary failed — invalid wasm or unsupported feature?")?;
     let mut store = Store::new(&engine, ());
@@ -735,6 +771,38 @@ pub fn run_workload_iters(
         into_anyhow(typed.call(&mut store, arg))
             .with_context(|| format!("`{fn_name}({arg})` trapped"))
     })
+}
+
+/// The Pulley engine every generic-shape case runs on.
+fn pulley_engine() -> Result<Engine> {
+    let pulley_target = if cfg!(target_pointer_width = "64") {
+        "pulley64"
+    } else {
+        "pulley32"
+    };
+    let mut config = wasmtime::Config::new();
+    into_anyhow(config.target(pulley_target).map(|_| ()))
+        .with_context(|| format!("Config::target({pulley_target}) failed"))?;
+    // simd128 + relaxed-simd both on (defaults, made explicit). Non-
+    // deterministic relaxed-simd lets Pulley use Vfma32x4/Vfma64x2.
+    config.wasm_simd(true);
+    config.wasm_relaxed_simd(true);
+    config.relaxed_simd_deterministic(false);
+    // Tail calls: defaults to true except with Winch (we don't use Winch).
+    // Made explicit so the `fib_tail` workload's `return_call` opcodes are
+    // accepted regardless of any future default change.
+    config.wasm_tail_call(true);
+    // Bulk memory is default-on; explicit for the bulk_memory workload.
+    config.wasm_bulk_memory(true);
+    // Legacy wasm-eh (phase-3) — Porffor lowers JS try/catch to the
+    // legacy `try`/`catch tag` opcodes. The wasmtime API for this is
+    // marked deprecated upstream ("internal usage with the spec
+    // testsuite") but it's the only way to make our Porffor-compiled
+    // graphql-validation workload load. The new (phase-4) `try_table`
+    // proposal isn't relevant: Porffor doesn't emit it.
+    #[allow(deprecated)]
+    config.wasm_legacy_exceptions(true);
+    into_anyhow(Engine::new(&config)).context("Engine::new failed")
 }
 
 // -----------------------------------------------------------------------------

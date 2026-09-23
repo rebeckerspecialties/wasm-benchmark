@@ -19,6 +19,10 @@ pub enum Shape {
     /// Sightglass sqlite3 speedtest1: WASI preview-1 + `bench.*` imports.
     /// Only the Pulley side has the import shim.
     Sqlite3,
+    /// `export(arg: i32) -> i32` on a fresh instance per sample: instantiate
+    /// + call is timed, teardown is not. For features whose hot path runs
+    /// at instantiation (extended constant expressions).
+    InstantiateEach,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -158,6 +162,7 @@ pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
             // wasm3 has no exception handling or multi-value host call path.
             Runtime::Wasm3 => wasm3::run_workload_wasm3(case.wasm, case.func, case.arg),
         },
+        Shape::InstantiateEach => run_instantiate_each_with(rt, case.wasm, case.func, case.arg),
         Shape::Sqlite3 => match rt {
             Runtime::Pulley => sqlite3::run_sqlite3(case.wasm),
             _ => Err(anyhow!(

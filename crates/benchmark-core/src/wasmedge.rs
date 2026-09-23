@@ -158,7 +158,66 @@ extern "C" {
         vm: *mut WasmEdgeVMContext,
         import_cxt: *const WasmEdgeModuleInstanceContext,
     ) -> WasmEdgeResult;
+    fn WasmEdge_BytesDelete(bytes: WasmEdgeBytes);
+
+    // Executor-level API: separate loader / validator / executor / store,
+    // so a module instance can be created and deleted on its own (the VM
+    // API only replaces its one active instance).
+    fn WasmEdge_LoaderCreate(conf: *const WasmEdgeConfigureContext) -> *mut WasmEdgeLoaderContext;
+    fn WasmEdge_LoaderParseFromBytes(
+        cxt: *mut WasmEdgeLoaderContext,
+        module: *mut *mut WasmEdgeASTModuleContext,
+        bytes: WasmEdgeBytes,
+    ) -> WasmEdgeResult;
+    fn WasmEdge_LoaderDelete(cxt: *mut WasmEdgeLoaderContext);
+    fn WasmEdge_ValidatorCreate(conf: *const WasmEdgeConfigureContext)
+        -> *mut WasmEdgeValidatorContext;
+    fn WasmEdge_ValidatorValidate(
+        cxt: *mut WasmEdgeValidatorContext,
+        ast: *const WasmEdgeASTModuleContext,
+    ) -> WasmEdgeResult;
+    fn WasmEdge_ValidatorDelete(cxt: *mut WasmEdgeValidatorContext);
+    fn WasmEdge_ASTModuleDelete(cxt: *mut WasmEdgeASTModuleContext);
+    fn WasmEdge_ExecutorCreate(
+        conf: *const WasmEdgeConfigureContext,
+        stat: *mut c_void,
+    ) -> *mut WasmEdgeExecutorContext;
+    fn WasmEdge_ExecutorInstantiate(
+        cxt: *mut WasmEdgeExecutorContext,
+        module: *mut *mut WasmEdgeModuleInstanceContext,
+        store: *mut WasmEdgeStoreContext,
+        ast: *const WasmEdgeASTModuleContext,
+    ) -> WasmEdgeResult;
+    fn WasmEdge_ExecutorRegisterImport(
+        cxt: *mut WasmEdgeExecutorContext,
+        store: *mut WasmEdgeStoreContext,
+        import: *const WasmEdgeModuleInstanceContext,
+    ) -> WasmEdgeResult;
+    fn WasmEdge_ExecutorInvoke(
+        cxt: *mut WasmEdgeExecutorContext,
+        func: *const WasmEdgeFunctionInstanceContext,
+        params: *const WasmEdgeValue,
+        param_len: u32,
+        returns: *mut WasmEdgeValue,
+        return_len: u32,
+    ) -> WasmEdgeResult;
+    fn WasmEdge_ExecutorDelete(cxt: *mut WasmEdgeExecutorContext);
+    fn WasmEdge_StoreCreate() -> *mut WasmEdgeStoreContext;
+    fn WasmEdge_StoreDelete(cxt: *mut WasmEdgeStoreContext);
+    fn WasmEdge_ModuleInstanceFindFunction(
+        cxt: *const WasmEdgeModuleInstanceContext,
+        name: WasmEdgeString,
+    ) -> *mut WasmEdgeFunctionInstanceContext;
 }
+
+#[allow(non_camel_case_types)]
+type WasmEdgeLoaderContext = c_void;
+#[allow(non_camel_case_types)]
+type WasmEdgeValidatorContext = c_void;
+#[allow(non_camel_case_types)]
+type WasmEdgeExecutorContext = c_void;
+#[allow(non_camel_case_types)]
+type WasmEdgeASTModuleContext = c_void;
 
 // More opaque types for the host-function path.
 #[allow(non_camel_case_types)]
@@ -371,10 +430,11 @@ fn run_workload_wasmedge_iters_inner(
     // After Register, the VM owns the module instance. Do NOT free it
     // here.
 
-    err_from(
-        unsafe { WasmEdge_VMLoadWasmFromBytes(vm, bytes) },
-        "VMLoadWasmFromBytes",
-    )?;
+    // The loader copies what it keeps, so the BytesCreate copy is freed
+    // right after parsing.
+    let loaded = unsafe { WasmEdge_VMLoadWasmFromBytes(vm, bytes) };
+    unsafe { WasmEdge_BytesDelete(bytes) };
+    err_from(loaded, "VMLoadWasmFromBytes")?;
     err_from(unsafe { WasmEdge_VMValidate(vm) }, "VMValidate")?;
     err_from(unsafe { WasmEdge_VMInstantiate(vm) }, "VMInstantiate")?;
 
@@ -466,22 +526,51 @@ pub fn run_graphql_validation_porf_wasmedge(wasm_bytes: &[u8]) -> Result<RunRepo
 }
 
 fn run_graphql_validation_porf_wasmedge_inner(wasm_bytes: &[u8]) -> Result<RunReport> {
-    init()?;
+    // m() → (f64, i32): 0 params, 2 returns; the i32 is the result.
+    executor_samples(wasm_bytes, "m", &[], 2, 1, true)
+}
 
+/// `Shape::InstantiateEach` on WasmEdge.
+pub fn run_instantiate_each_wasmedge(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    #[cfg(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64")))]
+    {
+        let _ = (wasm_bytes, fn_name, arg);
+        return Err(anyhow!("WasmEdge VMInstantiate SIGTRAPs on arm64_32-apple-watchos"));
+    }
+    #[cfg(not(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64"))))]
+    {
+        let params = [unsafe { WasmEdge_ValueGenI32(arg) }];
+        executor_samples(wasm_bytes, fn_name, &params, 1, 0, false)
+    }
+}
+
+/// Parse + validate once, then per sample: `ExecutorInstantiate` a fresh
+/// module instance, find `fn_name`, invoke it; the instance is deleted
+/// after the clock stops. With `porf_import` the Porffor `("", "b")`
+/// host print is registered in the store first.
+fn executor_samples(
+    wasm_bytes: &[u8],
+    fn_name: &str,
+    params: &[WasmEdgeValue],
+    n_returns: usize,
+    result_index: usize,
+    porf_import: bool,
+) -> Result<RunReport> {
+    init()?;
     let load_start = Instant::now();
 
-    let conf = unsafe { WasmEdge_ConfigureCreate() };
-    if conf.is_null() {
-        return Err(anyhow!("WasmEdge_ConfigureCreate returned NULL"));
-    }
-    struct ConfGuard(*mut WasmEdgeConfigureContext);
-    impl Drop for ConfGuard {
+    struct Guard(*mut c_void, unsafe extern "C" fn(*mut c_void));
+    impl Drop for Guard {
         fn drop(&mut self) {
-            unsafe { WasmEdge_ConfigureDelete(self.0) };
+            if !self.0.is_null() {
+                unsafe { (self.1)(self.0) };
+            }
         }
     }
-    let _conf_g = ConfGuard(conf);
-
+    let conf = Guard(unsafe { WasmEdge_ConfigureCreate() }, WasmEdge_ConfigureDelete);
+    if conf.0.is_null() {
+        return Err(anyhow!("WasmEdge_ConfigureCreate returned NULL"));
+    }
     for prop in [
         PROP_MULTI_VALUE,
         PROP_BULK_MEMORY,
@@ -492,60 +581,59 @@ fn run_graphql_validation_porf_wasmedge_inner(wasm_bytes: &[u8]) -> Result<RunRe
         PROP_RELAX_SIMD,
         PROP_EXCEPTION_HANDLING,
     ] {
-        unsafe { WasmEdge_ConfigureAddProposal(conf, prop) };
+        unsafe { WasmEdge_ConfigureAddProposal(conf.0, prop) };
+    }
+    let loader = Guard(unsafe { WasmEdge_LoaderCreate(conf.0) }, WasmEdge_LoaderDelete);
+    let validator = Guard(unsafe { WasmEdge_ValidatorCreate(conf.0) }, WasmEdge_ValidatorDelete);
+    let executor = Guard(
+        unsafe { WasmEdge_ExecutorCreate(conf.0, std::ptr::null_mut()) },
+        WasmEdge_ExecutorDelete,
+    );
+    let store = Guard(unsafe { WasmEdge_StoreCreate() }, WasmEdge_StoreDelete);
+    if loader.0.is_null() || validator.0.is_null() || executor.0.is_null() || store.0.is_null() {
+        return Err(anyhow!("WasmEdge loader/validator/executor/store creation failed"));
     }
 
-    let vm = unsafe { WasmEdge_VMCreate(conf, std::ptr::null_mut()) };
-    if vm.is_null() {
-        return Err(anyhow!("WasmEdge_VMCreate returned NULL"));
-    }
-    struct VmGuard(*mut WasmEdgeVMContext);
-    impl Drop for VmGuard {
-        fn drop(&mut self) {
-            unsafe { WasmEdge_VMDelete(self.0) };
+    // Host module for the Porffor import. Dropped before the store; either
+    // order is safe, since a WasmEdge module instance unlinks itself from
+    // the stores it is registered in when deleted and a store unlinks its
+    // modules when deleted.
+    let mut _porf_mod = Guard(std::ptr::null_mut(), WasmEdge_ModuleInstanceDelete);
+    if porf_import {
+        let name = unsafe { WasmEdge_StringCreateByCString(b"\0".as_ptr() as *const c_char) };
+        let m = unsafe { WasmEdge_ModuleInstanceCreate(name) };
+        unsafe { WasmEdge_StringDelete(name) };
+        if m.is_null() {
+            return Err(anyhow!("WasmEdge_ModuleInstanceCreate(\"\") returned NULL"));
         }
+        _porf_mod = Guard(m, WasmEdge_ModuleInstanceDelete);
+        let f64_ty = unsafe { WasmEdge_ValTypeGenF64() };
+        let fty = unsafe { WasmEdge_FunctionTypeCreate(&f64_ty, 1, std::ptr::null(), 0) };
+        let f = unsafe {
+            WasmEdge_FunctionInstanceCreate(fty, wasmedge_porf_b, std::ptr::null_mut(), 0)
+        };
+        unsafe { WasmEdge_FunctionTypeDelete(fty) };
+        if f.is_null() {
+            return Err(anyhow!("WasmEdge_FunctionInstanceCreate for porf-b returned NULL"));
+        }
+        let fname = unsafe { WasmEdge_StringCreateByCString(b"b\0".as_ptr() as *const c_char) };
+        unsafe { WasmEdge_ModuleInstanceAddFunction(m, fname, f) };
+        unsafe { WasmEdge_StringDelete(fname) };
+        err_from(
+            unsafe { WasmEdge_ExecutorRegisterImport(executor.0, store.0, m) },
+            "ExecutorRegisterImport(porf-b)",
+        )?;
     }
-    let _vm_g = VmGuard(vm);
 
-    // Register the Porffor host import (same shape as the generic runner).
-    let porf_module_name = unsafe {
-        WasmEdge_StringCreateByCString(b"\0".as_ptr() as *const c_char)
-    };
-    let porf_mod = unsafe { WasmEdge_ModuleInstanceCreate(porf_module_name) };
-    unsafe { WasmEdge_StringDelete(porf_module_name) };
-    if porf_mod.is_null() {
-        return Err(anyhow!("WasmEdge_ModuleInstanceCreate(\"\") returned NULL"));
-    }
-    let f64_ty = unsafe { WasmEdge_ValTypeGenF64() };
-    let porf_func_ty = unsafe {
-        WasmEdge_FunctionTypeCreate(&f64_ty, 1, std::ptr::null(), 0)
-    };
-    let porf_func = unsafe {
-        WasmEdge_FunctionInstanceCreate(porf_func_ty, wasmedge_porf_b, std::ptr::null_mut(), 0)
-    };
-    unsafe { WasmEdge_FunctionTypeDelete(porf_func_ty) };
-    let porf_func_name = unsafe {
-        WasmEdge_StringCreateByCString(b"b\0".as_ptr() as *const c_char)
-    };
-    unsafe { WasmEdge_ModuleInstanceAddFunction(porf_mod, porf_func_name, porf_func) };
-    unsafe { WasmEdge_StringDelete(porf_func_name) };
-    err_from(
-        unsafe { WasmEdge_VMRegisterModuleFromImport(vm, porf_mod) },
-        "VMRegisterModuleFromImport(porf-b)",
-    )?;
+    let bytes = unsafe { WasmEdge_BytesCreate(wasm_bytes.as_ptr(), wasm_bytes.len() as u32) };
+    let mut ast: *mut WasmEdgeASTModuleContext = std::ptr::null_mut();
+    let parsed = unsafe { WasmEdge_LoaderParseFromBytes(loader.0, &mut ast, bytes) };
+    unsafe { WasmEdge_BytesDelete(bytes) };
+    err_from(parsed, "LoaderParseFromBytes")?;
+    let ast = Guard(ast, WasmEdge_ASTModuleDelete);
+    err_from(unsafe { WasmEdge_ValidatorValidate(validator.0, ast.0) }, "ValidatorValidate")?;
 
-    let bytes_owned = wasm_bytes.to_vec();
-    let bytes = unsafe {
-        WasmEdge_BytesCreate(bytes_owned.as_ptr(), bytes_owned.len() as u32)
-    };
-    err_from(
-        unsafe { WasmEdge_VMLoadWasmFromBytes(vm, bytes) },
-        "VMLoadWasmFromBytes",
-    )?;
-    err_from(unsafe { WasmEdge_VMValidate(vm) }, "VMValidate")?;
-    err_from(unsafe { WasmEdge_VMInstantiate(vm) }, "VMInstantiate")?;
-
-    let cname = std::ffi::CString::new("m")?;
+    let cname = std::ffi::CString::new(fn_name)?;
     let func_name = unsafe { WasmEdge_StringCreateByCString(cname.as_ptr()) };
     struct StringGuard(WasmEdgeString);
     impl Drop for StringGuard {
@@ -554,46 +642,30 @@ fn run_graphql_validation_porf_wasmedge_inner(wasm_bytes: &[u8]) -> Result<RunRe
         }
     }
     let _name_g = StringGuard(func_name);
-
     let load_time = load_start.elapsed();
 
-    // m() → (f64, i32) — 0 params, 2 returns. Each sample re-instantiates
-    // (VMInstantiate replaces the VM's active module instance) and runs
-    // m() once: instantiate + m() is the timed unit on every runtime,
-    // because Porffor never frees and grows memory across calls.
-    let call = || -> Result<i32> {
-        err_from(unsafe { WasmEdge_VMInstantiate(vm) }, "VMInstantiate")?;
-        let mut returns: [WasmEdgeValue; 2] = [WasmEdgeValue { _bytes: [0u8; 24] }; 2];
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut inst: *mut WasmEdgeModuleInstanceContext = std::ptr::null_mut();
+        err_from(
+            unsafe { WasmEdge_ExecutorInstantiate(executor.0, &mut inst, store.0, ast.0) },
+            "ExecutorInstantiate",
+        )?;
+        let inst = Guard(inst, WasmEdge_ModuleInstanceDelete);
+        let f = unsafe { WasmEdge_ModuleInstanceFindFunction(inst.0, func_name) };
+        if f.is_null() {
+            return Err(anyhow!("export `{fn_name}` not found"));
+        }
+        let mut returns = vec![WasmEdgeValue { _bytes: [0u8; 24] }; n_returns];
         err_from(
             unsafe {
-                WasmEdge_VMExecute(
-                    vm,
-                    func_name,
-                    std::ptr::null(),
-                    0,
-                    returns.as_mut_ptr(),
-                    2,
-                )
+                WasmEdge_ExecutorInvoke(executor.0, f, params.as_ptr(), params.len() as u32,
+                                        returns.as_mut_ptr(), n_returns as u32)
             },
-            "VMExecute(m)",
+            "ExecutorInvoke",
         )?;
-        Ok(unsafe { WasmEdge_ValueGetI32(returns[1]) })
-    };
-
-    let mut result = call().context("WasmEdge porf init-warmup failed")?;
-    let warm_start = Instant::now();
-    result = call().context("WasmEdge porf steady-warmup failed")?;
-    let warm = warm_start.elapsed();
-    let n = crate::pick_iters(warm, Duration::from_millis(200));
-
-    let window = crate::Window::start();
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
-        result = call()?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
-    }
-    let _ = bytes_owned;
-
-    Ok(window.finish(result, n, load_time, samples))
+        let elapsed = t.elapsed();
+        drop(inst);
+        Ok((elapsed, unsafe { WasmEdge_ValueGetI32(returns[result_index]) }))
+    })
 }

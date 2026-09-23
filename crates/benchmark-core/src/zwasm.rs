@@ -293,9 +293,8 @@ impl Loaded {
         }
     }
 
-    /// Replace the current instance (if any) with a fresh, interp-forced
-    /// one of the same module, reusing the store's host funcs.
-    pub(crate) fn instantiate(&mut self) -> Result<()> {
+    /// Delete the current instance, if any.
+    pub(crate) fn release(&mut self) {
         unsafe {
             if !self.instance.is_null() {
                 wasm_extern_vec_delete(&mut self.exports);
@@ -303,6 +302,14 @@ impl Loaded {
                 wasm_instance_delete(self.instance);
                 self.instance = std::ptr::null_mut();
             }
+        }
+    }
+
+    /// Replace the current instance (if any) with a fresh, interp-forced
+    /// one of the same module, reusing the store's host funcs.
+    pub(crate) fn instantiate(&mut self) -> Result<()> {
+        self.release();
+        unsafe {
             // The vec only borrows the externs (the store owns the funcs).
             let import_vec = wasm_extern_vec_t {
                 size: self.host_externs.len(),
@@ -418,6 +425,27 @@ pub fn run_workload_zwasm(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<
     run_workload_zwasm_iters(wasm_bytes, fn_name, arg, 0)
 }
 
+/// `Shape::InstantiateEach` on zwasm: the previous instance is released
+/// before the clock starts, then a fresh interp-forced instance is created
+/// and called.
+pub fn run_instantiate_each_zwasm(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    let bytes = wasm_bytes.to_vec();
+    let name = fn_name.to_string();
+    on_big_stack("zwasm-instantiate", move || {
+        let load_start = Instant::now();
+        let mut l = Loaded::new(&bytes, &[])?;
+        let load_time = load_start.elapsed();
+        crate::measure_samples(load_time, || {
+            l.release();
+            let t = Instant::now();
+            l.instantiate()?;
+            let r = call_raw(l.func(&name)?, &[i32_val(arg)], 1)
+                .with_context(|| format!("`{name}({arg})` trapped"))?;
+            Ok((t.elapsed(), r[0].of as u32 as i32))
+        })
+    })
+}
+
 unsafe extern "C" fn porf_print_stub(
     _args: *const wasm_val_vec_t,
     _results: *mut wasm_val_vec_t,
@@ -440,11 +468,14 @@ pub fn run_graphql_validation_porf_zwasm(wasm_bytes: &[u8]) -> Result<RunReport>
         let load_time = load_start.elapsed();
         // Each sample instantiates a fresh instance and runs m() once:
         // instantiate + m() is the timed unit on every runtime, because
-        // Porffor never frees and grows memory across calls.
-        crate::measure_calls(load_time, 0, || {
+        // Porffor never frees and grows memory across calls. The previous
+        // instance is released before the clock starts.
+        crate::measure_samples(load_time, || {
+            l.release();
+            let t = Instant::now();
             l.instantiate()?;
             let r = call_raw(l.func("m")?, &[], 2).context("zwasm m() trapped")?;
-            Ok(r[1].of as u32 as i32)
+            Ok((t.elapsed(), r[1].of as u32 as i32))
         })
     })
 }

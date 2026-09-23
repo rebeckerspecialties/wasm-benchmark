@@ -209,6 +209,105 @@ pub fn run_workload_wamr(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<R
     run_workload_wamr_iters(wasm_bytes, fn_name, arg, 0)
 }
 
+fn exception_text(module_inst: wasm_module_inst_t) -> String {
+    let msg_ptr = unsafe { wasm_runtime_get_exception(module_inst) };
+    if msg_ptr.is_null() {
+        "(no exception text)".to_string()
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(msg_ptr) }.to_string_lossy().into_owned()
+    }
+}
+
+fn load_module(bytes: &mut [u8]) -> Result<wasm_module_t> {
+    let mut err_buf = [0i8; 256];
+    let module = unsafe {
+        wasm_runtime_load(bytes.as_mut_ptr(), bytes.len() as u32, err_buf.as_mut_ptr(),
+                          err_buf.len() as u32)
+    };
+    if module.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }.to_string_lossy();
+        return Err(anyhow!("wasm_runtime_load failed: {msg}"));
+    }
+    Ok(module)
+}
+
+/// One sample on a fresh instance: instantiate + `func` + call are timed,
+/// the exec env and instance are destroyed after the clock stops. `call`
+/// gets the exec env and function and returns the i32 result.
+fn instantiate_sample(
+    module: wasm_module_t,
+    fn_name: &std::ffi::CStr,
+    stack_size: u32,
+    heap_size: u32,
+    call: impl FnOnce(wasm_exec_env_t, wasm_function_inst_t) -> bool,
+    result: impl FnOnce() -> i32,
+) -> Result<(Duration, i32)> {
+    let mut err_buf = [0i8; 256];
+    let t = Instant::now();
+    let inst = unsafe {
+        wasm_runtime_instantiate(module, stack_size, heap_size, err_buf.as_mut_ptr(),
+                                 err_buf.len() as u32)
+    };
+    if inst.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }.to_string_lossy();
+        return Err(anyhow!("wasm_runtime_instantiate failed: {msg}"));
+    }
+    let func = unsafe { wasm_runtime_lookup_function(inst, fn_name.as_ptr()) };
+    if func.is_null() {
+        unsafe { wasm_runtime_deinstantiate(inst) };
+        return Err(anyhow!("export `{}` not found", fn_name.to_string_lossy()));
+    }
+    let exec_env = unsafe { wasm_runtime_create_exec_env(inst, stack_size) };
+    if exec_env.is_null() {
+        unsafe { wasm_runtime_deinstantiate(inst) };
+        return Err(anyhow!("wasm_runtime_create_exec_env failed"));
+    }
+    let ok = call(exec_env, func);
+    let elapsed = t.elapsed();
+    let r = if ok { Ok((elapsed, result())) } else {
+        Err(anyhow!("WAMR call_wasm trap: {}", exception_text(inst)))
+    };
+    unsafe {
+        wasm_runtime_destroy_exec_env(exec_env);
+        wasm_runtime_deinstantiate(inst);
+    }
+    r
+}
+
+/// `Shape::InstantiateEach` on WAMR: the module is loaded once, every
+/// sample instantiates it afresh. The app heap is 0 here (the generic
+/// runner's 8 MiB heap is for AssemblyScript's allocator); a heap WAMR
+/// would carve into linear memory on every instantiation is not part of
+/// what the case measures.
+pub fn run_instantiate_each_wamr(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    ensure_init()?;
+    let load_start = Instant::now();
+    // WAMR keeps pointers into the bytes for the module's lifetime; the
+    // guard (declared after the bytes) unloads before they are freed.
+    let mut bytes_owned = wasm_bytes.to_vec();
+    struct ModGuard(wasm_module_t);
+    impl Drop for ModGuard {
+        fn drop(&mut self) {
+            unsafe { wasm_runtime_unload(self.0) };
+        }
+    }
+    let module = ModGuard(load_module(&mut bytes_owned)?);
+    let cname = std::ffi::CString::new(fn_name)?;
+    let load_time = load_start.elapsed();
+    crate::measure_samples(load_time, || {
+        let mut argv = [arg as u32; 1];
+        let argv_ptr = argv.as_mut_ptr();
+        instantiate_sample(
+            module.0,
+            &cname,
+            32 * 1024,
+            0,
+            |env, func| unsafe { wasm_runtime_call_wasm(env, func, 1, argv_ptr) },
+            || unsafe { *argv_ptr as i32 },
+        )
+    })
+}
+
 // --- graphql-validation-porf runner --------------------------------
 //
 // Porffor's `m()` export returns `(f64, i32)` (multi-return) and the
@@ -297,117 +396,36 @@ pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> 
     ensure_init()?;
     ensure_porf_natives_registered();
 
-    let mut err_buf = [0i8; 256];
     let load_start = Instant::now();
     let mut bytes_owned = wasm_bytes.to_vec();
-    let module = unsafe {
-        wasm_runtime_load(
-            bytes_owned.as_mut_ptr(),
-            bytes_owned.len() as u32,
-            err_buf.as_mut_ptr(),
-            err_buf.len() as u32,
-        )
-    };
-    if module.is_null() {
-        let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }
-            .to_string_lossy()
-            .into_owned();
-        return Err(anyhow!("wasm_runtime_load failed: {msg}"));
+    struct ModGuard(wasm_module_t);
+    impl Drop for ModGuard {
+        fn drop(&mut self) {
+            unsafe { wasm_runtime_unload(self.0) };
+        }
     }
-
-    // Helper: spin up an instance, run `m()` once, tear down. Heap is
-    // sized generously (4 MiB) because Porffor allocates without GC.
+    let module = ModGuard(load_module(&mut bytes_owned)?);
     let cname_m = std::ffi::CString::new("m")?;
-    let run_once = |timed: bool, err_buf: &mut [i8; 256]| -> Result<Duration> {
-        // 1 MB wasm operand stack — Porffor compiles JS to deeply
-        // recursive wasm with no inlining, so the per-frame slot
-        // allocations add up across the graphql-validation call tree.
-        // 8 KB / 64 KB both overflow mid-validation with
-        // "wasm operand stack overflow".
-        //
-        // The timed sample is instantiate + m(), the same as every other
-        // runtime's Porffor runner: Porffor never frees, so each run of
-        // the program starts from a fresh instance.
-        let it_start = if timed { Some(Instant::now()) } else { None };
-        let module_inst = unsafe {
-            wasm_runtime_instantiate(
-                module,
-                1024 * 1024,
-                4 * 1024 * 1024,
-                err_buf.as_mut_ptr(),
-                err_buf.len() as u32,
-            )
-        };
-        if module_inst.is_null() {
-            let msg = unsafe { std::ffi::CStr::from_ptr(err_buf.as_ptr()) }
-                .to_string_lossy()
-                .into_owned();
-            return Err(anyhow!("wasm_runtime_instantiate failed: {msg}"));
-        }
-        let func = unsafe { wasm_runtime_lookup_function(module_inst, cname_m.as_ptr()) };
-        if func.is_null() {
-            unsafe { wasm_runtime_deinstantiate(module_inst) };
-            return Err(anyhow!("export `m` not found"));
-        }
-        // 1 MB exec-env wasm stack — same reasoning as the
-        // wasm_runtime_instantiate call above. The stack here is what
-        // backs the per-frame slot allocations across the recursive
-        // call chain.
-        let exec_env = unsafe { wasm_runtime_create_exec_env(module_inst, 1024 * 1024) };
-        if exec_env.is_null() {
-            unsafe { wasm_runtime_deinstantiate(module_inst) };
-            return Err(anyhow!("wasm_runtime_create_exec_env failed"));
-        }
-        // `m()` returns (f64, i32) — 2 results, 0 args. Use the
-        // variadic call form.
-        let mut results: [WasmVal; 2] = [WasmVal {
-            kind: 0,
-            _pad: 0,
-            payload: WasmValPayload { i64_: 0 },
-        }; 2];
-        let ok = unsafe {
-            wasm_runtime_call_wasm_v(exec_env, func, 2, results.as_mut_ptr(), 0)
-        };
-        let elapsed = it_start.map(|t| t.elapsed()).unwrap_or_default();
-        if !ok {
-            let msg_ptr = unsafe { wasm_runtime_get_exception(module_inst) };
-            let msg = if msg_ptr.is_null() {
-                "(no exception text)".to_string()
-            } else {
-                unsafe { std::ffi::CStr::from_ptr(msg_ptr) }
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            unsafe {
-                wasm_runtime_destroy_exec_env(exec_env);
-                wasm_runtime_deinstantiate(module_inst);
-            }
-            return Err(anyhow!("WAMR m() trap: {msg}"));
-        }
-        unsafe {
-            wasm_runtime_destroy_exec_env(exec_env);
-            wasm_runtime_deinstantiate(module_inst);
-        }
-        Ok(elapsed)
-    };
-
     let load_time = load_start.elapsed();
 
-    // Warmup → budget.
-    let warm = run_once(true, &mut err_buf).context("WAMR porf warmup failed")?;
-    let n = crate::pick_iters(warm, Duration::from_millis(200));
-
-    let window = crate::Window::start();
-
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let t = run_once(true, &mut err_buf).context("WAMR porf iter failed")?;
-        samples.push(t.as_nanos() as u64);
-    }
-
-    unsafe {
-        wasm_runtime_unload(module);
-    }
-
-    Ok(window.finish(0, n, load_time, samples))
+    // Timed unit: instantiate + m() on a fresh instance, as on every
+    // runtime (Porffor never frees). 1 MiB operand stack: Porffor compiles
+    // JS to deeply recursive wasm with no inlining, and 8 KiB / 64 KiB
+    // stacks overflow mid-validation with "wasm operand stack overflow".
+    // 4 MiB app heap because Porffor allocates without GC.
+    crate::measure_samples(load_time, || {
+        // `m()` returns (f64, i32): 2 results, 0 args, via the variadic
+        // call form.
+        let mut results: [WasmVal; 2] =
+            [WasmVal { kind: 0, _pad: 0, payload: WasmValPayload { i64_: 0 } }; 2];
+        let res_ptr = results.as_mut_ptr();
+        instantiate_sample(
+            module.0,
+            &cname_m,
+            1024 * 1024,
+            4 * 1024 * 1024,
+            |env, func| unsafe { wasm_runtime_call_wasm_v(env, func, 2, res_ptr, 0) },
+            || unsafe { (*res_ptr.add(1)).payload.i32_ },
+        )
+    })
 }

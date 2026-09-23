@@ -53,6 +53,28 @@ pub fn run_workload_tinywasm(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Resu
     run_workload_tinywasm_iters(wasm_bytes, fn_name, arg, 0)
 }
 
+/// `Shape::InstantiateEach` on tinywasm: parsed once, then a fresh
+/// `Store` + instance per sample, dropped after the clock stops.
+pub fn run_instantiate_each_tinywasm(wasm_bytes: &[u8], fn_name: &str, arg: i32)
+    -> Result<RunReport>
+{
+    let load_start = Instant::now();
+    let module = parse(wasm_bytes)?;
+    let load_time = load_start.elapsed();
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut store = Store::default();
+        let instance = tw(ModuleInstance::instantiate(&mut store, &module, None))
+            .context("tinywasm instantiate failed")?;
+        let func = tw(instance.func::<i32, i32>(&store, fn_name))
+            .with_context(|| format!("export `{fn_name}` not found or wrong signature"))?;
+        let r = tw(func.call(&mut store, arg)).with_context(|| format!("`{fn_name}({arg})` trapped"))?;
+        let elapsed = t.elapsed();
+        drop(store);
+        Ok((elapsed, r))
+    })
+}
+
 /// Porffor graphql-validation: `m() -> (f64, i32)` with a
 /// `("", "b"): (f64) -> ()` host print. Like the Pulley runner, each
 /// iteration instantiates a fresh store, because Porffor never frees and
@@ -61,7 +83,10 @@ pub fn run_graphql_validation_porf_tinywasm(wasm_bytes: &[u8]) -> Result<RunRepo
     let load_start = Instant::now();
     let module = parse(wasm_bytes)?;
     let load_time = load_start.elapsed();
-    let once = || -> Result<i32> {
+    // Timed unit: fresh Store + instantiate + m(); the Store is dropped
+    // after the clock stops, as on every runtime.
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
         let mut store = Store::default();
         let mut imports = Imports::new();
         imports.define("", "b", HostFunction::from(|_ctx: FuncContext<'_>, _ch: f64| Ok(())));
@@ -69,7 +94,8 @@ pub fn run_graphql_validation_porf_tinywasm(wasm_bytes: &[u8]) -> Result<RunRepo
             .context("tinywasm porf instantiate failed")?;
         let m = tw(instance.func::<(), (f64, i32)>(&store, "m")).context("export `m`")?;
         let (_, r) = tw(m.call(&mut store, ())).context("tinywasm m() trapped")?;
-        Ok(r)
-    };
-    crate::measure_calls(load_time, 0, once)
+        let elapsed = t.elapsed();
+        drop(store);
+        Ok((elapsed, r))
+    })
 }

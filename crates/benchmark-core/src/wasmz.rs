@@ -351,6 +351,89 @@ pub fn run_workload_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<
     run_workload_wasmz_iters(wasm_bytes, fn_name, arg, 0)
 }
 
+/// `Shape::InstantiateEach` on wasmz: module compiled once, then a fresh
+/// instance per sample, deleted after the clock stops.
+pub fn run_instantiate_each_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    let wasm_bytes_owned = wasm_bytes.to_vec();
+    let fn_name_owned = fn_name.to_string();
+    std::thread::Builder::new()
+        .name("wasmz-instantiate".to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || instantiate_each_inner(&wasm_bytes_owned, &fn_name_owned, arg))
+        .context("wasmz: failed to spawn dedicated 8 MiB-stack thread")?
+        .join()
+        .map_err(|_| anyhow!("wasmz-instantiate thread panicked"))?
+}
+
+struct InstGuard(*mut wasmz_instance_t);
+impl Drop for InstGuard {
+    fn drop(&mut self) {
+        unsafe { wasmz_instance_delete(self.0) };
+    }
+}
+
+fn instantiate_each_inner(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    init()?;
+    let load_start = Instant::now();
+    let engine = unsafe { wasmz_engine_new() };
+    if engine.is_null() {
+        return Err(anyhow!("wasmz_engine_new returned NULL"));
+    }
+    struct EngGuard(*mut wasmz_engine_t);
+    impl Drop for EngGuard {
+        fn drop(&mut self) {
+            unsafe { wasmz_engine_delete(self.0) };
+        }
+    }
+    let _eg = EngGuard(engine);
+    let store = unsafe { wasmz_store_new(engine) };
+    if store.is_null() {
+        return Err(anyhow!("wasmz_store_new returned NULL"));
+    }
+    struct StoreGuard(*mut wasmz_store_t);
+    impl Drop for StoreGuard {
+        fn drop(&mut self) {
+            unsafe { wasmz_store_delete(self.0) };
+        }
+    }
+    let _sg = StoreGuard(store);
+    let mut module: *mut wasmz_module_t = std::ptr::null_mut();
+    let err = unsafe { wasmz_module_new(engine, wasm_bytes.as_ptr(), wasm_bytes.len(), &mut module) };
+    if !err.is_null() {
+        return Err(anyhow!("wasmz_module_new failed: {}", err_msg(err)));
+    }
+    struct ModGuard(*mut wasmz_module_t);
+    impl Drop for ModGuard {
+        fn drop(&mut self) {
+            unsafe { wasmz_module_delete(self.0) };
+        }
+    }
+    let _mg = ModGuard(module);
+    let cname = std::ffi::CString::new(fn_name)?;
+    let load_time = load_start.elapsed();
+
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
+        let err = unsafe { wasmz_instance_new(store, module, &mut instance) };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_instance_new failed: {}", err_msg(err)));
+        }
+        let inst = InstGuard(instance);
+        let args: [WasmzVal; 1] = [WasmzVal::i32_val(arg)];
+        let mut results: [WasmzVal; 1] = [WasmzVal::i32_val(0)];
+        let err = unsafe {
+            wasmz_instance_call(instance, cname.as_ptr(), args.as_ptr(), 1, results.as_mut_ptr(), 1)
+        };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_instance_call trap: {}", err_msg(err)));
+        }
+        let elapsed = t.elapsed();
+        drop(inst);
+        Ok((elapsed, results[0].as_i32()))
+    })
+}
+
 /// Dedicated Porffor-graphql runner. Wires the `("", "b") : (f64) → ()`
 /// host print stub via wasmz's linker, then calls `m() → (f64, i32)`
 /// (multi-value). Same shape as wamr / wasmedge / zwasm dedicated
@@ -450,8 +533,9 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
     // m() → (f64, i32). 0 params, 2 results. Each sample instantiates a
     // fresh instance and runs m() once: instantiate + m() is the timed
     // unit on every runtime, because Porffor never frees and grows memory
-    // across calls.
-    let call = || -> Result<i32> {
+    // across calls. The instance is deleted after the clock stops.
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
         let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
         let err = unsafe {
             wasmz_instance_new_with_linker(store, module, linker, &mut instance)
@@ -462,13 +546,7 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
                 err_msg(err)
             ));
         }
-        struct InstGuard(*mut wasmz_instance_t);
-        impl Drop for InstGuard {
-            fn drop(&mut self) {
-                unsafe { wasmz_instance_delete(self.0) };
-            }
-        }
-        let _ig = InstGuard(instance);
+        let inst = InstGuard(instance);
         let mut results: [WasmzVal; 2] = [WasmzVal { kind: WASMZ_VAL_I32, _pad: [0; 4], of: [0; 16] }; 2];
         // Pre-fill result kinds so the underlying call knows how to
         // marshal them. Per wasmz.h convention.
@@ -487,23 +565,8 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
         if !err.is_null() {
             return Err(anyhow!("wasmz m() trap: {}", err_msg(err)));
         }
-        Ok(results[1].as_i32())
-    };
-
-    let mut result = call().context("wasmz porf init-warmup failed")?;
-    let warm_start = Instant::now();
-    result = call().context("wasmz porf steady-warmup failed")?;
-    let warm = warm_start.elapsed();
-    let n = crate::pick_iters(warm, Duration::from_millis(200));
-
-    let window = crate::Window::start();
-
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
-        result = call()?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
-    }
-
-    Ok(window.finish(result, n, load_time, samples))
+        let elapsed = t.elapsed();
+        drop(inst);
+        Ok((elapsed, results[1].as_i32()))
+    })
 }
