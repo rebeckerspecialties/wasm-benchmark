@@ -16,6 +16,7 @@ pub mod graphql_validation;
 pub mod pac_probe;
 pub mod residency;
 pub mod sqlite3;
+pub mod tinywasm;
 
 #[cfg(have_wamr)]
 pub mod wamr;
@@ -181,6 +182,7 @@ pub enum Runtime {
     WasmEdge = 3,
     Zwasm = 4,
     Wasmz = 5,
+    Tinywasm = 6,
 }
 
 // ---- Apple `task_info` thin wrapper for CPU time / RSS / page faults ----
@@ -659,6 +661,7 @@ pub fn run_workload_with(
         Runtime::WasmEdge => wasmedge::run_workload_wasmedge(wasm_bytes, fn_name, arg),
         Runtime::Zwasm => zwasm::run_workload_zwasm(wasm_bytes, fn_name, arg),
         Runtime::Wasmz => wasmz::run_workload_wasmz(wasm_bytes, fn_name, arg),
+        Runtime::Tinywasm => tinywasm::run_workload_tinywasm(wasm_bytes, fn_name, arg),
     }
 }
 
@@ -1129,6 +1132,9 @@ pub struct BenchReport {
     pub rss_peak_bytes: u64,
     pub page_faults: u64,
     pub error_msg: *mut std::os::raw::c_char,
+    pub p_cpu_ns: u64,
+    pub instructions: u64,
+    pub cycles: u64,
 }
 
 fn report_from(r: Result<RunReport>) -> BenchReport {
@@ -1146,6 +1152,9 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
             rss_peak_bytes: r.rss_peak_bytes,
             page_faults: r.page_faults,
             error_msg: std::ptr::null_mut(),
+            p_cpu_ns: r.p_cpu_ns,
+            instructions: r.instructions,
+            cycles: r.cycles,
         },
         Err(e) => {
             let msg = format!("{e:#}");
@@ -1165,6 +1174,9 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
                 rss_peak_bytes: 0,
                 page_faults: 0,
                 error_msg: cstring.into_raw(),
+                p_cpu_ns: 0,
+                instructions: 0,
+                cycles: 0,
             }
         }
     }
@@ -1920,6 +1932,39 @@ pub extern "C" fn bench_run_graphql_validation_porf() -> BenchReport {
     report_from(graphql_validation::run_graphql_validation_porf(
         GRAPHQL_VALIDATION_PORF_WASM,
     ))
+}
+
+/// Generic C entry point over `cases::CASES`; see benchmark_core.h.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bench_run_case(
+    runtime: u32,
+    case_id: *const std::os::raw::c_char,
+) -> BenchReport {
+    let r = (|| -> Result<RunReport> {
+        let rt = cases::RUNTIMES
+            .iter()
+            .map(|r| r.0)
+            .find(|r| *r as u32 == runtime)
+            .ok_or_else(|| anyhow::anyhow!("unknown runtime id {runtime}"))?;
+        if case_id.is_null() {
+            anyhow::bail!("null case id");
+        }
+        let id = unsafe { std::ffi::CStr::from_ptr(case_id) }.to_string_lossy();
+        let case = cases::CASES
+            .iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| anyhow::anyhow!("unknown case id `{id}`"))?;
+        cases::run_case(rt, case)
+    })();
+    report_from(r)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_init_tinywasm() -> u8 {
+    match tinywasm::init() {
+        Ok(()) => 1,
+        Err(_) => 0,
+    }
 }
 
 #[unsafe(no_mangle)]

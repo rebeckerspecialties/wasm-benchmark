@@ -18,10 +18,21 @@ crate-type = ["staticlib", "rlib"]
 # DATA, not executable pages — no MAP_JIT, App Store-safe.
 wasmtime = { path = "../../wasmtime/crates/wasmtime", default-features = false, features = ["pulley", "runtime", "std", "cranelift", "anyhow", "gc", "gc-null"] }
 anyhow = "1"
+# tinywasm: pure-Rust interpreter (no JIT/AOT tier exists; `archive` —
+# tinywasm's own bytecode serializer — stays off). `nightly-tail-calls`
+# comes in through this crate's `nightly-dispatch` feature below.
+tinywasm = { version = "=0.11.0", default-features = false, features = ["std", "parser", "validate"] }
 
 # No build-deps — workloads are pre-compiled into checked-in `.wasm` files
 # (see scripts/build-workloads.sh and workloads-rs/*.rs); build.rs handles
 # both the workload `cargo:rerun-if-changed` and the WAMR static-lib link.
+
+[features]
+# Guaranteed-tail-call interpreter dispatch for the runtimes that offer it
+# as a cargo feature (tinywasm's `become`-based loop). Needs nightly, like
+# Pulley's `--cfg=pulley_tail_calls`; scripts/build-lib.sh and
+# scripts/build-host-cli.sh enable both together.
+nightly-dispatch = ["tinywasm/nightly-tail-calls"]
 
 [[bin]]
 name = "runwasm"

@@ -118,6 +118,7 @@ pub const RUNTIMES: &[(Runtime, &str, &str)] = &[
     (Runtime::WasmEdge, "wasmedge", "[WE    ]"),
     (Runtime::Zwasm, "zwasm", "[zwasm ]"),
     (Runtime::Wasmz, "wasmz", "[wasmz ]"),
+    (Runtime::Tinywasm, "tinywasm", "[tinywm]"),
 ];
 
 pub fn runtime_token(rt: Runtime) -> &'static str {
@@ -135,6 +136,7 @@ pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
             Runtime::WasmEdge => wasmedge::run_graphql_validation_porf_wasmedge(case.wasm),
             Runtime::Zwasm => zwasm::run_graphql_validation_porf_zwasm(case.wasm),
             Runtime::Wasmz => wasmz::run_graphql_validation_porf_wasmz(case.wasm),
+            Runtime::Tinywasm => tinywasm::run_graphql_validation_porf_tinywasm(case.wasm),
             // wasm3 has no exception handling or multi-value host call path.
             Runtime::Wasm3 => wasm3::run_workload_wasm3(case.wasm, case.func, case.arg),
         },

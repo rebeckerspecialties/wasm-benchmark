@@ -27,6 +27,13 @@ typedef struct BenchReport {
     uint64_t page_faults;        // task_events_info::faults delta
     char *error_msg;             // nul-terminated; NULL on success.
                                  // Caller frees via bench_free_error_msg.
+    // proc_pid_rusage(RUSAGE_INFO_V6) deltas over the timed window, from
+    // the always-on fixed counters (available on every Apple core, incl.
+    // A12 / S8 where xctrace exposes no PMU):
+    uint64_t p_cpu_ns;           // CPU time that ran on P-cores;
+                                 // E-core share = 1 - p_cpu_ns / (user + system)
+    uint64_t instructions;       // instructions retired (whole process)
+    uint64_t cycles;             // cycles (whole process)
 } BenchReport;
 
 // Pulley (wasmtime) path. Each loads its embedded `.wasm` via
@@ -225,6 +232,19 @@ BenchReport bench_run_graphql_validation_porf_wasmz(void);
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.
 void bench_free_error_msg(char *ptr);
+
+// Generic entry point over the case table in crates/benchmark-core/src/
+// cases.rs: runs case `case_id` (e.g. "fib", "factorial.scalar") on
+// runtime `runtime` (0 Pulley, 1 WAMR, 2 wasm3, 3 WasmEdge, 4 zwasm,
+// 5 wasmz, 6 tinywasm) with the same consensus-result check as the
+// per-workload functions. Unknown ids return ok = 0 with a message.
+// New workloads and new runtimes register here instead of adding a
+// bench_run_<workload>_<runtime> function per pair.
+BenchReport bench_run_case(uint32_t runtime, const char *case_id);
+
+// tinywasm (explodingcamera/tinywasm) — pure-Rust interpreter; no
+// process-global state, kept symmetrical with the other inits.
+uint8_t bench_init_tinywasm(void);
 
 // Diagnostics.
 size_t bench_fib_wasm_size(void);

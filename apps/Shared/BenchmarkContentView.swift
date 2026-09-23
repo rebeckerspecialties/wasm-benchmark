@@ -182,6 +182,68 @@ let WORKLOADS: [Workload] = [
     Workload(id: 106, label: "[wasmz ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmz() }),
     Workload(id: 107, label: "[wasmz ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmz() }),
     Workload(id: 108, label: "[wasmz ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmz() }),
+    // tinywasm (explodingcamera/tinywasm, pure Rust, no JIT/AOT tier) —
+    // every workload, through the generic `bench_run_case` entry point
+    // (runtime id 6). sqlite3 reports N/A: the harness only has a WASI
+    // import shim for Pulley.
+    Workload(id: 109, label: "[tinywm] fib(30)", run: { bench_run_case(6, "fib") }),
+    Workload(id: 110, label: "[tinywm] fib_tail(100000) [return_call]", run: { bench_run_case(6, "fib_tail") }),
+    Workload(id: 111, label: "[tinywm] factorial(20)", run: { bench_run_case(6, "factorial") }),
+    Workload(id: 112, label: "[tinywm] sieve(10000)", run: { bench_run_case(6, "sieve") }),
+    Workload(id: 113, label: "[tinywm] crc32(64KB)", run: { bench_run_case(6, "crc32") }),
+    Workload(id: 114, label: "[tinywm] matmul simd128 (64×64 f32)", run: { bench_run_case(6, "matmul_simd") }),
+    Workload(id: 115, label: "[tinywm] matmul relaxed-simd FMA", run: { bench_run_case(6, "matmul_fma") }),
+    Workload(id: 116, label: "[tinywm] convolution 256×256", run: { bench_run_case(6, "convolution") }),
+    Workload(id: 117, label: "[tinywm] audio DSP (1000 frames × 512)", run: { bench_run_case(6, "audio_dsp") }),
+    Workload(id: 118, label: "[tinywm] bulk_memory (memory.copy/fill)", run: { bench_run_case(6, "bulk_memory") }),
+    Workload(id: 119, label: "[tinywm] call_indirect (200K dispatches)", run: { bench_run_case(6, "call_indirect") }),
+    Workload(id: 120, label: "[tinywm] xmrsplayer (1024-frame buffer)", run: { bench_run_case(6, "xmrsplayer") }),
+    Workload(id: 121, label: "[tinywm] vtable_mono (200K)", run: { bench_run_case(6, "vtable_mono") }),
+    Workload(id: 122, label: "[tinywm] vtable_bi (200K)", run: { bench_run_case(6, "vtable_bi") }),
+    Workload(id: 123, label: "[tinywm] vtable_poly4 (200K)", run: { bench_run_case(6, "vtable_poly4") }),
+    Workload(id: 124, label: "[tinywm] vtable_poly6 (200K)", run: { bench_run_case(6, "vtable_poly6") }),
+    Workload(id: 125, label: "[tinywm] graphql-validation (AS)", run: { bench_run_case(6, "graphql_as") }),
+    Workload(id: 126, label: "[tinywm] graphql-validation (Porffor)", run: { bench_run_case(6, "graphql_porf") }),
+    Workload(id: 127, label: "[tinywm] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(6, "sqlite3") }),
+    Workload(id: 128, label: "[tinywm] factorial(20) [scalar build]", run: { bench_run_case(6, "factorial.scalar") }),
+    Workload(id: 129, label: "[tinywm] sieve(10000) [scalar build]", run: { bench_run_case(6, "sieve.scalar") }),
+    Workload(id: 130, label: "[tinywm] crc32(64KB) [scalar build]", run: { bench_run_case(6, "crc32.scalar") }),
+    Workload(id: 131, label: "[tinywm] convolution 256×256 [scalar build]", run: { bench_run_case(6, "convolution.scalar") }),
+    Workload(id: 132, label: "[tinywm] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(6, "bulk_memory.scalar") }),
+    // Scalar (-simd128) builds of the workloads whose canonical build only
+    // has auto-vectorized SIMD — the apples-to-apples interpreter
+    // comparison for runtimes without an interpreter SIMD-128 path
+    // (wasm3, zwasm). See scripts/build-workloads.sh.
+    Workload(id: 133, label: "[Pulley] factorial(20) [scalar build]", run: { bench_run_case(0, "factorial.scalar") }),
+    Workload(id: 134, label: "[Pulley] sieve(10000) [scalar build]", run: { bench_run_case(0, "sieve.scalar") }),
+    Workload(id: 135, label: "[Pulley] crc32(64KB) [scalar build]", run: { bench_run_case(0, "crc32.scalar") }),
+    Workload(id: 136, label: "[Pulley] convolution 256×256 [scalar build]", run: { bench_run_case(0, "convolution.scalar") }),
+    Workload(id: 137, label: "[Pulley] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(0, "bulk_memory.scalar") }),
+    Workload(id: 138, label: "[ WAMR ] factorial(20) [scalar build]", run: { bench_run_case(1, "factorial.scalar") }),
+    Workload(id: 139, label: "[ WAMR ] sieve(10000) [scalar build]", run: { bench_run_case(1, "sieve.scalar") }),
+    Workload(id: 140, label: "[ WAMR ] crc32(64KB) [scalar build]", run: { bench_run_case(1, "crc32.scalar") }),
+    Workload(id: 141, label: "[ WAMR ] convolution 256×256 [scalar build]", run: { bench_run_case(1, "convolution.scalar") }),
+    Workload(id: 142, label: "[ WAMR ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(1, "bulk_memory.scalar") }),
+    Workload(id: 143, label: "[wasm3 ] factorial(20) [scalar build]", run: { bench_run_case(2, "factorial.scalar") }),
+    Workload(id: 144, label: "[wasm3 ] sieve(10000) [scalar build]", run: { bench_run_case(2, "sieve.scalar") }),
+    Workload(id: 145, label: "[wasm3 ] crc32(64KB) [scalar build]", run: { bench_run_case(2, "crc32.scalar") }),
+    Workload(id: 146, label: "[wasm3 ] convolution 256×256 [scalar build]", run: { bench_run_case(2, "convolution.scalar") }),
+    Workload(id: 147, label: "[wasm3 ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(2, "bulk_memory.scalar") }),
+    Workload(id: 148, label: "[WE    ] factorial(20) [scalar build]", run: { bench_run_case(3, "factorial.scalar") }),
+    Workload(id: 149, label: "[WE    ] sieve(10000) [scalar build]", run: { bench_run_case(3, "sieve.scalar") }),
+    Workload(id: 150, label: "[WE    ] crc32(64KB) [scalar build]", run: { bench_run_case(3, "crc32.scalar") }),
+    Workload(id: 151, label: "[WE    ] convolution 256×256 [scalar build]", run: { bench_run_case(3, "convolution.scalar") }),
+    Workload(id: 152, label: "[WE    ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(3, "bulk_memory.scalar") }),
+    Workload(id: 153, label: "[zwasm ] factorial(20) [scalar build]", run: { bench_run_case(4, "factorial.scalar") }),
+    Workload(id: 154, label: "[zwasm ] sieve(10000) [scalar build]", run: { bench_run_case(4, "sieve.scalar") }),
+    Workload(id: 155, label: "[zwasm ] crc32(64KB) [scalar build]", run: { bench_run_case(4, "crc32.scalar") }),
+    Workload(id: 156, label: "[zwasm ] convolution 256×256 [scalar build]", run: { bench_run_case(4, "convolution.scalar") }),
+    Workload(id: 157, label: "[zwasm ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(4, "bulk_memory.scalar") }),
+    Workload(id: 158, label: "[wasmz ] factorial(20) [scalar build]", run: { bench_run_case(5, "factorial.scalar") }),
+    Workload(id: 159, label: "[wasmz ] sieve(10000) [scalar build]", run: { bench_run_case(5, "sieve.scalar") }),
+    Workload(id: 160, label: "[wasmz ] crc32(64KB) [scalar build]", run: { bench_run_case(5, "crc32.scalar") }),
+    Workload(id: 161, label: "[wasmz ] convolution 256×256 [scalar build]", run: { bench_run_case(5, "convolution.scalar") }),
+    Workload(id: 162, label: "[wasmz ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(5, "bulk_memory.scalar") }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -199,7 +261,7 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz")
+                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz vs tinywasm")
                     .font(.title3.bold())
                 // Status line — when the run is in progress, shows
                 // "running <workload>". When the run completes,
@@ -292,6 +354,8 @@ struct BenchmarkContentView: View {
         // before scripts/build-wasmz.sh has run for this target).
         let wasmzOk = bench_init_wasmz() == 1
         FileHandle.standardError.write(Data("wasmz init: \(wasmzOk ? "ok" : "unavailable")\n".utf8))
+        let tinywasmOk = bench_init_tinywasm() == 1
+        FileHandle.standardError.write(Data("tinywasm init: \(tinywasmOk ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -303,7 +367,8 @@ struct BenchmarkContentView: View {
         // Optional `WORKLOADS` env-var filter (comma-separated, case-
         // insensitive substring match against the workload label).
         // Optional `RUNTIMES` env-var filter (comma-separated; valid
-        // values are `pulley`, `wamr`, `wasm3`) to keep only the
+        // values are `pulley`, `wamr`, `wasm3`, `wasmedge`, `zwasm`,
+        // `wasmz`, `tinywasm`) to keep only the
         // matching runtime — useful for PMU traces where you want to
         // isolate signal from one runtime without the others'
         // identical-across-builds dispatch overhead diluting the trace
@@ -376,6 +441,8 @@ struct BenchmarkContentView: View {
                             return lc.contains("[zwasm ]")
                         case "wasmz":
                             return lc.contains("[wasmz ]")
+                        case "tinywasm", "tinywm":
+                            return lc.contains("[tinywm]")
                         default:
                             return false
                         }
@@ -454,11 +521,18 @@ fileprivate func formatReport(_ report: inout BenchReport) -> String {
         let userMs = Double(report.cpu_user_ns) / 1_000_000.0
         let sysMs = Double(report.cpu_system_ns) / 1_000_000.0
         let rssKB = Double(report.rss_peak_bytes) / 1024.0
+        // Measured, not assumed: share of the timed window's CPU time that
+        // ran on E-cores (rusage P-core accounting), and IPC from the
+        // always-on fixed counters.
+        let cpuNs = Double(report.cpu_user_ns + report.cpu_system_ns)
+        let eShare = cpuNs > 0 ? 1.0 - min(Double(report.p_cpu_ns) / cpuNs, 1.0) : -1.0
+        let ipc = report.cycles > 0 ? Double(report.instructions) / Double(report.cycles) : -1.0
         return String(
-            format: "result=%d  iter=%u  load=%.3fms  min=%.3f median=%.3f p99=%.3f ms  cpu(u/s)=%.2f/%.2f ms  rss=%.0fKB  faults=%llu",
+            format: "result=%d  iter=%u  load=%.3fms  min=%.3f median=%.3f p99=%.3f ms  cpu(u/s)=%.2f/%.2f ms  rss=%.0fKB  faults=%llu  e_share=%.3f  ipc=%.2f  insns=%llu  cycles=%llu",
             report.result, report.iterations,
             loadMs, minMs, medMs, p99Ms,
-            userMs, sysMs, rssKB, report.page_faults
+            userMs, sysMs, rssKB, report.page_faults,
+            eShare, ipc, report.instructions, report.cycles
         )
 }
 
@@ -535,7 +609,7 @@ fileprivate func runtimeAndWorkload(from label: String) -> (runtime: String, wor
     // Normalise the "WE" abbreviation to "wasmedge" so the summary
     // matches the same runtime names we use in the rest of the harness
     // (lib.rs, the bench logs, the cross-runtime table in AGENTS.md).
-    let rt = rtRaw == "we" ? "wasmedge" : rtRaw
+    let rt = rtRaw == "we" ? "wasmedge" : (rtRaw == "tinywm" ? "tinywasm" : rtRaw)
     // Skip the closing bracket + the space after it.
     let wlStart = label.index(closeBracket, offsetBy: 2, limitedBy: label.endIndex)
         ?? label.endIndex

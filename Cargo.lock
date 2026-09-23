@@ -46,6 +46,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde_json",
+ "tinywasm",
  "wasmtime",
  "wat",
 ]
@@ -754,6 +755,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinywasm"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37a41f21be55cc0355ef8214b7ef0073bfcbb278e167b34c00c8871a3ddb2aab"
+dependencies = [
+ "libm",
+ "tinywasm-parser",
+ "tinywasm-types",
+]
+
+[[package]]
+name = "tinywasm-parser"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5bc5ee2c23a13719229d44c4d29fc7ab05afbe681e93321706c38cbabe30a6"
+dependencies = [
+ "tinywasm-types",
+ "wasmparser 0.259.0",
+]
+
+[[package]]
+name = "tinywasm-types"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b3d3028b2a4a53ba573d1d10490b5eae5e3db28566d8a154c92d91c1b1e6113"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -819,6 +850,16 @@ dependencies = [
  "indexmap",
  "semver",
  "serde",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.259.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f7c12eac7bb587801590f6a67ff0bc84d0748513864b71108e4b311cc3df694"
+dependencies = [
+ "bitflags",
+ "indexmap",
 ]
 
 [[package]]
