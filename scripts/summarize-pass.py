@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize the measurement passes into the report's data files.
 
-Usage: summarize-pass.py <pass-root> <data-dir>
+Usage: summarize-pass.py <pass-root> <data-dir> [<tables-dir>]
 
 <pass-root> holds whatever of these exist:
   m4/m4-matrix.jsonl      scripts/run-m4-pass.sh (run_matrix lines)
@@ -12,9 +12,12 @@ Usage: summarize-pass.py <pass-root> <data-dir>
   pmu/pmu.jsonl, pmu/pmu-matrix.jsonl, pmu/pmu-e2e.jsonl
                           scripts/run-m4-pmu-pass.sh
 
-<data-dir> receives per-rep CSVs (one row per rep × runtime × case), a
-summary.json with the aggregated values, and tables.md with the markdown
-tables the report embeds. Cells are "median [min–max]" over reps of each
+<data-dir> (the report's committed data) receives the per-rep CSVs, one
+row per rep × runtime × case. <tables-dir> (default
+<pass-root>/report-tables, under out/, not committed) receives what is
+derived from them: tables-<name>.md for scripts/build-report.py, tables.md
+with all of them, summary.json with the aggregated values, and the
+per-frame E2E hashes. Cells are "median [min–max]" over reps of each
 rep's own median; errors show the error text instead.
 """
 import csv
@@ -630,6 +633,8 @@ def pmu_runtime_profile(table):
 
 def main():
     root, data = sys.argv[1], sys.argv[2]
+    tables = sys.argv[3] if len(sys.argv) > 3 else os.path.join(root, "report-tables")
+    os.makedirs(tables, exist_ok=True)
     os.makedirs(data, exist_ok=True)
     md = []
     sections = defaultdict(list)  # name -> markdown parts, written to tables-<name>.md
@@ -689,7 +694,7 @@ def main():
                 if r.get("cycles") and "ipc" not in r:
                     r["ipc"] = r.get("ipc")
             write_csv(os.path.join(data, f"{name}-e2e.csv"), rows, E2E_FIELDS)
-            with open(os.path.join(data, f"{name}-e2e-frames.jsonl"), "w") as f:
+            with open(os.path.join(tables, f"{name}-e2e-frames.jsonl"), "w") as f:
                 for r in rows:
                     f.write(json.dumps({k: r.get(k) for k in ("rep", "runtime", "scene", "frame_hashes",
                                                                "frame_verts", "frame_commands")}) + "\n")
@@ -734,7 +739,7 @@ def main():
                                      "femtovg E2E (femtovg-e2e thread; thread cycle % = its share "
                                      "of the process's cycles, the rest is the Metal driver's threads)",
                                      cases=E2E_CASES))
-            with open(os.path.join(data, "pmu-tables.md"), "w") as f:
+            with open(os.path.join(tables, "pmu-tables.md"), "w") as f:
                 f.write(pmu_case_table(table, BUCKETS + ["IPC", "e_share min"],
                                        "Bottleneck buckets (% of slots) and IPC"))
                 f.write("\n" + pmu_case_table(table, MEM_COLS, "Memory side, per 1k instructions"))
@@ -800,14 +805,15 @@ def main():
                          f"{ym / yt:.2f}× | {fmt_sig(wt)} | {fmt_sig(wm)} |")
         emit("pulley-ab", "\n".join(lines) + "\n")
 
-    with open(os.path.join(data, "summary.json"), "w") as f:
+    with open(os.path.join(tables, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1, default=str)
-    with open(os.path.join(data, "tables.md"), "w") as f:
+    with open(os.path.join(tables, "tables.md"), "w") as f:
         f.write("\n".join(md))
     for name, parts in sections.items():
-        with open(os.path.join(data, f"tables-{name}.md"), "w") as f:
+        with open(os.path.join(tables, f"tables-{name}.md"), "w") as f:
             f.write("\n".join(parts))
     print(f"wrote {data}: " + ", ".join(sorted(os.listdir(data))))
+    print(f"wrote {tables}: " + ", ".join(sorted(os.listdir(tables))))
 
 
 if __name__ == "__main__":

@@ -23,7 +23,9 @@ Pick this up cold without re-deriving state:
   PMU profile).
   Raw per-rep data is in `docs/runtime-comparison-2026-09-22/`.
 - **Working branch**: `runtime-refresh-2026-09` on
-  `rebeckerspecialties/wasm-benchmark` (branched from `main` 2026-09-22).
+  `rebeckerspecialties/wasm-benchmark`, on top of the WAMR relaxed-SIMD
+  work of open PR #4 (`claude/wasm-benchmark-continue-wuuPd`) and
+  `claude/relaxed-simd-diff-fuzz`.
 - **Runtime pins** (details, flags and caveats in *Cross-runtime
   comparison* below):
 
@@ -144,7 +146,7 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
   - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...>` — interleaved A/B of tinywasm revisions on the iPhone
-  - `./scripts/summarize-pass.py <pass-root> <data-dir>` — per-rep CSV + median/range tables
+  - `./scripts/summarize-pass.py <pass-root> <data-dir>` — per-rep CSVs into the report's data dir, median/range tables into `<pass-root>/report-tables/`; `./scripts/build-report.py <report.md> <pass-root>/report-tables` fills the report
   - `./scripts/feature-matrix.sh [out]` — runtime × feature smoke matrix
   - `target/release/run_matrix` (`RUNTIMES=`, `WORKLOADS=`, `--case`, `--file`) — any case on any runtime
   - older: `./scripts/run_fusion_n10.sh`, `./scripts/aggregate_4way.py`, `./scripts/run_per_workload_pmu.sh` (iPhone 12 PMU)
@@ -409,8 +411,11 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   timing passes. The 2026-09 report profiles tinywasm only
   (`RUNTIMES_LIST=tinywasm`). See *PMU on M4* below.
 - `scripts/summarize-pass.py <pass-root> <data-dir>` turns the logs into
-  per-rep CSVs and "median [min–max]" tables; errors become footnoted
-  codes with the error text.
+  the per-rep CSVs that the report's data dir keeps, and the derived
+  "median [min–max]" tables (errors become footnoted codes with the error
+  text) into `<pass-root>/report-tables/` under `out/`, which
+  `scripts/build-report.py` fills into the report. Only the raw per-rep
+  data is committed.
 
 ### Per-device notes
 
@@ -425,8 +430,8 @@ Teardown of instantiate-per-sample cases runs outside the clock.
 - **Auto-lock**: a devicectl launch into an awake phone does not reset
   its idle timer, so an unattended run can hit auto-lock mid-launch and
   iOS suspends the app (the launch then waits on one row until the
-  launcher times out). Since `6cbac78` the app disables the idle timer
-  for the duration of a run (iOS / tvOS).
+  launcher times out). The app therefore disables the idle timer for the
+  duration of a run (iOS / tvOS).
 - **iPhone XS Max** used in 2026-09: devicectl UDID
   `00008020-001C292A2190003A`, iOS 18.7.10 (the A12 is not supported by
   iOS 26). Crash logs: `xcrun devicectl device info files --domain-type

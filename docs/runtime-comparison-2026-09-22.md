@@ -1432,8 +1432,8 @@ misses the L2 as well, as processing-bucket stalls.
   that is about 42 instructions per dispatched op. Over the 17 cases
   every runtime runs, tinywasm retires 2.55× WAMR's instructions per
   call on the M4 and 2.69× on the A12 (the timing passes' rusage
-  counters; per case in `tables-m4-instructions.md` and
-  `tables-iphone-instructions.md` in the data directory). Its IPC is
+  counters; per rep and case as `insns_per_iter` in `m4-matrix.csv` and
+  `iphonexs-matrix.csv` in the data directory). Its IPC is
   higher than WAMR's, so its CPU time is 1.97× and 2.17× WAMR's.
 - **Where the pipeline does stall, the workload explains it.**
   - Processing reaches 43-49 % on the `mem64_chase` pair (256K dependent
@@ -1593,5 +1593,6 @@ for r in wamr wasm3 wasmedge zwasm wasmz; do ./scripts/build-$r.sh macos; ./scri
 ./scripts/run-device-pass.sh out/r/iphonexs
 E2E=0,1 N=5 ./scripts/run-device-pass.sh out/r/iphonexs-e2e
 RUNTIMES_LIST=tinywasm ./scripts/run-m4-pmu-pass.sh out/r/pmu
-./scripts/summarize-pass.py out/r docs/<data-dir>
+./scripts/summarize-pass.py out/r docs/<data-dir>     # derived tables go to out/r/report-tables
+./scripts/build-report.py docs/<report>.md out/r/report-tables
 ```

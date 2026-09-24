@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Fill a report's table markers from scripts/summarize-pass.py output.
 
-Usage: build-report.py REPORT.md DATA_DIR
-Every line `<!-- T:name -->` in REPORT.md is replaced (in place, between
-the marker and a matching `<!-- /T:name -->`) by DATA_DIR/tables-name.md,
+Usage: build-report.py REPORT.md TABLES_DIR
+TABLES_DIR is summarize-pass.py's <tables-dir> (by default
+<pass-root>/report-tables). Every line `<!-- T:name -->` in REPORT.md is
+replaced (in place, between the marker and a matching `<!-- /T:name -->`)
+by TABLES_DIR/tables-name.md,
 so the report can be rebuilt after a data refresh without touching the
 prose around the tables.
 """
