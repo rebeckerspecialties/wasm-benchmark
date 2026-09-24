@@ -1464,8 +1464,9 @@ levers are the code paths that the iPhone 12 profile located:
 - **Measured: a stack of three PRs** on `next` in the fork
   ([#1](https://github.com/rebeckerspecialties/tinywasm/pull/1),
   [#2](https://github.com/rebeckerspecialties/tinywasm/pull/2),
-  [#3](https://github.com/rebeckerspecialties/tinywasm/pull/3)). They cut
-  cycles by 8.0 % on the iPhone 12 E-cores (geomean of 16 rows,
+  [#3](https://github.com/rebeckerspecialties/tinywasm/pull/3); upstream
+  as [explodingcamera/tinywasm#57](https://github.com/explodingcamera/tinywasm/pull/57)-[#59](https://github.com/explodingcamera/tinywasm/pull/59)).
+  They cut cycles by 8.0 % on the iPhone 12 E-cores (geomean of 16 rows,
   interleaved launches):
   - growing the value stack out of line, −4.1 %;
   - inlining the fused binop / compare helpers, −1.3 % more;

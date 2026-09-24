@@ -235,6 +235,12 @@ On the M4 Max E-cores, cycles per call, geomean over 15 workloads:
 
 ## The PR stack on `next`, and the reservation measured
 
+Upstream as [explodingcamera/tinywasm#57](https://github.com/explodingcamera/tinywasm/pull/57),
+[#58](https://github.com/explodingcamera/tinywasm/pull/58) and
+[#59](https://github.com/explodingcamera/tinywasm/pull/59), rebased onto
+`next` `785be0e`. The measurements below are on `b45a98a`, before that
+rebase.
+
 The two changes above and the reservation (theory 1 below) are now a
 stack of three PRs in the fork
 [rebeckerspecialties/tinywasm](https://github.com/rebeckerspecialties/tinywasm),

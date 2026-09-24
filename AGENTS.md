@@ -71,42 +71,42 @@ Pick this up cold without re-deriving state:
     `wasm-micro-runtime/product-mini/platforms/darwin/build/`, then
     rebuild the host CLI (rerun-if-changed relinks). Remove the
     `wasm_c_api.c.o` member first (see *WAMR* below) or zwasm crashes.
-- **tinywasm contributions** (2026-09-23): a stack of three PRs in the
-  fork `rebeckerspecialties/tinywasm`, on `next` `b45a98a` (the
-  maintainer's working branch; `main` is 44 commits behind it):
-  [#1](https://github.com/rebeckerspecialties/tinywasm/pull/1)
-  `perf/value-stack-cold-growth` → `next`,
-  [#2](https://github.com/rebeckerspecialties/tinywasm/pull/2)
-  `perf/inline-fused-binop-helpers` → #1,
-  [#3](https://github.com/rebeckerspecialties/tinywasm/pull/3)
-  `perf/reserve-operand-stack` → #2.
-  - Result on the iPhone 12 E-cores (interleaved A/B, 16 rows): −4.1 % /
-    −5.3 % / −8.0 % cycles against `next`. #3 matches the no-growth
-    upper bound.
-  - #3 adds `pub max_stack` to `tinywasm_types::WasmFunction`, bumps the
-    archive to `06` and regenerates `examples/rust/src/print.twasm`, so
-    upstream it needs an issue first.
-  - Evidence and checks:
+- **tinywasm contributions**: a three-PR stack, upstream as
+  [explodingcamera/tinywasm#57](https://github.com/explodingcamera/tinywasm/pull/57)
+  (value-stack growth out of line),
+  [#58](https://github.com/explodingcamera/tinywasm/pull/58) (inlined fused
+  binop / compare helpers) and
+  [#59](https://github.com/explodingcamera/tinywasm/pull/59) (per-function
+  operand-stack reservation). All three target `next` (the maintainer's
+  working branch; `main` lags it).
+  - GitHub's native stacked PRs don't work across forks and we can't
+    push upstream, so it is a manual stack: #58 and #59 contain the
+    commits below them, and each description says which commits are new.
+    After a squash-merge, rebase the next branch onto `next` and drop the
+    merged commit.
+  - Branches live in the fork `rebeckerspecialties/tinywasm`, where the
+    same stack is fork PRs #1-#3 (`perf/value-stack-cold-growth` →
+    `perf/inline-fused-binop-helpers` → `perf/reserve-operand-stack`).
+    They were rebased 2026-09-23 onto `next` `785be0e`: #2's attributes
+    moved onto the `impl_value_ops!` macro, and #3 no longer touches the
+    removed `examples/rust` archive fixture.
+  - Measured on `next` `b45a98a`, before the rebase: −4.1 % / −5.3 % /
+    −8.0 % cycles on the iPhone 12 E-cores; #3 matches the no-growth
+    upper bound. See
     [`docs/tinywasm-iphone12-2026-09-23.md`](docs/tinywasm-iphone12-2026-09-23.md).
-  - Local checkout `~/src/tinywasm`: remote `origin` is upstream,
-    `fork` is ours. Worktrees in `~/src/tinywasm-worktrees/` (`check`
-    for the CI matrix, `ios` for A/B builds).
-  - A/B tooling: `scripts/tinywasm-ab-build-ios.sh`,
-    `scripts/tinywasm-ab-iphone.sh`, `scripts/tinywasm_ab_summary.py`.
-  - tinywasm's CONTRIBUTING requires the upstream issue / PR text to be
-    written by the contributor, not generated.
-  - The fork's Actions tab still needs its one-time "enable workflows"
-    click before upstream's CI runs on these branches.
-  - The maintainer's `exp/acc` (2026-09-11) plans a single-pass parser
-    and dispatch tweaks for `next`; expect a small rebase of #3's
-    parser change.
-  - Build gotchas for tinywasm's own CI matrix on this host:
-    - The example wasm (`examples/rust/build.sh`) needs `-C
-      linker=<1.93.1 rust-lld>`, because newer `rust-lld` can't load its
-      libLLVM here, and there is no Binaryen, so the `.opt.wasm` files
-      are copies of the unoptimized builds.
-    - rustfmt comes from the floating `nightly`.
-    - clippy runs on `1.98`; the pinned nightly has neither tool.
+  - #59 adds `pub max_stack` to `tinywasm_types::WasmFunction` and bumps
+    the archive to `06`.
+  - Local checkout `~/src/tinywasm`: `origin` is upstream, `fork` is
+    ours; worktrees in `~/src/tinywasm-worktrees/`. A/B tooling:
+    `scripts/tinywasm-ab-build-ios.sh`, `scripts/tinywasm-ab-iphone.sh`,
+    `scripts/tinywasm_ab_summary.py`.
+  - tinywasm's CONTRIBUTING requires the issue / PR text to be the
+    contributor's own. The PR descriptions are the user's.
+  - Running tinywasm's CI matrix locally: rustfmt comes from the
+    floating `nightly`, clippy from `1.98` (the pinned nightly has
+    neither). The matrix needs ~10 GB of target dir per toolchain; build
+    one toolchain at a time with `CARGO_INCREMENTAL=0` when disk is
+    tight.
 - **Open follow-ups** found by the 2026-09 refresh (evidence in the
   report):
   - wasmz v0.1.4 bugs to file upstream: wrong result on extended-const
