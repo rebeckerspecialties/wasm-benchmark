@@ -5,7 +5,15 @@
 //! and P-core-only parts (`ri_user_ptime`, `ri_pinstructions`,
 //! `ri_pcycles`). The kernel keeps those from the always-on fixed
 //! counters, so they work without kpc privileges and on cores whose PMU
-//! xctrace cannot read (A12, S8). Two uses:
+//! xctrace cannot read (A12, S8).
+//!
+//! `proc_pid_rusage` is declared in <libproc.h>, which only the macOS SDK
+//! ships, so an app linking it on iOS, tvOS, watchOS or visionOS would use
+//! an interface that is not public there. Those builds read the same
+//! counters for this process from `task_info(TASK_POWER_INFO_V2)` (CPU and
+//! P-core time) and `task_inspect(TASK_INSPECT_BASIC_COUNTS)` (instructions
+//! and cycles), both in <mach/task.h>; they have no P-core instruction or
+//! cycle split, which nothing reads. Two uses:
 //!
 //! - E-core residency of a measurement window = 1 - P-time / total time,
 //!   measured instead of assumed from the QoS / `taskpolicy -b` setting.
@@ -143,25 +151,108 @@ mod apple {
 
     pub const TASK_VM_INFO: c_uint = 22;
 
+    /// `struct task_power_info_v2` (<mach/task_info.h>), arm64 layout.
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct TaskPowerInfoV2 {
+        pub total_user: u64,
+        pub total_system: u64,
+        pub task_interrupt_wakeups: u64,
+        pub task_platform_idle_wakeups: u64,
+        pub task_timer_wakeups_bin_1: u64,
+        pub task_timer_wakeups_bin_2: u64,
+        pub gpu_energy: [u64; 4],
+        pub task_energy: u64,
+        pub task_ptime: u64,
+        pub task_pset_switches: u64,
+    }
+
+    pub const TASK_POWER_INFO_V2: c_uint = 26;
+
+    /// `struct task_inspect_basic_counts` (<mach/task_inspect.h>).
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct TaskInspectBasicCounts {
+        pub instructions: u64,
+        pub cycles: u64,
+    }
+
+    pub const TASK_INSPECT_BASIC_COUNTS: c_uint = 1;
+
     extern "C" {
+        #[cfg(target_os = "macos")]
         pub fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
         pub fn getpid() -> c_int;
         pub fn mach_timebase_info(info: *mut MachTimebaseInfo) -> c_int;
         pub fn mach_task_self() -> c_uint;
         pub fn task_info(task: c_uint, flavor: c_uint, out: *mut c_int, count: *mut c_uint)
             -> c_int;
+        pub fn task_inspect(task: c_uint, flavor: c_uint, out: *mut c_int, count: *mut c_uint)
+            -> c_int;
+    }
+
+    /// Mach absolute-time units to nanoseconds.
+    pub fn mach_to_ns(t: u64) -> u64 {
+        let mut tb = MachTimebaseInfo::default();
+        unsafe { mach_timebase_info(&mut tb) };
+        if tb.denom == 0 {
+            t
+        } else {
+            ((t as u128) * (tb.numer as u128) / (tb.denom as u128)) as u64
+        }
     }
 }
 
 /// Snapshot of this process's rusage counters.
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 pub fn proc_usage() -> Option<ProcUsage> {
     proc_usage_of(unsafe { apple::getpid() })
 }
 
+/// Snapshot of this process's counters, from the public task interfaces.
+#[cfg(all(target_vendor = "apple", not(target_os = "macos")))]
+pub fn proc_usage() -> Option<ProcUsage> {
+    task_usage()
+}
+
+/// This process's CPU time, P-core time, instructions and cycles from
+/// `task_info(TASK_POWER_INFO_V2)` and `task_inspect(TASK_INSPECT_BASIC_COUNTS)`.
+#[cfg(target_vendor = "apple")]
+pub fn task_usage() -> Option<ProcUsage> {
+    use apple::*;
+    use std::os::raw::{c_int, c_uint};
+    let word = std::mem::size_of::<c_int>();
+    let mut power = TaskPowerInfoV2::default();
+    let mut count = (std::mem::size_of::<TaskPowerInfoV2>() / word) as c_uint;
+    let rc = unsafe {
+        task_info(mach_task_self(), TASK_POWER_INFO_V2, &mut power as *mut _ as *mut c_int, &mut count)
+    };
+    if rc != 0 {
+        return None;
+    }
+    let mut counts = TaskInspectBasicCounts::default();
+    let mut count = (std::mem::size_of::<TaskInspectBasicCounts>() / word) as c_uint;
+    let rc = unsafe {
+        task_inspect(mach_task_self(), TASK_INSPECT_BASIC_COUNTS, &mut counts as *mut _ as *mut c_int,
+                     &mut count)
+    };
+    if rc != 0 {
+        counts = TaskInspectBasicCounts::default();
+    }
+    // task_power_info times are Mach absolute-time units.
+    Some(ProcUsage {
+        cpu_ns: mach_to_ns(power.total_user + power.total_system),
+        p_cpu_ns: mach_to_ns(power.task_ptime),
+        instructions: counts.instructions,
+        cycles: counts.cycles,
+        p_instructions: 0,
+        p_cycles: 0,
+    })
+}
+
 /// Rusage counters of process `pid` (this process, or an exited child that
 /// has not been reaped yet — see the `rusage_exec` bin).
-#[cfg(target_vendor = "apple")]
+#[cfg(target_os = "macos")]
 pub fn proc_usage_of(pid: i32) -> Option<ProcUsage> {
     use apple::*;
     let mut ri = RusageInfoV6::default();
@@ -172,15 +263,7 @@ pub fn proc_usage_of(pid: i32) -> Option<ProcUsage> {
         return None;
     }
     // rusage_info times are Mach absolute-time units.
-    let mut tb = MachTimebaseInfo::default();
-    unsafe { mach_timebase_info(&mut tb) };
-    let to_ns = |t: u64| -> u64 {
-        if tb.denom == 0 {
-            t
-        } else {
-            ((t as u128) * (tb.numer as u128) / (tb.denom as u128)) as u64
-        }
-    };
+    let to_ns = mach_to_ns;
     Some(ProcUsage {
         cpu_ns: to_ns(ri.ri_user_time + ri.ri_system_time),
         p_cpu_ns: to_ns(ri.ri_user_ptime + ri.ri_system_ptime),
@@ -194,6 +277,13 @@ pub fn proc_usage_of(pid: i32) -> Option<ProcUsage> {
 #[cfg(not(target_vendor = "apple"))]
 pub fn proc_usage() -> Option<ProcUsage> {
     None
+}
+
+/// Other processes' counters need `proc_pid_rusage`, which only macOS has
+/// publicly; here the only process is this one.
+#[cfg(all(target_vendor = "apple", not(target_os = "macos")))]
+pub fn proc_usage_of(pid: i32) -> Option<ProcUsage> {
+    if pid == unsafe { apple::getpid() } { task_usage() } else { None }
 }
 
 #[cfg(not(target_vendor = "apple"))]
