@@ -105,9 +105,12 @@ Pick this up cold without re-deriving state:
   - Since then, fork PRs with no upstream counterpart yet:
     - #9: exception-handling spec tests, plus exnref unwinding cases
       ported from the retired WAMR legacy-EH bugs. tinywasm passes all
-      of them.
-    - #10: shared-memory locking out of line (−4.6 % instructions and
-      −8.6 % cycles on its worst watch row).
+      of them. Upstream as
+      [explodingcamera/tinywasm#71](https://github.com/explodingcamera/tinywasm/pull/71).
+    - #10: shared-memory locking out of line, with atomics keeping the
+      lock inline (−4.6 % instructions and −8.6 % cycles on its worst
+      watch row). Its shared-memory cost and references to other
+      runtimes are in the watch report.
     - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
       closed by the maintainer, who plans his own memory operand
       encoding) and #64 (borrow the instruction stream; upstream draft).

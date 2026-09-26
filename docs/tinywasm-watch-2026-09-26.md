@@ -130,11 +130,66 @@ for the counters. A single one-second run's wall time on the watch varies
 more than these deltas: in a matched pair of runs the baseline measured
 11.8 ms and the change 12.4 ms. The counters are the comparison.
 
+### What it costs shared memory
+
+The change moves code but does not change the locking: the same mutex
+guards the same body, so contention is unaffected. It adds a call before
+the lock on the shared path. The version of #10 that also moved atomics
+out of line cost them 1–2% more cycles. A second commit keeps the lock
+inline for atomic operations (`with_memory!(@lock_inline …)`), because
+their memory is usually shared.
+
+Measured with `tinywasm run` on the M4 (loops in
+[`shared-memory.wat`](tinywasm-watch-2026-09-26/shared-memory.wat)).
+Values are per access; runs of 1 M and 11 M iterations are subtracted to
+cancel startup, and each is the median of 5 interleaved reps on each core
+type
+([raw](tinywasm-watch-2026-09-26/shared-memory-reps.json)):
+
+| loop, per access | instructions | P-core cycles | E-core cycles |
+|---|---:|---:|---:|
+| ordinary memory, load + store | 171.6 → 161.5 (−5.8%) | −7.3% | −5.9% |
+| shared memory, plain load + store | 301.1 → 291.6 (−3.2%) | **+1.6%** | −5.9% |
+| shared memory, atomic RMW | 428.1 → 404.1 (−5.6%) | −2.0% | −6.3% |
+
+The remaining cost is about 0.6 cycles on P-cores out of about 36, on a
+path that already calls `pthread_mutex_lock` and `pthread_mutex_unlock`
+for every access.
+
+How other runtimes handle the same access:
+
+| runtime | lock on a plain load/store to shared memory? | shared memory on a separate path? |
+|---|---|---|
+| wasmtime (Cranelift) | no; an `RwLock` guards only grow and size | yes: [wasmtime#4187](https://github.com/bytecodealliance/wasmtime/pull/4187) kept owned memories off the shared-memory indirection, which cost shared memories 1–3% |
+| Pulley | threads disabled: Rust has no UB-free racy load/store ([wasmtime#9818](https://github.com/bytecodealliance/wasmtime/pull/9818), [#11747](https://github.com/bytecodealliance/wasmtime/issues/11747)) | — |
+| WAMR | no; atomics, grow and wait/notify take a global mutex only for shared memories | only atomics and grow |
+| WasmEdge, zwasm, wasmz | no | no |
+| wasmi, wasm3 | no threads ([wasmi#777](https://github.com/wasmi-labs/wasmi/issues/777)) | — |
+| DLR-FT wasm-interpreter (safe Rust) | yes, a spin lock | yes: ordinary memory is a plain `Vec<u8>` ([#353](https://github.com/DLR-FT/wasm-interpreter/pull/353), [#408](https://github.com/DLR-FT/wasm-interpreter/pull/408)) |
+
+The threads proposal's
+[relaxed memory model](https://webassembly.github.io/threads/core/exec/relaxed.html)
+makes racing non-atomic accesses non-deterministic rather than undefined
+behavior. [Weakening WebAssembly](https://dl.acm.org/doi/10.1145/3360559)
+(OOPSLA 2019) compiles them to plain loads and stores. A per-access lock
+is therefore a safe-Rust implementation choice, not a spec requirement:
+tinywasm's `shared.rs` notes that a lock-free design would need different
+storage. #60 already marked the shared branch `core::hint::cold_path()`,
+but that hint does not promise any codegen effect, and the calls stayed
+in the handlers. Moving the slow path out of line is the pattern of
+tinywasm#57, [wasmi#2014](https://github.com/wasmi-labs/wasmi/pull/2014)
+and Pulley's trap helpers.
+
+A zero-cost version is possible later. Whether a memory is shared is
+known from the module's memory types when the function is lowered, so
+dedicated shared-memory opcodes would remove the runtime branch
+altogether. The instruction encoding is the maintainer's area.
+
 ## Action plan
 
 | # | change | owner | evidence | status |
 |---|---|---|---|---|
-| 1 | Shared-memory locking out of line | us, within the maintainer's rules (safe; cold path out of line, like #57–#59) | −4.6% instructions, −8.6% cycles on the worst row | fork PR #10 |
+| 1 | Shared-memory locking out of line, atomics kept inline | us, within the maintainer's rules (safe; cold path out of line, like #57–#59) | −4.6% instructions, −8.6% cycles on the worst row; shared memory: faster except plain accesses on P-cores (+1.6%) | fork PR #10; upstream once its description is updated |
 | 2 | Borrow the instruction stream across tail dispatch (saves the function `Arc` reload, 7 of 31 instructions in `LocalSet32`) | us | −7.2% cycles on A14, −6.8% on A12 | upstream draft #64 (fork #8); not yet measured on the watch |
 | 3 | Keep the value-stack pointer and length in registers across handlers (51% of samples) | maintainer (`exp/acc` accumulator work) | profile above | discussion draft: ask whether `exp/acc` carries the stack pointer; offer watch measurements of `exp/acc` |
 | 4 | Memory operand offsets in the instruction (side-pool `resolve`) | maintainer (planned u16 memory index; our #63 was closed) | ~2.3% of samples | wait for the maintainer |
@@ -162,3 +217,5 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
   - `ab/`: the A/B reps.
   - `pmu/`: the guided-mode counter summaries (`pmu.jsonl`) and the Time
     Profiler histogram.
+  - `shared-memory.wat` and `shared-memory-reps.json`: the shared-memory
+    loops and their per-rep counters.
