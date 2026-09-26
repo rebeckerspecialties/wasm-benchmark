@@ -1,5 +1,17 @@
+From ceab59c75e6075a39aaf57373bb2bf17baaa54fa Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:26:23 -0700
+Subject: wasmedge apple mobile guarded memory fallback
+
+---
+ include/runtime/instance/memory.h |  21 +--
+ include/system/allocator.h        |  29 +++-
+ lib/executor/engine/engine.cpp    |   2 +-
+ lib/system/allocator.cpp          | 216 +++++++++++++++++++++---------
+ 4 files changed, 190 insertions(+), 78 deletions(-)
+
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index c0b6a3325699f0d77277fa846086be5be6545cf8..463e0001480b4d1258e7d6d8560d7aa995fd76c5 100644
+index 5af0c2ffc..e8f1066e3 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -47,8 +47,10 @@ public:
@@ -67,7 +79,7 @@ index c0b6a3325699f0d77277fa846086be5be6545cf8..463e0001480b4d1258e7d6d8560d7aa9
    std::unordered_multimap<uint64_t, Waiter> WaiterMap;
    /// @}
 diff --git a/include/system/allocator.h b/include/system/allocator.h
-index d77cf343d537b87e25010b77c294efe9b1687a09..0c6555db1493f51ff5958f063995ced13a7ca2a8 100644
+index ac084ea67..38ce8420b 100644
 --- a/include/system/allocator.h
 +++ b/include/system/allocator.h
 @@ -14,27 +14,46 @@
@@ -123,7 +135,7 @@ index d77cf343d537b87e25010b77c294efe9b1687a09..0c6555db1493f51ff5958f063995ced1
    static uint8_t *allocate_chunk(uint64_t Size) noexcept;
    static void release_chunk(uint8_t *Pointer, uint64_t Size) noexcept;
 diff --git a/lib/executor/engine/engine.cpp b/lib/executor/engine/engine.cpp
-index fe6877de5281dcdbdba8609c182bba5edb22616b..783106eba1e4ab7046854ece5e0d06611b296da8 100644
+index ed29546fe..7af806c0f 100644
 --- a/lib/executor/engine/engine.cpp
 +++ b/lib/executor/engine/engine.cpp
 @@ -2086,7 +2086,7 @@ Expect<void> Executor::execute(Runtime::StackManager &StackMgr,
@@ -136,7 +148,7 @@ index fe6877de5281dcdbdba8609c182bba5edb22616b..783106eba1e4ab7046854ece5e0d0661
    uint32_t FaultCode = PREPARE_FAULT(FaultHandler);
    if (unlikely(FaultCode != 0)) {
 diff --git a/lib/system/allocator.cpp b/lib/system/allocator.cpp
-index 91ec09ebe1ce5039cbc4b25cbe0f791e77626e3b..40fba9fabc3843d4e19bf9ddbdd1f99297f3eea8 100644
+index 91ec09ebe..40fba9fab 100644
 --- a/lib/system/allocator.cpp
 +++ b/lib/system/allocator.cpp
 @@ -7,121 +7,211 @@

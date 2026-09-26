@@ -1,0 +1,53 @@
+busiest thread: WasmBench (0x3ea73)  samples: 11746 (100.0% on E cores)  all threads: 11852
+
+# self time (leaf frame), top 60
+ 99.94%   11739  wasm_interp_call_func_bytecode
+  0.02%       2  wasm_runtime_call_wasm
+  0.01%       1  start_wqthread
+  0.01%       1  swift::Demangle::__runtime::Node::addChild(swift::Demangle::__runtime::Node*, swift::Demangle::__runtime::NodeFactory&)
+  0.01%       1  bsearch
+  0.01%       1  __bzero
+  0.01%       1  _RNvMNtCsg8tlWPf0vnr_3std4timeNtB2_7Instant7elapsed
+
+# inclusive (on stack), top 60
+100.00%   11746  start_wqthread
+ 99.99%   11745  _dispatch_root_queue_drain
+ 99.99%   11745  <deduplicated_symbol>
+ 99.99%   11745  _dispatch_worker_thread2
+ 99.99%   11745  _pthread_wqthread
+ 99.99%   11745  _dispatch_client_callout
+ 99.98%   11744  _RNvNtCs9e6pHsgSdNO_14benchmark_core5cases8run_case
+ 99.98%   11744  bench_run_case
+ 99.98%   11744  closure #2 in BenchmarkContentView.runAll()
+ 99.98%   11744  _dispatch_call_block_and_release
+ 99.98%   11744  closure #141 in variable initialization expression of WORKLOADS
+ 99.98%   11744  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.97%   11743  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.96%   11741  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 99.96%   11741  wasm_runtime_call_wasm
+ 99.94%   11739  wasm_call_function
+ 99.94%   11739  wasm_interp_call_func_bytecode
+ 99.94%   11739  wasm_interp_call_wasm
+  0.01%       1  0x2021f08b7
+  0.01%       1  swift::Demangle::__runtime::Node::addChild(swift::Demangle::__runtime::Node*, swift::Demangle::__runtime::NodeFactory&)
+  0.01%       1  swift_getTypeByMangledName
+  0.01%       1  swift::Demangle::__runtime::Demangler::demangleType(__swift::__runtime::llvm::StringRef, std::__1::function<swift::Demangle::__runtime::Node* (swift::Demangle::__runtime::SymbolicReferenceKind, swift::Demangle::__runtime::Directness, int, void const*)>)
+  0.01%       1  swift::Demangle::__runtime::Demangler::demangleStandardSubstitution()
+  0.01%       1  0x1d612456b
+  0.01%       1  swift::Demangle::__runtime::Demangler::createSwiftType(swift::Demangle::__runtime::Node::Kind, char const*)
+  0.01%       1  0x1d6124343
+  0.01%       1  0x1d6124e67
+  0.01%       1  0x1d612408f
+  0.01%       1  swift_getTypeByMangledNameImpl(swift::MetadataRequest, __swift::__runtime::llvm::StringRef, void const* const*, std::__1::function<void const* (unsigned int, unsigned int)>, std::__1::function<swift::TargetWitnessTable<swift::InProcess> const* (swift::TargetMetadata<swift::InProcess> const*, unsigned int)>)
+  0.01%       1  swift_getTypeByMangledNameInContextImpl(char const*, unsigned long, swift::TargetContextDescriptor<swift::InProcess> const*, void const* const*)
+  0.01%       1  0x1d6124807
+  0.01%       1  bsearch
+  0.01%       1  wasm_loader_prepare_bytecode
+  0.01%       1  wasm_loader_load
+  0.01%       1  load_from_sections
+  0.01%       1  wasm_runtime_load
+  0.01%       1  __bzero
+  0.01%       1  memory_instantiate
+  0.01%       1  wasm_runtime_instantiate
+  0.01%       1  wasm_instantiate
+  0.01%       1  _RNvMNtCsg8tlWPf0vnr_3std4timeNtB2_7Instant7elapsed

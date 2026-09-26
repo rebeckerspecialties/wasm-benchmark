@@ -1,5 +1,14 @@
+From 6a6962e035ced91f2103bc1815f24c78c73ff039 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:29:01 -0700
+Subject: wasmedge apple watchos nsinteger arm6432 compat
+
+---
+ lib/host/wasi/macos.mm | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
 diff --git a/lib/host/wasi/macos.mm b/lib/host/wasi/macos.mm
-index b26ec1ea..0483582f 100644
+index b26ec1eae..0483582ff 100644
 --- a/lib/host/wasi/macos.mm
 +++ b/lib/host/wasi/macos.mm
 @@ -13,21 +13,24 @@ bool darwinAvailable(unsigned int Major, unsigned int Minor,

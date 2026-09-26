@@ -11,9 +11,14 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use wasmtime::{Engine, Instance, Module, Store};
 
+pub mod cases;
 pub mod graphql_validation;
 pub mod pac_probe;
+pub mod residency;
+#[cfg(feature = "femtovg-e2e")]
+pub mod femtovg_e2e;
 pub mod sqlite3;
+pub mod tinywasm;
 
 #[cfg(have_wamr)]
 pub mod wamr;
@@ -46,6 +51,19 @@ pub mod wamr {
     pub fn run_graphql_validation_porf_wamr(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("WAMR not linked into this build"))
     }
+    pub fn run_instantiate_each_wamr(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("WAMR not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("WAMR not linked into this build"))
+    }
 }
 
 #[cfg(have_zwasm)]
@@ -73,6 +91,19 @@ pub mod zwasm {
         Err(anyhow!("zwasm not linked into this build"))
     }
     pub fn run_graphql_validation_porf_zwasm(_wasm_bytes: &[u8]) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+    pub fn run_instantiate_each_zwasm(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
         Err(anyhow!("zwasm not linked into this build"))
     }
 }
@@ -104,6 +135,19 @@ pub mod wasmz {
     pub fn run_graphql_validation_porf_wasmz(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("wasmz not linked into this build"))
     }
+    pub fn run_instantiate_each_wasmz(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("wasmz not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("wasmz not linked into this build"))
+    }
 }
 
 #[cfg(have_wasmedge)]
@@ -133,6 +177,19 @@ pub mod wasmedge {
     pub fn run_graphql_validation_porf_wasmedge(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("WasmEdge not linked into this build"))
     }
+    pub fn run_instantiate_each_wasmedge(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
 }
 
 #[cfg(have_wasm3)]
@@ -160,6 +217,19 @@ pub mod wasm3 {
     ) -> Result<RunReport> {
         Err(anyhow!("wasm3 not linked into this build"))
     }
+    pub fn run_instantiate_each_wasm3(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
 }
 
 /// Which interpreter runtime to dispatch a benchmark workload through.
@@ -179,6 +249,7 @@ pub enum Runtime {
     WasmEdge = 3,
     Zwasm = 4,
     Wasmz = 5,
+    Tinywasm = 6,
 }
 
 // ---- Apple `task_info` thin wrapper for CPU time / RSS / page faults ----
@@ -369,6 +440,86 @@ pub const CALL_INDIRECT_WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../workloads/call_indirect.wasm"
 ));
+/// Scalar (`-simd128`) builds of the workloads whose canonical build only
+/// has auto-vectorized SIMD. Same source and semantics, so the same
+/// consensus results; see `scripts/build-workloads.sh`.
+pub const FACTORIAL_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/factorial.wasm"
+));
+pub const SIEVE_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/sieve.wasm"
+));
+pub const CRC32_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/crc32.wasm"
+));
+pub const CONVOLUTION_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/convolution.wasm"
+));
+pub const BULK_MEMORY_SCALAR_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/scalar/bulk_memory.wasm"
+));
+/// Wasm 3.0 feature benchmarks (see `workloads-wat/gen.py` for the WAT
+/// ones and `workloads-rs/relaxed_kernels.rs`). A `.<twin>` file is the
+/// same program without the feature (call_indirect instead of call_ref, a
+/// 32-bit memory, one memory, pre-folded consts), so each runtime's cost
+/// of the feature itself can be read off; twins run on every runtime.
+pub const TAILCALL_FSM_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/tailcall_fsm.wasm"
+));
+pub const EH_PARSER_EXNREF_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/eh_parser_exnref.wasm"
+));
+pub const EH_PARSER_LEGACY_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/eh_parser_legacy.wasm"
+));
+pub const GC_TREES_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/gc_trees.wasm"
+));
+pub const CALLREF_DISPATCH_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/callref_dispatch.wasm"
+));
+pub const CALLREF_DISPATCH_INDIRECT_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/callref_dispatch.indirect.wasm"
+));
+pub const RELAXED_KERNELS_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/relaxed_kernels.wasm"
+));
+pub const MEM64_CHASE_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/mem64_chase.wasm"
+));
+pub const MEM64_CHASE_MEM32_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/mem64_chase.mem32.wasm"
+));
+pub const MULTIMEM_TRANSFORM_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/multimem_transform.wasm"
+));
+pub const MULTIMEM_TRANSFORM_SINGLE_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/multimem_transform.single.wasm"
+));
+pub const EXTCONST_INIT_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/extconst_init.wasm"
+));
+pub const EXTCONST_INIT_MVP_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../workloads/extconst_init.mvp.wasm"
+));
 /// SQLite speedtest1 from Sightglass (`benchmarks/sqlite3/sqlite3.wasm`).
 /// Uses WASI preview-1 imports + `bench.start`/`bench.end` timing hooks.
 /// Wired via `sqlite3::run_sqlite3()` (Pulley side) — needs an import
@@ -396,26 +547,13 @@ pub const GRAPHQL_VALIDATION_PORF_WASM: &[u8] = include_bytes!(concat!(
 ));
 /// "Accurate" Porffor variant — the same JS source, but the JS
 /// `validate()` wraps `visit()` in a real try/catch / abortObj
-/// sentinel pattern (mirrors graphql-js's `validation/validate.mjs`).
-/// Compiles to wasm with **1 try + 1 catch 0 + 605 throws** (vs the
-/// "production" wasm above which has 0/0/561). Currently fails to load
-/// on every runtime in our matrix:
-///
-/// - **Pulley** — Cranelift lowers legacy `try`/`catch`, but the Pulley
-///   target doesn't ("Unsupported feature: operator Try"). Cranelift
-///   itself is JIT-only and disqualified for our pure-interpreter
-///   matrix. Tracked at rebeckerspecialties/wasmtime branch
-///   `accurate-graphql-needs-legacy-exceptions`.
-/// - **WAMR fast-interp** — our throw-only EH PR
-///   (rebeckerspecialties/wasm-micro-runtime#1) doesn't handle CATCH
-///   in normal flow. Full-spec impl tracked in AGENTS.md.
-/// - **WasmEdge interpreter / wasm3 / zwasm / wasmz** — none parse the
-///   legacy try/catch opcodes today.
-///
-/// Kept here as the **integration test target** for the WAMR fast-
-/// interp full-spec EH PR (next session). When that lands, this wasm
-/// will load + run + return `result=0` matching cross-runtime
-/// consensus, proving the spec implementation is correct.
+/// sentinel pattern (mirrors graphql-js's `validation/validate.mjs`):
+/// 1 legacy `try` + 1 `catch 0` around the visit, 607 `throw`s.
+/// Case `graphql_porf_trycatch`. Runs on WAMR fast-interp (legacy EH,
+/// patches/wasm-micro-runtime/0001-0017); Pulley's Cranelift-to-Pulley
+/// path has no legacy `try` ("Unsupported feature: operator Try"), and
+/// wasm3 / WasmEdge / zwasm / tinywasm do not parse legacy EH in the
+/// builds we ship.
 pub const GRAPHQL_VALIDATION_PORF_ACCURATE_WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../workloads/graphql-validation-porf-accurate.wasm"
@@ -477,6 +615,13 @@ pub struct RunReport {
     pub cpu_system_ns: u64,
     pub rss_peak_bytes: u64,
     pub page_faults: u64,
+    /// CPU time of the timed window that ran on P-cores (rusage
+    /// `ri_*_ptime`); E-core residency = 1 - p_cpu_ns / (user + system).
+    pub p_cpu_ns: u64,
+    /// Instructions / cycles retired over the timed window (rusage fixed
+    /// counters; whole process, all cores).
+    pub instructions: u64,
+    pub cycles: u64,
 }
 
 /// Heuristic: pick an iteration count so the total measurement window is
@@ -497,6 +642,180 @@ pub(crate) fn pick_iters(first_run: Duration, target_total: Duration) -> u32 {
         .unwrap_or_else(|| target_total.as_nanos() as u64);
     let raw = (target_ns / single_ns).max(1);
     raw.min(16_384) as u32
+}
+
+/// Accounting for one timed measurement window: task_info CPU time and
+/// page faults plus rusage P-core time / instructions / cycles, taken
+/// right before the timed loop and turned into a `RunReport` right after
+/// it. Every adapter's loop brackets its samples with this so all
+/// runtimes report the same fields the same way.
+pub(crate) struct Window {
+    cpu: Option<taskinfo::ThreadTimes>,
+    events: Option<taskinfo::TaskEventsInfo>,
+    usage: Option<residency::ProcUsage>,
+}
+
+impl Window {
+    pub(crate) fn start() -> Self {
+        Window {
+            cpu: taskinfo::thread_times(),
+            events: taskinfo::events_info(),
+            usage: residency::proc_usage(),
+        }
+    }
+
+    /// `samples` are per-iteration nanoseconds (need not be sorted).
+    pub(crate) fn finish(
+        self,
+        result: i32,
+        iterations: u32,
+        load_time: Duration,
+        mut samples: Vec<u64>,
+    ) -> RunReport {
+        let usage = match (residency::proc_usage(), self.usage) {
+            (Some(a), Some(b)) => a.since(&b),
+            _ => residency::ProcUsage::default(),
+        };
+        let cpu_after = taskinfo::thread_times();
+        let events_after = taskinfo::events_info();
+        let basic = taskinfo::basic_info();
+
+        samples.sort_unstable();
+        let run_min = Duration::from_nanos(samples[0]);
+        let run_median = Duration::from_nanos(samples[samples.len() / 2]);
+        let p99_idx = ((samples.len() as f64) * 0.99) as usize;
+        let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
+
+        #[cfg(target_vendor = "apple")]
+        let (cpu_user_ns, cpu_system_ns, page_faults) = {
+            let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
+            match (self.cpu, cpu_after, self.events, events_after) {
+                (Some(b), Some(a), Some(eb), Some(ea)) => (
+                    to(a.user_time).saturating_sub(to(b.user_time)),
+                    to(a.system_time).saturating_sub(to(b.system_time)),
+                    (ea.faults as u64).saturating_sub(eb.faults as u64),
+                ),
+                _ => (0, 0, 0),
+            }
+        };
+        #[cfg(not(target_vendor = "apple"))]
+        let (cpu_user_ns, cpu_system_ns, page_faults) = {
+            let _ = (self.cpu, cpu_after, self.events, events_after);
+            (0u64, 0u64, 0u64)
+        };
+
+        RunReport {
+            result,
+            iterations,
+            load_time,
+            run_min,
+            run_median,
+            run_p99,
+            cpu_user_ns,
+            cpu_system_ns,
+            rss_peak_bytes: basic.map(|b| b.resident_size_max).unwrap_or(0),
+            page_faults,
+            p_cpu_ns: usage.p_cpu_ns,
+            instructions: usage.instructions,
+            cycles: usage.cycles,
+        }
+    }
+}
+
+/// Shared measurement loop for runtime adapters, identical in shape to the
+/// hand-written loops in the older adapters: one init warmup call (pays any
+/// first-call lazy init), one timed steady warmup that sizes `iters` via
+/// `pick_iters` when `iters == 0`, then the timed calls inside a `Window`.
+pub(crate) fn measure_calls(
+    load_time: Duration,
+    iters: u32,
+    mut call: impl FnMut() -> Result<i32>,
+) -> Result<RunReport> {
+    let mut result = call().context("init warmup failed")?;
+    let warm_start = Instant::now();
+    result = call().context("steady warmup failed")?;
+    let warm = warm_start.elapsed();
+    let n = if iters == 0 {
+        pick_iters(warm, Duration::from_millis(200))
+    } else {
+        iters
+    };
+
+    let window = Window::start();
+    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let it_start = Instant::now();
+        result = call()?;
+        samples.push(it_start.elapsed().as_nanos() as u64);
+    }
+    Ok(window.finish(result, n, load_time, samples))
+}
+
+/// Runs `body` on a new thread with a `stack_bytes` stack and the calling
+/// thread's QoS class, and waits for it. A bare `std::thread::spawn` starts
+/// at the default QoS, which on iOS moves work the app queued at `.utility`
+/// (E-cores) onto the P-cores; the big-stack threads the Zig runtimes and
+/// the femtovg E2E need must stay in the class the run was scheduled in.
+///
+/// Called from a run_matrix `case:<id>` thread, the new thread takes that
+/// name instead of `name`, so per-thread profiles (the PMU pass) attribute
+/// a runtime's big-stack thread to its case.
+pub fn run_on_thread<T: Send + 'static>(
+    name: &str,
+    stack_bytes: usize,
+    body: impl FnOnce() -> T + Send + 'static,
+) -> Result<T> {
+    #[cfg(target_vendor = "apple")]
+    let qos = unsafe { qos::qos_class_self() };
+    let name = match std::thread::current().name() {
+        Some(parent) if parent.starts_with("case:") => parent.to_string(),
+        _ => name.to_string(),
+    };
+    std::thread::Builder::new()
+        .name(name.clone())
+        .stack_size(stack_bytes)
+        .spawn(move || {
+            #[cfg(target_vendor = "apple")]
+            unsafe {
+                qos::pthread_set_qos_class_self_np(qos, 0);
+            }
+            body()
+        })
+        .with_context(|| format!("failed to spawn {name} thread"))?
+        .join()
+        .map_err(|_| anyhow::anyhow!("{name} thread panicked"))
+}
+
+#[cfg(target_vendor = "apple")]
+mod qos {
+    unsafe extern "C" {
+        /// `qos_class_t` is an unsigned int enum in <sys/qos.h>.
+        pub fn qos_class_self() -> u32;
+        pub fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+    }
+}
+
+/// Measurement loop for cases whose timed unit is more than a call
+/// (`Shape::InstantiateEach`, Porffor): each `sample` does its own timing
+/// and returns `(elapsed, result)`, so work that must stay outside the
+/// timed region (tearing the fresh instance down) happens after the clock
+/// stops. Same warmup and sizing as `measure_calls`.
+pub(crate) fn measure_samples(
+    load_time: Duration,
+    mut sample: impl FnMut() -> Result<(Duration, i32)>,
+) -> Result<RunReport> {
+    sample().context("init warmup failed")?;
+    let (warm, mut result) = sample().context("steady warmup failed")?;
+    let n = pick_iters(warm, Duration::from_millis(200));
+
+    let window = Window::start();
+    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let (elapsed, r) = sample()?;
+        result = r;
+        samples.push(elapsed.as_nanos() as u64);
+    }
+    Ok(window.finish(result, n, load_time, samples))
 }
 
 /// Generic runner: load `wasm_bytes` via Pulley, look up `fn_name`, then run
@@ -520,7 +839,52 @@ pub fn run_workload_with(
         Runtime::WasmEdge => wasmedge::run_workload_wasmedge(wasm_bytes, fn_name, arg),
         Runtime::Zwasm => zwasm::run_workload_zwasm(wasm_bytes, fn_name, arg),
         Runtime::Wasmz => wasmz::run_workload_wasmz(wasm_bytes, fn_name, arg),
+        Runtime::Tinywasm => tinywasm::run_workload_tinywasm(wasm_bytes, fn_name, arg),
     }
+}
+
+/// `Shape::InstantiateEach`: every sample instantiates `wasm_bytes` afresh
+/// and calls `fn_name(arg)` once; instantiate + call is timed, the instance
+/// is torn down after the clock stops. For cases whose hot path runs at
+/// instantiation (constant expressions, segment initialization).
+pub fn run_instantiate_each_with(
+    rt: Runtime,
+    wasm_bytes: &[u8],
+    fn_name: &str,
+    arg: i32,
+) -> Result<RunReport> {
+    match rt {
+        Runtime::Pulley => run_workload_instantiate_each(wasm_bytes, fn_name, arg),
+        Runtime::Wamr => wamr::run_instantiate_each_wamr(wasm_bytes, fn_name, arg),
+        Runtime::Wasm3 => wasm3::run_instantiate_each_wasm3(wasm_bytes, fn_name, arg),
+        Runtime::WasmEdge => wasmedge::run_instantiate_each_wasmedge(wasm_bytes, fn_name, arg),
+        Runtime::Zwasm => zwasm::run_instantiate_each_zwasm(wasm_bytes, fn_name, arg),
+        Runtime::Wasmz => wasmz::run_instantiate_each_wasmz(wasm_bytes, fn_name, arg),
+        Runtime::Tinywasm => tinywasm::run_instantiate_each_tinywasm(wasm_bytes, fn_name, arg),
+    }
+}
+
+/// Pulley side of `Shape::InstantiateEach`: one compiled `Module`, then a
+/// fresh `Store` + `Instance` per sample.
+pub fn run_workload_instantiate_each(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    let load_start = Instant::now();
+    let engine = pulley_engine()?;
+    let module = into_anyhow(Module::from_binary(&engine, wasm_bytes))
+        .context("Module::from_binary failed — invalid wasm or unsupported feature?")?;
+    let load_time = load_start.elapsed();
+    measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut store = Store::new(&engine, ());
+        let instance = into_anyhow(Instance::new(&mut store, &module, &[]))
+            .context("Instance::new failed")?;
+        let f = into_anyhow(instance.get_typed_func::<i32, i32>(&mut store, fn_name))
+            .with_context(|| format!("export `{fn_name}` not found or wrong signature"))?;
+        let r = into_anyhow(f.call(&mut store, arg))
+            .with_context(|| format!("`{fn_name}({arg})` trapped"))?;
+        let elapsed = t.elapsed();
+        drop(store);
+        Ok((elapsed, r))
+    })
 }
 
 pub fn run_workload_iters(
@@ -530,38 +894,7 @@ pub fn run_workload_iters(
     iters: u32,
 ) -> Result<RunReport> {
     let load_start = Instant::now();
-    let pulley_target = if cfg!(target_pointer_width = "64") {
-        "pulley64"
-    } else {
-        "pulley32"
-    };
-    let mut config = wasmtime::Config::new();
-    into_anyhow(config.target(pulley_target).map(|_| ()))
-        .with_context(|| format!("Config::target({pulley_target}) failed"))?;
-    // simd128 + relaxed-simd both on (defaults, made explicit). Non-
-    // deterministic relaxed-simd lets Pulley use Vfma32x4/Vfma64x2.
-    config.wasm_simd(true);
-    config.wasm_relaxed_simd(true);
-    config.relaxed_simd_deterministic(false);
-    // Tail calls: defaults to true except with Winch (we don't use Winch).
-    // Made explicit so the `fib_tail` workload's `return_call` opcodes are
-    // accepted regardless of any future default change.
-    config.wasm_tail_call(true);
-    // Bulk memory is default-on; explicit for the bulk_memory workload.
-    config.wasm_bulk_memory(true);
-    // Legacy wasm-eh (phase-3) — Porffor lowers JS try/catch to the
-    // legacy `try`/`catch tag` opcodes. The wasmtime API for this is
-    // marked deprecated upstream ("internal usage with the spec
-    // testsuite") but it's the only way to make our Porffor-compiled
-    // graphql-validation workload load. The new (phase-4) `try_table`
-    // proposal isn't relevant: Porffor doesn't emit it.
-    #[allow(deprecated)]
-    config.wasm_legacy_exceptions(true);
-    // Note: `wasm_reference_types` is gated behind wasmtime's `gc` feature
-    // (which we don't enable). The plain wasm 1.0 `call_indirect` op our
-    // workload uses works fine without it.
-    let engine = into_anyhow(Engine::new(&config))
-        .context("Engine::new failed")?;
+    let engine = pulley_engine()?;
     let module = into_anyhow(Module::from_binary(&engine, wasm_bytes))
         .context("Module::from_binary failed — invalid wasm or unsupported feature?")?;
     let mut store = Store::new(&engine, ());
@@ -589,74 +922,60 @@ pub fn run_workload_iters(
     // fib, sieve, crc32, ...) the two warmups just pay an extra
     // sub-millisecond beat that doesn't show up against the
     // measurement window.
-    let mut result = into_anyhow(typed.call(&mut store, arg))
-        .with_context(|| format!("`{fn_name}({arg})` trapped (init warmup)"))?;
-    let warm_start = Instant::now();
-    result = into_anyhow(typed.call(&mut store, arg))
-        .with_context(|| format!("`{fn_name}({arg})` trapped (steady warmup)"))?;
-    let warm = warm_start.elapsed();
-    let n = if iters == 0 {
-        pick_iters(warm, Duration::from_millis(200))
-    } else {
-        iters
-    };
-
-    // Snapshot before measurement window.
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
-
-    // Measurement loop. Record every per-iteration wall-clock for percentiles.
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
-        let r = into_anyhow(typed.call(&mut store, arg))
-            .with_context(|| format!("`{fn_name}({arg})` trapped"))?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
-        result = r;
-    }
-
-    let cpu_after = taskinfo::thread_times();
-    let events_after = taskinfo::events_info();
-    let basic = taskinfo::basic_info();
-
-    samples.sort_unstable();
-    let run_min = Duration::from_nanos(samples[0]);
-    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
-    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
-    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
-
-    #[cfg(target_vendor = "apple")]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
-        match (cpu_before, cpu_after, events_before, events_after) {
-            (Some(b), Some(a), Some(eb), Some(ea)) => (
-                to(a.user_time).saturating_sub(to(b.user_time)),
-                to(a.system_time).saturating_sub(to(b.system_time)),
-                (ea.faults as u64).saturating_sub(eb.faults as u64),
-            ),
-            _ => (0, 0, 0),
-        }
-    };
-    #[cfg(not(target_vendor = "apple"))]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let _ = (cpu_before, cpu_after, events_before, events_after);
-        (0u64, 0u64, 0u64)
-    };
-
-    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
-
-    Ok(RunReport {
-        result,
-        iterations: n,
-        load_time,
-        run_min,
-        run_median,
-        run_p99,
-        cpu_user_ns,
-        cpu_system_ns,
-        rss_peak_bytes,
-        page_faults,
+    measure_calls(load_time, iters, || {
+        into_anyhow(typed.call(&mut store, arg))
+            .with_context(|| format!("`{fn_name}({arg})` trapped"))
     })
+}
+
+/// The Pulley engine every generic-shape case runs on.
+pub(crate) fn pulley_engine() -> Result<Engine> {
+    let pulley_target = if cfg!(target_pointer_width = "64") {
+        "pulley64"
+    } else {
+        "pulley32"
+    };
+    let mut config = wasmtime::Config::new();
+    into_anyhow(config.target(pulley_target).map(|_| ()))
+        .with_context(|| format!("Config::target({pulley_target}) failed"))?;
+    // simd128 + relaxed-simd both on (defaults, made explicit). Non-
+    // deterministic relaxed-simd lets Pulley use Vfma32x4/Vfma64x2.
+    config.wasm_simd(true);
+    config.wasm_relaxed_simd(true);
+    config.relaxed_simd_deterministic(false);
+    // Tail calls: defaults to true except with Winch (we don't use Winch).
+    // Made explicit so the `fib_tail` workload's `return_call` opcodes are
+    // accepted regardless of any future default change.
+    config.wasm_tail_call(true);
+    // Bulk memory is default-on; explicit for the bulk_memory workload.
+    config.wasm_bulk_memory(true);
+    // Legacy wasm-eh (phase-3) — Porffor lowers JS try/catch to the
+    // legacy `try`/`catch tag` opcodes. The wasmtime API for this is
+    // marked deprecated upstream ("internal usage with the spec
+    // testsuite") but it's the only way to make our Porffor-compiled
+    // graphql-validation workload load. The new (phase-4) `try_table`
+    // proposal isn't relevant: Porffor doesn't emit it.
+    #[allow(deprecated)]
+    config.wasm_legacy_exceptions(true);
+    // Wasm GC objects live in wasmtime's GC heap; the DRC collector is the
+    // one wasmtime ships as its default when compiled in. Explicit so the
+    // gc_trees workload never silently runs on the null (never-reclaiming)
+    // collector.
+    config.collector(wasmtime::Collector::DeferredReferenceCounting);
+    // Pulley never uses guard pages or signals-based traps (every bounds
+    // check is explicit), so wasmtime's 64-bit default of a 4 GiB
+    // reservation per linear memory and for the GC heap buys it nothing but
+    // address space. On iOS, two such reservations do not fit: a linear
+    // memory plus the GC heap that exnref exceptions live in, or
+    // multi-memory's three memories, fail with "mmap failed to reserve
+    // 0x100000000 bytes". 256 MiB each, on every platform so that the M4
+    // and the devices run one configuration; a memory that grows past it
+    // moves.
+    config.memory_reservation(256 << 20);
+    config.memory_reservation_for_growth(0);
+    config.gc_heap_reservation(256 << 20);
+    config.gc_heap_reservation_for_growth(0);
+    into_anyhow(Engine::new(&config)).context("Engine::new failed")
 }
 
 // -----------------------------------------------------------------------------
@@ -1054,6 +1373,9 @@ pub struct BenchReport {
     pub rss_peak_bytes: u64,
     pub page_faults: u64,
     pub error_msg: *mut std::os::raw::c_char,
+    pub p_cpu_ns: u64,
+    pub instructions: u64,
+    pub cycles: u64,
 }
 
 fn report_from(r: Result<RunReport>) -> BenchReport {
@@ -1071,6 +1393,9 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
             rss_peak_bytes: r.rss_peak_bytes,
             page_faults: r.page_faults,
             error_msg: std::ptr::null_mut(),
+            p_cpu_ns: r.p_cpu_ns,
+            instructions: r.instructions,
+            cycles: r.cycles,
         },
         Err(e) => {
             let msg = format!("{e:#}");
@@ -1090,6 +1415,9 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
                 rss_peak_bytes: 0,
                 page_faults: 0,
                 error_msg: cstring.into_raw(),
+                p_cpu_ns: 0,
+                instructions: 0,
+                cycles: 0,
             }
         }
     }
@@ -1128,6 +1456,17 @@ const EXPECTED_VTABLE_BI: i32 = -208336512;
 const EXPECTED_VTABLE_POLY4: i32 = -126115384;
 const EXPECTED_VTABLE_POLY6: i32 = 579248763;
 const EXPECTED_GRAPHQL_AS: i32 = 5;
+// Feature benchmarks at arg 7: cross-runtime consensus, and equal to the
+// independent Python re-computation in workloads-wat/reference.py.
+pub(crate) const EXPECTED_TAILCALL_FSM: i32 = -1841735369;
+pub(crate) const EXPECTED_EH_PARSER: i32 = 830008030;
+pub(crate) const EXPECTED_GC_TREES: i32 = -81253392;
+pub(crate) const EXPECTED_CALLREF_DISPATCH: i32 = -750120562;
+pub(crate) const EXPECTED_RELAXED_DOT: i32 = -551922832;
+pub(crate) const EXPECTED_RELAXED_MADD: i32 = -1435646925;
+pub(crate) const EXPECTED_MEM64_CHASE: i32 = 433527714;
+pub(crate) const EXPECTED_MULTIMEM_TRANSFORM: i32 = 902712413;
+pub(crate) const EXPECTED_EXTCONST_INIT: i32 = -1152068691;
 
 /// Variant of `report_from` that also asserts the runtime returned the
 /// cross-runtime-consensus reference. A wrong result is converted into a
@@ -1751,11 +2090,17 @@ pub extern "C" fn bench_run_factorial_wasmz(n: i32) -> BenchReport {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_sieve_wasmz(n: i32) -> BenchReport {
+    if let Some(reason) = cases::known_crash(Runtime::Wasmz, "sieve") {
+        return report_from(Err(anyhow::anyhow!("N/A — not run: {reason}")));
+    }
     report_from_checked(wasmz::run_workload_wasmz(SIEVE_WASM, "sieve", n), if n == 10000 { Some(EXPECTED_SIEVE_10K) } else { None })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_run_crc32_wasmz() -> BenchReport {
+    if let Some(reason) = cases::known_crash(Runtime::Wasmz, "crc32") {
+        return report_from(Err(anyhow::anyhow!("N/A — not run: {reason}")));
+    }
     report_from_checked(wasmz::run_workload_wasmz(CRC32_WASM, "crc32", 0xC0FFEE), Some(EXPECTED_CRC32_C0FFEE))
 }
 
@@ -1845,6 +2190,74 @@ pub extern "C" fn bench_run_graphql_validation_porf() -> BenchReport {
     report_from(graphql_validation::run_graphql_validation_porf(
         GRAPHQL_VALIDATION_PORF_WASM,
     ))
+}
+
+/// femtovg E2E (docs/femtovg-e2e-abi.md) on runtime `runtime` (the
+/// `bench_run_case` ids), scene `scene`, `frames` frames per pass and
+/// `passes` passes (the last one is reported), with the best guest build
+/// the runtime supports. Returns one JSON line (or `{"error":...}`) that
+/// the caller frees with `bench_free_cstring`.
+#[cfg(feature = "femtovg-e2e")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_femtovg_e2e(runtime: u32, scene: u32, frames: u32, passes: u32) -> *mut std::os::raw::c_char {
+    let line = match cases::RUNTIMES.get(runtime as usize) {
+        None => format!("{{\"error\":\"no runtime {runtime}\"}}"),
+        Some(&(rt, token, _)) => {
+            let variant = femtovg_e2e::Variant::best_for(rt);
+            let cfg = femtovg_e2e::E2eConfig { scene, frames, passes, ..Default::default() };
+            match femtovg_e2e::run_e2e(rt, variant, cfg, None) {
+                Ok(r) => r.to_json(),
+                Err(e) => format!(
+                    "{{\"runtime\":\"{token}\",\"variant\":\"{}\",\"scene\":{scene},\"error\":{:?}}}",
+                    variant.name(),
+                    format!("{e:#}")
+                ),
+            }
+        }
+    };
+    std::ffi::CString::new(line).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+/// Frees a string returned by `bench_femtovg_e2e`.
+#[cfg(feature = "femtovg-e2e")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bench_free_cstring(s: *mut std::os::raw::c_char) {
+    if !s.is_null() {
+        drop(unsafe { std::ffi::CString::from_raw(s) });
+    }
+}
+
+/// Generic C entry point over `cases::CASES`; see benchmark_core.h.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bench_run_case(
+    runtime: u32,
+    case_id: *const std::os::raw::c_char,
+) -> BenchReport {
+    let r = (|| -> Result<RunReport> {
+        let rt = cases::RUNTIMES
+            .iter()
+            .map(|r| r.0)
+            .find(|r| *r as u32 == runtime)
+            .ok_or_else(|| anyhow::anyhow!("unknown runtime id {runtime}"))?;
+        if case_id.is_null() {
+            anyhow::bail!("null case id");
+        }
+        let id = unsafe { std::ffi::CStr::from_ptr(case_id) }.to_string_lossy();
+        let case = cases::CASES
+            .iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| anyhow::anyhow!("unknown case id `{id}`"))?;
+        cases::run_case(rt, case)
+    })();
+    report_from(r)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_init_tinywasm() -> u8 {
+    match tinywasm::init() {
+        Ok(()) => 1,
+        Err(_) => 0,
+    }
 }
 
 #[unsafe(no_mangle)]

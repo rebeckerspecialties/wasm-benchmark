@@ -1,7 +1,7 @@
-From 72db3ca8a2ba2c7c93f373dd489e89125cdb86a5 Mon Sep 17 00:00:00 2001
+From 20241110873f909a2b58327689194373c872a01e Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 23:30:11 -0700
-Subject: [PATCH 08/15] fast-interp: tag-with-params loader bug-fix pass
+Subject: fast-interp: tag-with-params loader bug-fix pass
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -54,15 +54,17 @@ validates clean.
 No hot-op cost change: all the new loader work is in the cold
 CATCH / THROW preprocess paths, and the runtime walker copy
 loop is unchanged.
+
+(cherry picked from commit 96428c7fced5a31d31f8fc46de1d67440d855495)
 ---
  core/iwasm/interpreter/wasm_loader.c | 87 ++++++++++++++++++++++------
  1 file changed, 69 insertions(+), 18 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 53e0b6af..88885a27 100644
+index bc8cd71a..5f503eed 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12525,11 +12525,28 @@ re_scan:
+@@ -12533,11 +12533,28 @@ re_scan:
                  emit_uint32(loader_ctx, tag_index);
                  emit_uint32(loader_ctx, tag_type->param_cell_num);
                  {
@@ -96,7 +98,7 @@ index 53e0b6af..88885a27 100644
                      }
                  }
  #endif
-@@ -12858,11 +12875,28 @@ re_scan:
+@@ -12866,11 +12883,28 @@ re_scan:
                          j++;
                      }
  #endif
@@ -127,7 +129,7 @@ index 53e0b6af..88885a27 100644
                  }
  
  #if WASM_ENABLE_FAST_INTERP != 0
-@@ -12908,22 +12942,39 @@ re_scan:
+@@ -12916,22 +12950,39 @@ re_scan:
                          uint64 dst_size =
                              (uint64)sizeof(int16) * func_type->param_cell_num;
                          int16 *dst;
@@ -178,6 +180,3 @@ index 53e0b6af..88885a27 100644
                          new_catches[entry->catch_count].param_dst_offsets = dst;
                      }
                      entry->catches = new_catches;
--- 
-2.54.0
-

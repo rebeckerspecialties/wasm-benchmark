@@ -1,0 +1,26 @@
+# Standalone (not a workspace member), like xmrsplayer-bench. The femtovg
+# E2E guest: parses an SVG once, then per frame does all of femtovg's CPU
+# work and hands the vertex + command buffers to the host through the
+# `fvg` imports (docs/femtovg-e2e-abi.md). Built for wasm32-unknown-unknown
+# by scripts/build-femtovg-guest.sh; the rlib + `fvg_reference` bin build
+# natively for the reference hashes.
+[workspace]
+
+[package]
+name = "femtovg-guest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+femtovg = { path = "../../femtovg", default-features = false, features = ["wire"] }
+usvg = { version = "=0.48.1", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

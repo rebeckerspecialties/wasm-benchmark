@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use wasmtime::{Caller, Engine, Linker, Module, Store};
 
-use crate::{into_anyhow, taskinfo, RunReport};
+use crate::{into_anyhow, RunReport};
 
 /// Run the AssemblyScript graphql-validation wasm. Calls the
 /// `validate_once(0)` export and reports timing. Single-shot.
@@ -57,8 +57,7 @@ pub fn run_graphql_validation_as(wasm_bytes: &[u8]) -> Result<RunReport> {
     let warm = warm_start.elapsed();
     let n = crate::pick_iters(warm, Duration::from_millis(200));
 
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
+    let window = crate::Window::start();
 
     let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
     for _ in 0..n {
@@ -69,14 +68,7 @@ pub fn run_graphql_validation_as(wasm_bytes: &[u8]) -> Result<RunReport> {
         result = r;
     }
 
-    Ok(finalize_report(
-        result,
-        n,
-        load_time,
-        samples,
-        cpu_before,
-        events_before,
-    ))
+    Ok(window.finish(result, n, load_time, samples))
 }
 
 /// Run the Porffor graphql-validation wasm. Calls the `m()` export
@@ -102,50 +94,21 @@ pub fn run_graphql_validation_porf(wasm_bytes: &[u8]) -> Result<RunReport> {
         .context("graphql-validation-porf: link host print")?;
     let load_time = load_start.elapsed();
 
-    // Single full instantiation for warmup timing (sets the iteration
-    // count budget).
-    let warm_start = Instant::now();
-    {
-        let mut store = Store::new(&engine, ());
-        let instance = into_anyhow(linker.instantiate(&mut store, &module))
-            .context("graphql-validation-porf: instantiate (warmup) failed")?;
-        let m = into_anyhow(
-            instance.get_typed_func::<(), (f64, i32)>(&mut store, "m"),
-        )
-        .context("graphql-validation-porf: export `m` not found")?;
-        let _ = into_anyhow(m.call(&mut store, ()))
-            .context("graphql-validation-porf: m() trapped")?;
-    }
-    let warm = warm_start.elapsed();
-    let n = crate::pick_iters(warm, Duration::from_millis(200));
-
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
-
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
+    // Timed unit: fresh Store + instantiate + m(); the Store is dropped
+    // (memory released) after the clock stops, as on every runtime.
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
         let mut store = Store::new(&engine, ());
         let instance = into_anyhow(linker.instantiate(&mut store, &module))
             .context("graphql-validation-porf: instantiate failed")?;
-        let m = into_anyhow(
-            instance.get_typed_func::<(), (f64, i32)>(&mut store, "m"),
-        )
-        .context("graphql-validation-porf: export `m` not found")?;
-        let _ = into_anyhow(m.call(&mut store, ()))
+        let m = into_anyhow(instance.get_typed_func::<(), (f64, i32)>(&mut store, "m"))
+            .context("graphql-validation-porf: export `m` not found")?;
+        let (_, r) = into_anyhow(m.call(&mut store, ()))
             .context("graphql-validation-porf: m() trapped")?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
-        // Store dropped here; memory released.
-    }
-
-    Ok(finalize_report(
-        0,
-        n,
-        load_time,
-        samples,
-        cpu_before,
-        events_before,
-    ))
+        let elapsed = t.elapsed();
+        drop(store);
+        Ok((elapsed, r))
+    })
 }
 
 fn make_engine() -> Result<Engine> {
@@ -180,56 +143,4 @@ fn make_engine() -> Result<Engine> {
     config.memory_reservation(64 * 1024 * 1024);
     config.memory_reservation_for_growth(0);
     into_anyhow(Engine::new(&config)).context("Engine::new failed")
-}
-
-fn finalize_report(
-    result: i32,
-    n: u32,
-    load_time: Duration,
-    mut samples: Vec<u64>,
-    cpu_before: Option<taskinfo::ThreadTimes>,
-    events_before: Option<taskinfo::TaskEventsInfo>,
-) -> RunReport {
-    let cpu_after = taskinfo::thread_times();
-    let events_after = taskinfo::events_info();
-    let basic = taskinfo::basic_info();
-
-    samples.sort_unstable();
-    let run_min = Duration::from_nanos(samples[0]);
-    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
-    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
-    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
-
-    #[cfg(target_vendor = "apple")]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
-        match (cpu_before, cpu_after, events_before, events_after) {
-            (Some(b), Some(a), Some(eb), Some(ea)) => (
-                to(a.user_time).saturating_sub(to(b.user_time)),
-                to(a.system_time).saturating_sub(to(b.system_time)),
-                (ea.faults as u64).saturating_sub(eb.faults as u64),
-            ),
-            _ => (0, 0, 0),
-        }
-    };
-    #[cfg(not(target_vendor = "apple"))]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let _ = (cpu_before, cpu_after, events_before, events_after);
-        (0u64, 0u64, 0u64)
-    };
-
-    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
-
-    RunReport {
-        result,
-        iterations: n,
-        load_time,
-        run_min,
-        run_median,
-        run_p99,
-        cpu_user_ns,
-        cpu_system_ns,
-        rss_peak_bytes,
-        page_faults,
-    }
 }

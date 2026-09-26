@@ -71,3 +71,9 @@ Launch_*
 /wasmz/build*/
 /wasmz/zig-out/
 /wasmz/.zig-cache/
+
+# --- Generated sources ---
+# workloads-wat/gen.py writes the feature benchmarks' .wat next to itself;
+# scripts/build-workloads.sh assembles them into the committed workloads/*.wasm.
+/workloads-wat/*.wat
+__pycache__/

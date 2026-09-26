@@ -7,6 +7,9 @@
 // xcodebuild console), and renders a list summary on screen.
 
 import SwiftUI
+#if os(iOS) || os(tvOS)
+import UIKit
+#endif
 
 /// Static catalog of workloads exposed by benchmark-core's C ABI.
 /// Each entry is `(human label, FFI runner, default input)`.
@@ -182,6 +185,185 @@ let WORKLOADS: [Workload] = [
     Workload(id: 106, label: "[wasmz ] vtable_bi (200K)",               run: { bench_run_vtable_bi_wasmz() }),
     Workload(id: 107, label: "[wasmz ] vtable_poly4 (200K)",            run: { bench_run_vtable_poly4_wasmz() }),
     Workload(id: 108, label: "[wasmz ] vtable_poly6 (200K)",            run: { bench_run_vtable_poly6_wasmz() }),
+    // tinywasm (explodingcamera/tinywasm, pure Rust, no JIT/AOT tier) —
+    // every workload, through the generic `bench_run_case` entry point
+    // (runtime id 6). sqlite3 reports N/A: the harness only has a WASI
+    // import shim for Pulley.
+    Workload(id: 109, label: "[tinywm] fib(30)", run: { bench_run_case(6, "fib") }),
+    Workload(id: 110, label: "[tinywm] fib_tail(100000) [return_call]", run: { bench_run_case(6, "fib_tail") }),
+    Workload(id: 111, label: "[tinywm] factorial(20)", run: { bench_run_case(6, "factorial") }),
+    Workload(id: 112, label: "[tinywm] sieve(10000)", run: { bench_run_case(6, "sieve") }),
+    Workload(id: 113, label: "[tinywm] crc32(64KB)", run: { bench_run_case(6, "crc32") }),
+    Workload(id: 114, label: "[tinywm] matmul simd128 (64×64 f32)", run: { bench_run_case(6, "matmul_simd") }),
+    Workload(id: 115, label: "[tinywm] matmul relaxed-simd FMA", run: { bench_run_case(6, "matmul_fma") }),
+    Workload(id: 116, label: "[tinywm] convolution 256×256", run: { bench_run_case(6, "convolution") }),
+    Workload(id: 117, label: "[tinywm] audio DSP (1000 frames × 512)", run: { bench_run_case(6, "audio_dsp") }),
+    Workload(id: 118, label: "[tinywm] bulk_memory (memory.copy/fill)", run: { bench_run_case(6, "bulk_memory") }),
+    Workload(id: 119, label: "[tinywm] call_indirect (200K dispatches)", run: { bench_run_case(6, "call_indirect") }),
+    Workload(id: 120, label: "[tinywm] xmrsplayer (1024-frame buffer)", run: { bench_run_case(6, "xmrsplayer") }),
+    Workload(id: 121, label: "[tinywm] vtable_mono (200K)", run: { bench_run_case(6, "vtable_mono") }),
+    Workload(id: 122, label: "[tinywm] vtable_bi (200K)", run: { bench_run_case(6, "vtable_bi") }),
+    Workload(id: 123, label: "[tinywm] vtable_poly4 (200K)", run: { bench_run_case(6, "vtable_poly4") }),
+    Workload(id: 124, label: "[tinywm] vtable_poly6 (200K)", run: { bench_run_case(6, "vtable_poly6") }),
+    Workload(id: 125, label: "[tinywm] graphql-validation (AS)", run: { bench_run_case(6, "graphql_as") }),
+    Workload(id: 126, label: "[tinywm] graphql-validation (Porffor)", run: { bench_run_case(6, "graphql_porf") }),
+    Workload(id: 127, label: "[tinywm] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(6, "sqlite3") }),
+    Workload(id: 128, label: "[tinywm] factorial(20) [scalar build]", run: { bench_run_case(6, "factorial.scalar") }),
+    Workload(id: 129, label: "[tinywm] sieve(10000) [scalar build]", run: { bench_run_case(6, "sieve.scalar") }),
+    Workload(id: 130, label: "[tinywm] crc32(64KB) [scalar build]", run: { bench_run_case(6, "crc32.scalar") }),
+    Workload(id: 131, label: "[tinywm] convolution 256×256 [scalar build]", run: { bench_run_case(6, "convolution.scalar") }),
+    Workload(id: 132, label: "[tinywm] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(6, "bulk_memory.scalar") }),
+    // Scalar (-simd128) builds of the workloads whose canonical build only
+    // has auto-vectorized SIMD — the apples-to-apples interpreter
+    // comparison for runtimes without an interpreter SIMD-128 path
+    // (wasm3, zwasm). See scripts/build-workloads.sh.
+    Workload(id: 133, label: "[Pulley] factorial(20) [scalar build]", run: { bench_run_case(0, "factorial.scalar") }),
+    Workload(id: 134, label: "[Pulley] sieve(10000) [scalar build]", run: { bench_run_case(0, "sieve.scalar") }),
+    Workload(id: 135, label: "[Pulley] crc32(64KB) [scalar build]", run: { bench_run_case(0, "crc32.scalar") }),
+    Workload(id: 136, label: "[Pulley] convolution 256×256 [scalar build]", run: { bench_run_case(0, "convolution.scalar") }),
+    Workload(id: 137, label: "[Pulley] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(0, "bulk_memory.scalar") }),
+    Workload(id: 138, label: "[ WAMR ] factorial(20) [scalar build]", run: { bench_run_case(1, "factorial.scalar") }),
+    Workload(id: 139, label: "[ WAMR ] sieve(10000) [scalar build]", run: { bench_run_case(1, "sieve.scalar") }),
+    Workload(id: 140, label: "[ WAMR ] crc32(64KB) [scalar build]", run: { bench_run_case(1, "crc32.scalar") }),
+    Workload(id: 141, label: "[ WAMR ] convolution 256×256 [scalar build]", run: { bench_run_case(1, "convolution.scalar") }),
+    Workload(id: 142, label: "[ WAMR ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(1, "bulk_memory.scalar") }),
+    Workload(id: 143, label: "[wasm3 ] factorial(20) [scalar build]", run: { bench_run_case(2, "factorial.scalar") }),
+    Workload(id: 144, label: "[wasm3 ] sieve(10000) [scalar build]", run: { bench_run_case(2, "sieve.scalar") }),
+    Workload(id: 145, label: "[wasm3 ] crc32(64KB) [scalar build]", run: { bench_run_case(2, "crc32.scalar") }),
+    Workload(id: 146, label: "[wasm3 ] convolution 256×256 [scalar build]", run: { bench_run_case(2, "convolution.scalar") }),
+    Workload(id: 147, label: "[wasm3 ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(2, "bulk_memory.scalar") }),
+    Workload(id: 148, label: "[WE    ] factorial(20) [scalar build]", run: { bench_run_case(3, "factorial.scalar") }),
+    Workload(id: 149, label: "[WE    ] sieve(10000) [scalar build]", run: { bench_run_case(3, "sieve.scalar") }),
+    Workload(id: 150, label: "[WE    ] crc32(64KB) [scalar build]", run: { bench_run_case(3, "crc32.scalar") }),
+    Workload(id: 151, label: "[WE    ] convolution 256×256 [scalar build]", run: { bench_run_case(3, "convolution.scalar") }),
+    Workload(id: 152, label: "[WE    ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(3, "bulk_memory.scalar") }),
+    Workload(id: 153, label: "[zwasm ] factorial(20) [scalar build]", run: { bench_run_case(4, "factorial.scalar") }),
+    Workload(id: 154, label: "[zwasm ] sieve(10000) [scalar build]", run: { bench_run_case(4, "sieve.scalar") }),
+    Workload(id: 155, label: "[zwasm ] crc32(64KB) [scalar build]", run: { bench_run_case(4, "crc32.scalar") }),
+    Workload(id: 156, label: "[zwasm ] convolution 256×256 [scalar build]", run: { bench_run_case(4, "convolution.scalar") }),
+    Workload(id: 157, label: "[zwasm ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(4, "bulk_memory.scalar") }),
+    Workload(id: 158, label: "[wasmz ] factorial(20) [scalar build]", run: { bench_run_case(5, "factorial.scalar") }),
+    Workload(id: 159, label: "[wasmz ] sieve(10000) [scalar build]", run: { bench_run_case(5, "sieve.scalar") }),
+    Workload(id: 160, label: "[wasmz ] crc32(64KB) [scalar build]", run: { bench_run_case(5, "crc32.scalar") }),
+    Workload(id: 161, label: "[wasmz ] convolution 256×256 [scalar build]", run: { bench_run_case(5, "convolution.scalar") }),
+    Workload(id: 162, label: "[wasmz ] bulk_memory (memory.copy/fill) [scalar build]", run: { bench_run_case(5, "bulk_memory.scalar") }),
+    // Wasm 3.0 feature benchmarks (cases.rs; one row per runtime, run
+    // through `bench_run_case`). Runtimes without the feature report the
+    // load / validation error as the row's error text; `.<twin>` rows
+    // are the same program without the feature.
+    Workload(id: 163, label: "[Pulley] tail-call FSM (65536 return_call)", run: { bench_run_case(0, "tailcall_fsm") }),
+    Workload(id: 164, label: "[ WAMR ] tail-call FSM (65536 return_call)", run: { bench_run_case(1, "tailcall_fsm") }),
+    Workload(id: 165, label: "[wasm3 ] tail-call FSM (65536 return_call)", run: { bench_run_case(2, "tailcall_fsm") }),
+    Workload(id: 166, label: "[WE    ] tail-call FSM (65536 return_call)", run: { bench_run_case(3, "tailcall_fsm") }),
+    Workload(id: 167, label: "[zwasm ] tail-call FSM (65536 return_call)", run: { bench_run_case(4, "tailcall_fsm") }),
+    Workload(id: 168, label: "[wasmz ] tail-call FSM (65536 return_call)", run: { bench_run_case(5, "tailcall_fsm") }),
+    Workload(id: 169, label: "[tinywm] tail-call FSM (65536 return_call)", run: { bench_run_case(6, "tailcall_fsm") }),
+    Workload(id: 170, label: "[Pulley] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(0, "eh_parser_exnref") }),
+    Workload(id: 171, label: "[ WAMR ] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(1, "eh_parser_exnref") }),
+    Workload(id: 172, label: "[wasm3 ] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(2, "eh_parser_exnref") }),
+    Workload(id: 173, label: "[WE    ] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(3, "eh_parser_exnref") }),
+    Workload(id: 174, label: "[zwasm ] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(4, "eh_parser_exnref") }),
+    Workload(id: 175, label: "[wasmz ] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(5, "eh_parser_exnref") }),
+    Workload(id: 176, label: "[tinywm] EH parser, exnref (4096 stmts, 25% throw)", run: { bench_run_case(6, "eh_parser_exnref") }),
+    Workload(id: 177, label: "[Pulley] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(0, "eh_parser_legacy") }),
+    Workload(id: 178, label: "[ WAMR ] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(1, "eh_parser_legacy") }),
+    Workload(id: 179, label: "[wasm3 ] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(2, "eh_parser_legacy") }),
+    Workload(id: 180, label: "[WE    ] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(3, "eh_parser_legacy") }),
+    Workload(id: 181, label: "[zwasm ] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(4, "eh_parser_legacy") }),
+    Workload(id: 182, label: "[wasmz ] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(5, "eh_parser_legacy") }),
+    Workload(id: 183, label: "[tinywm] EH parser, legacy try/catch (4096 stmts)", run: { bench_run_case(6, "eh_parser_legacy") }),
+    Workload(id: 184, label: "[Pulley] GC binary trees (~130K struct.new)", run: { bench_run_case(0, "gc_trees") }),
+    Workload(id: 185, label: "[ WAMR ] GC binary trees (~130K struct.new)", run: { bench_run_case(1, "gc_trees") }),
+    Workload(id: 186, label: "[wasm3 ] GC binary trees (~130K struct.new)", run: { bench_run_case(2, "gc_trees") }),
+    Workload(id: 187, label: "[WE    ] GC binary trees (~130K struct.new)", run: { bench_run_case(3, "gc_trees") }),
+    Workload(id: 188, label: "[zwasm ] GC binary trees (~130K struct.new)", run: { bench_run_case(4, "gc_trees") }),
+    Workload(id: 189, label: "[wasmz ] GC binary trees (~130K struct.new)", run: { bench_run_case(5, "gc_trees") }),
+    Workload(id: 190, label: "[tinywm] GC binary trees (~130K struct.new)", run: { bench_run_case(6, "gc_trees") }),
+    Workload(id: 191, label: "[Pulley] call_ref dispatch (200K, typed table)", run: { bench_run_case(0, "callref_dispatch") }),
+    Workload(id: 192, label: "[ WAMR ] call_ref dispatch (200K, typed table)", run: { bench_run_case(1, "callref_dispatch") }),
+    Workload(id: 193, label: "[wasm3 ] call_ref dispatch (200K, typed table)", run: { bench_run_case(2, "callref_dispatch") }),
+    Workload(id: 194, label: "[WE    ] call_ref dispatch (200K, typed table)", run: { bench_run_case(3, "callref_dispatch") }),
+    Workload(id: 195, label: "[zwasm ] call_ref dispatch (200K, typed table)", run: { bench_run_case(4, "callref_dispatch") }),
+    Workload(id: 196, label: "[wasmz ] call_ref dispatch (200K, typed table)", run: { bench_run_case(5, "callref_dispatch") }),
+    Workload(id: 197, label: "[tinywm] call_ref dispatch (200K, typed table)", run: { bench_run_case(6, "callref_dispatch") }),
+    Workload(id: 198, label: "[Pulley] call_ref twin: call_indirect (200K)", run: { bench_run_case(0, "callref_dispatch.indirect") }),
+    Workload(id: 199, label: "[ WAMR ] call_ref twin: call_indirect (200K)", run: { bench_run_case(1, "callref_dispatch.indirect") }),
+    Workload(id: 200, label: "[wasm3 ] call_ref twin: call_indirect (200K)", run: { bench_run_case(2, "callref_dispatch.indirect") }),
+    Workload(id: 201, label: "[WE    ] call_ref twin: call_indirect (200K)", run: { bench_run_case(3, "callref_dispatch.indirect") }),
+    Workload(id: 202, label: "[zwasm ] call_ref twin: call_indirect (200K)", run: { bench_run_case(4, "callref_dispatch.indirect") }),
+    Workload(id: 203, label: "[wasmz ] call_ref twin: call_indirect (200K)", run: { bench_run_case(5, "callref_dispatch.indirect") }),
+    Workload(id: 204, label: "[tinywm] call_ref twin: call_indirect (200K)", run: { bench_run_case(6, "callref_dispatch.indirect") }),
+    Workload(id: 205, label: "[Pulley] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(0, "relaxed_dot") }),
+    Workload(id: 206, label: "[ WAMR ] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(1, "relaxed_dot") }),
+    Workload(id: 207, label: "[wasm3 ] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(2, "relaxed_dot") }),
+    Workload(id: 208, label: "[WE    ] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(3, "relaxed_dot") }),
+    Workload(id: 209, label: "[zwasm ] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(4, "relaxed_dot") }),
+    Workload(id: 210, label: "[wasmz ] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(5, "relaxed_dot") }),
+    Workload(id: 211, label: "[tinywm] relaxed-SIMD int8 dot (64×64×256)", run: { bench_run_case(6, "relaxed_dot") }),
+    Workload(id: 212, label: "[Pulley] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(0, "relaxed_madd") }),
+    Workload(id: 213, label: "[ WAMR ] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(1, "relaxed_madd") }),
+    Workload(id: 214, label: "[wasm3 ] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(2, "relaxed_madd") }),
+    Workload(id: 215, label: "[WE    ] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(3, "relaxed_madd") }),
+    Workload(id: 216, label: "[zwasm ] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(4, "relaxed_madd") }),
+    Workload(id: 217, label: "[wasmz ] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(5, "relaxed_madd") }),
+    Workload(id: 218, label: "[tinywm] relaxed-SIMD FMA Horner (16K pts)", run: { bench_run_case(6, "relaxed_madd") }),
+    Workload(id: 219, label: "[Pulley] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(0, "mem64_chase") }),
+    Workload(id: 220, label: "[ WAMR ] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(1, "mem64_chase") }),
+    Workload(id: 221, label: "[wasm3 ] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(2, "mem64_chase") }),
+    Workload(id: 222, label: "[WE    ] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(3, "mem64_chase") }),
+    Workload(id: 223, label: "[zwasm ] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(4, "mem64_chase") }),
+    Workload(id: 224, label: "[wasmz ] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(5, "mem64_chase") }),
+    Workload(id: 225, label: "[tinywm] memory64 pointer chase (64 MiB, 256K hops)", run: { bench_run_case(6, "mem64_chase") }),
+    Workload(id: 226, label: "[Pulley] memory64 twin: 32-bit memory", run: { bench_run_case(0, "mem64_chase.mem32") }),
+    Workload(id: 227, label: "[ WAMR ] memory64 twin: 32-bit memory", run: { bench_run_case(1, "mem64_chase.mem32") }),
+    Workload(id: 228, label: "[wasm3 ] memory64 twin: 32-bit memory", run: { bench_run_case(2, "mem64_chase.mem32") }),
+    Workload(id: 229, label: "[WE    ] memory64 twin: 32-bit memory", run: { bench_run_case(3, "mem64_chase.mem32") }),
+    Workload(id: 230, label: "[zwasm ] memory64 twin: 32-bit memory", run: { bench_run_case(4, "mem64_chase.mem32") }),
+    Workload(id: 231, label: "[wasmz ] memory64 twin: 32-bit memory", run: { bench_run_case(5, "mem64_chase.mem32") }),
+    Workload(id: 232, label: "[tinywm] memory64 twin: 32-bit memory", run: { bench_run_case(6, "mem64_chase.mem32") }),
+    Workload(id: 233, label: "[Pulley] multi-memory transform (3 memories)", run: { bench_run_case(0, "multimem_transform") }),
+    Workload(id: 234, label: "[ WAMR ] multi-memory transform (3 memories)", run: { bench_run_case(1, "multimem_transform") }),
+    Workload(id: 235, label: "[wasm3 ] multi-memory transform (3 memories)", run: { bench_run_case(2, "multimem_transform") }),
+    Workload(id: 236, label: "[WE    ] multi-memory transform (3 memories)", run: { bench_run_case(3, "multimem_transform") }),
+    Workload(id: 237, label: "[zwasm ] multi-memory transform (3 memories)", run: { bench_run_case(4, "multimem_transform") }),
+    Workload(id: 238, label: "[wasmz ] multi-memory transform (3 memories)", run: { bench_run_case(5, "multimem_transform") }),
+    Workload(id: 239, label: "[tinywm] multi-memory transform (3 memories)", run: { bench_run_case(6, "multimem_transform") }),
+    Workload(id: 240, label: "[Pulley] multi-memory twin: one memory", run: { bench_run_case(0, "multimem_transform.single") }),
+    Workload(id: 241, label: "[ WAMR ] multi-memory twin: one memory", run: { bench_run_case(1, "multimem_transform.single") }),
+    Workload(id: 242, label: "[wasm3 ] multi-memory twin: one memory", run: { bench_run_case(2, "multimem_transform.single") }),
+    Workload(id: 243, label: "[WE    ] multi-memory twin: one memory", run: { bench_run_case(3, "multimem_transform.single") }),
+    Workload(id: 244, label: "[zwasm ] multi-memory twin: one memory", run: { bench_run_case(4, "multimem_transform.single") }),
+    Workload(id: 245, label: "[wasmz ] multi-memory twin: one memory", run: { bench_run_case(5, "multimem_transform.single") }),
+    Workload(id: 246, label: "[tinywm] multi-memory twin: one memory", run: { bench_run_case(6, "multimem_transform.single") }),
+    Workload(id: 247, label: "[Pulley] extended-const instantiate (2560 globals)", run: { bench_run_case(0, "extconst_init") }),
+    Workload(id: 248, label: "[ WAMR ] extended-const instantiate (2560 globals)", run: { bench_run_case(1, "extconst_init") }),
+    Workload(id: 249, label: "[wasm3 ] extended-const instantiate (2560 globals)", run: { bench_run_case(2, "extconst_init") }),
+    Workload(id: 250, label: "[WE    ] extended-const instantiate (2560 globals)", run: { bench_run_case(3, "extconst_init") }),
+    Workload(id: 251, label: "[zwasm ] extended-const instantiate (2560 globals)", run: { bench_run_case(4, "extconst_init") }),
+    Workload(id: 252, label: "[wasmz ] extended-const instantiate (2560 globals)", run: { bench_run_case(5, "extconst_init") }),
+    Workload(id: 253, label: "[tinywm] extended-const instantiate (2560 globals)", run: { bench_run_case(6, "extconst_init") }),
+    Workload(id: 254, label: "[Pulley] extended-const twin: MVP consts", run: { bench_run_case(0, "extconst_init.mvp") }),
+    Workload(id: 255, label: "[ WAMR ] extended-const twin: MVP consts", run: { bench_run_case(1, "extconst_init.mvp") }),
+    Workload(id: 256, label: "[wasm3 ] extended-const twin: MVP consts", run: { bench_run_case(2, "extconst_init.mvp") }),
+    Workload(id: 257, label: "[WE    ] extended-const twin: MVP consts", run: { bench_run_case(3, "extconst_init.mvp") }),
+    Workload(id: 258, label: "[zwasm ] extended-const twin: MVP consts", run: { bench_run_case(4, "extconst_init.mvp") }),
+    Workload(id: 259, label: "[wasmz ] extended-const twin: MVP consts", run: { bench_run_case(5, "extconst_init.mvp") }),
+    Workload(id: 260, label: "[tinywm] extended-const twin: MVP consts", run: { bench_run_case(6, "extconst_init.mvp") }),
+    // sqlite3 on the runtimes without a WASI preview-1 + bench.* import shim:
+    // the row reports N/A with that reason instead of being absent.
+    Workload(id: 261, label: "[ WAMR ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(1, "sqlite3") }),
+    Workload(id: 262, label: "[wasm3 ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(2, "sqlite3") }),
+    Workload(id: 263, label: "[WE    ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(3, "sqlite3") }),
+    Workload(id: 264, label: "[zwasm ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(4, "sqlite3") }),
+    Workload(id: 265, label: "[wasmz ] sqlite3 speedtest1 (in-mem)", run: { bench_run_case(5, "sqlite3") }),
+    // graphql-validation (Porffor) with graphql-js's real try/catch.
+    Workload(id: 266, label: "[Pulley] graphql-validation (Porffor try/catch)", run: { bench_run_case(0, "graphql_porf_trycatch") }),
+    Workload(id: 267, label: "[ WAMR ] graphql-validation (Porffor try/catch)", run: { bench_run_case(1, "graphql_porf_trycatch") }),
+    Workload(id: 268, label: "[wasm3 ] graphql-validation (Porffor try/catch)", run: { bench_run_case(2, "graphql_porf_trycatch") }),
+    Workload(id: 269, label: "[WE    ] graphql-validation (Porffor try/catch)", run: { bench_run_case(3, "graphql_porf_trycatch") }),
+    Workload(id: 270, label: "[zwasm ] graphql-validation (Porffor try/catch)", run: { bench_run_case(4, "graphql_porf_trycatch") }),
+    Workload(id: 271, label: "[wasmz ] graphql-validation (Porffor try/catch)", run: { bench_run_case(5, "graphql_porf_trycatch") }),
+    Workload(id: 272, label: "[tinywm] graphql-validation (Porffor try/catch)", run: { bench_run_case(6, "graphql_porf_trycatch") }),
 ]
 
 struct WorkloadResult: Identifiable {
@@ -199,7 +381,7 @@ struct BenchmarkContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz")
+                Text("Pulley vs WAMR vs wasm3 vs WasmEdge vs zwasm vs wasmz vs tinywasm")
                     .font(.title3.bold())
                 // Status line — when the run is in progress, shows
                 // "running <workload>". When the run completes,
@@ -269,6 +451,10 @@ struct BenchmarkContentView: View {
         guard !running else { return }
         running = true
         results = []
+        // Keep the screen on for the whole run. A devicectl launch into an awake
+        // device does not reset the idle timer, so auto-lock can fire mid-run and
+        // iOS then suspends the app: the launch sits on one row until it times out.
+        setIdleTimerDisabled(true)
         // WAMR's stack-guard setup must run on the main thread before
         // any worker thread tries to load a wasm module. The actual
         // runtime call into wasm_runtime_init() returns 0 if the build
@@ -292,6 +478,8 @@ struct BenchmarkContentView: View {
         // before scripts/build-wasmz.sh has run for this target).
         let wasmzOk = bench_init_wasmz() == 1
         FileHandle.standardError.write(Data("wasmz init: \(wasmzOk ? "ok" : "unavailable")\n".utf8))
+        let tinywasmOk = bench_init_tinywasm() == 1
+        FileHandle.standardError.write(Data("tinywasm init: \(tinywasmOk ? "ok" : "unavailable")\n".utf8))
         // One-shot PAC viability probe. Useful as a planning input for
         // the future PAC-signed IC slot scheme; not a benchmark.
         let pac = bench_pac_probe()
@@ -303,7 +491,8 @@ struct BenchmarkContentView: View {
         // Optional `WORKLOADS` env-var filter (comma-separated, case-
         // insensitive substring match against the workload label).
         // Optional `RUNTIMES` env-var filter (comma-separated; valid
-        // values are `pulley`, `wamr`, `wasm3`) to keep only the
+        // values are `pulley`, `wamr`, `wasm3`, `wasmedge`, `zwasm`,
+        // `wasmz`, `tinywasm`) to keep only the
         // matching runtime — useful for PMU traces where you want to
         // isolate signal from one runtime without the others'
         // identical-across-builds dispatch overhead diluting the trace
@@ -332,9 +521,15 @@ struct BenchmarkContentView: View {
             let WATCHOS_RUNTIMES_FILTER = ""
             let env = WATCHOS_WORKLOADS_FILTER
             let runtimesEnv = WATCHOS_RUNTIMES_FILTER
+            let excludeEnv = ""
             #else
             let env = ProcessInfo.processInfo.environment["WORKLOADS"] ?? ""
             let runtimesEnv = ProcessInfo.processInfo.environment["RUNTIMES"] ?? ""
+            // Label substrings to leave out (comma-separated). The device
+            // pass runs a runtime's memory-heavy rows in launches of their
+            // own with this, so one row's footprint cannot get the whole
+            // launch killed by jetsam.
+            let excludeEnv = ProcessInfo.processInfo.environment["WORKLOADS_EXCLUDE"] ?? ""
             #endif
             let trimmedW = env.trimmingCharacters(in: .whitespaces)
             let trimmedR = runtimesEnv.trimmingCharacters(in: .whitespaces)
@@ -343,6 +538,10 @@ struct BenchmarkContentView: View {
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
             let runtimes = trimmedR
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                .filter { !$0.isEmpty }
+            let excludes = excludeEnv
                 .split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
@@ -355,8 +554,9 @@ struct BenchmarkContentView: View {
             }
             return WORKLOADS.filter { w in
                 let lc = w.label.lowercased()
-                let workloadOk = needles.isEmpty
-                    || needles.contains(where: { lc.contains($0) })
+                let workloadOk = (needles.isEmpty
+                    || needles.contains(where: { lc.contains($0) }))
+                    && !excludes.contains(where: { lc.contains($0) })
                 let runtimeOk = runtimes.isEmpty
                     || runtimes.contains(where: { rt in
                         // Labels look like `[Pulley] call_indirect ...`
@@ -376,6 +576,8 @@ struct BenchmarkContentView: View {
                             return lc.contains("[zwasm ]")
                         case "wasmz":
                             return lc.contains("[wasmz ]")
+                        case "tinywasm", "tinywm":
+                            return lc.contains("[tinywm]")
                         default:
                             return false
                         }
@@ -403,6 +605,20 @@ struct BenchmarkContentView: View {
             chosenQoS = .utility
         }
         DispatchQueue.global(qos: chosenQoS).async {
+            #if os(iOS) || os(macOS)
+            // FEMTOVG_E2E=0,1 runs the femtovg E2E (scenes 0 and/or 1) on the
+            // runtimes in RUNTIMES instead of the workload list; one runtime
+            // per launch keeps each runtime's peak footprint separate.
+            if let scenes = ProcessInfo.processInfo.environment["FEMTOVG_E2E"], !scenes.isEmpty {
+                runFemtovgE2E(scenes: scenes)
+                DispatchQueue.main.async {
+                    running = false
+                    currentLabel = ""
+                    setIdleTimerDisabled(false)
+                }
+                return
+            }
+            #endif
             for w in workloads {
                 DispatchQueue.main.async { currentLabel = w.label }
                 var report = w.run()
@@ -419,6 +635,7 @@ struct BenchmarkContentView: View {
             DispatchQueue.main.async {
                 running = false
                 currentLabel = ""
+                setIdleTimerDisabled(false)
                 // Also emit the winner string to stderr so headless
                 // launches via devicectl --console see the verdict
                 // even when we can't take a screenshot of the
@@ -426,11 +643,51 @@ struct BenchmarkContentView: View {
                 FileHandle.standardError.write(
                     Data((winnerSummary(results) + "\n").utf8)
                 )
+                // Launchers (scripts/run-device-pass.sh) wait for this line
+                // and then terminate the app, which does not exit by itself.
+                FileHandle.standardError.write(Data("BENCH_DONE\n".utf8))
             }
         }
     }
 
+    private func setIdleTimerDisabled(_ disabled: Bool) {
+        #if os(iOS) || os(tvOS)
+        UIApplication.shared.isIdleTimerDisabled = disabled
+        #endif
+    }
+
 }
+
+#if os(iOS) || os(macOS)
+/// femtovg E2E (docs/femtovg-e2e-abi.md) for every scene in `scenes` on each
+/// runtime named in RUNTIMES (all seven if unset). Frames and passes come
+/// from FEMTOVG_FRAMES / FEMTOVG_PASSES (default 121 / 2). Each result is
+/// one `FEMTOVG_E2E {json}` line on stderr.
+fileprivate func runFemtovgE2E(scenes: String) {
+    let env = ProcessInfo.processInfo.environment
+    let frames = UInt32(env["FEMTOVG_FRAMES"] ?? "") ?? 121
+    let passes = UInt32(env["FEMTOVG_PASSES"] ?? "") ?? 2
+    let ids: [String: UInt32] = [
+        "pulley": 0, "wamr": 1, "wasm3": 2, "m3": 2, "wasmedge": 3, "we": 3,
+        "zwasm": 4, "wasmz": 5, "tinywasm": 6, "tinywm": 6,
+    ]
+    let requested = (env["RUNTIMES"] ?? "")
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        .filter { !$0.isEmpty }
+    let runtimes: [UInt32] = requested.isEmpty ? Array(0...6) : requested.compactMap { ids[$0] }
+    let sceneIds = scenes.split(separator: ",").compactMap { UInt32($0.trimmingCharacters(in: .whitespaces)) }
+    for rt in runtimes {
+        for scene in sceneIds {
+            guard let cstr = bench_femtovg_e2e(rt, scene, frames, passes) else { continue }
+            let line = String(cString: cstr)
+            bench_free_cstring(cstr)
+            FileHandle.standardError.write(Data(("FEMTOVG_E2E " + line + "\n").utf8))
+        }
+    }
+    FileHandle.standardError.write(Data("FEMTOVG_E2E done\n".utf8))
+}
+#endif
 
 // Free function (no `self`) — safe to call from a background queue under
 // Swift 6 strict concurrency. Frees and nils `error_msg` so the report
@@ -454,11 +711,18 @@ fileprivate func formatReport(_ report: inout BenchReport) -> String {
         let userMs = Double(report.cpu_user_ns) / 1_000_000.0
         let sysMs = Double(report.cpu_system_ns) / 1_000_000.0
         let rssKB = Double(report.rss_peak_bytes) / 1024.0
+        // Measured, not assumed: share of the timed window's CPU time that
+        // ran on E-cores (rusage P-core accounting), and IPC from the
+        // always-on fixed counters.
+        let cpuNs = Double(report.cpu_user_ns + report.cpu_system_ns)
+        let eShare = cpuNs > 0 ? 1.0 - min(Double(report.p_cpu_ns) / cpuNs, 1.0) : -1.0
+        let ipc = report.cycles > 0 ? Double(report.instructions) / Double(report.cycles) : -1.0
         return String(
-            format: "result=%d  iter=%u  load=%.3fms  min=%.3f median=%.3f p99=%.3f ms  cpu(u/s)=%.2f/%.2f ms  rss=%.0fKB  faults=%llu",
+            format: "result=%d  iter=%u  load=%.3fms  min=%.3f median=%.3f p99=%.3f ms  cpu(u/s)=%.2f/%.2f ms  rss=%.0fKB  faults=%llu  e_share=%.3f  ipc=%.2f  insns=%llu  cycles=%llu",
             report.result, report.iterations,
             loadMs, minMs, medMs, p99Ms,
-            userMs, sysMs, rssKB, report.page_faults
+            userMs, sysMs, rssKB, report.page_faults,
+            eShare, ipc, report.instructions, report.cycles
         )
 }
 
@@ -535,7 +799,7 @@ fileprivate func runtimeAndWorkload(from label: String) -> (runtime: String, wor
     // Normalise the "WE" abbreviation to "wasmedge" so the summary
     // matches the same runtime names we use in the rest of the harness
     // (lib.rs, the bench logs, the cross-runtime table in AGENTS.md).
-    let rt = rtRaw == "we" ? "wasmedge" : rtRaw
+    let rt = rtRaw == "we" ? "wasmedge" : (rtRaw == "tinywm" ? "tinywasm" : rtRaw)
     // Skip the closing bracket + the space after it.
     let wlStart = label.index(closeBracket, offsetBy: 2, limitedBy: label.endIndex)
         ?? label.endIndex

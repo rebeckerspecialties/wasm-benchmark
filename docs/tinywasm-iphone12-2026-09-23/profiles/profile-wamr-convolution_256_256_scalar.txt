@@ -1,0 +1,62 @@
+busiest thread: WasmBench (0x3f68e)  samples: 11794 (100.0% on E cores)  all threads: 11909
+
+# self time (leaf frame), top 60
+ 99.92%   11784  wasm_interp_call_func_bytecode
+  0.02%       2  __bzero
+  0.02%       2  wasm_runtime_call_wasm
+  0.02%       2  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+  0.01%       1  -[__NSArrayI_Transfer dealloc]
+  0.01%       1  _xzm_xzone_malloc_tiny
+  0.01%       1  dyld4::PrebuiltLoader::contains(dyld4::RuntimeState&, void const*, void const**, unsigned long long*, unsigned char*) const
+  0.01%       1  _RNvNvNtCsg8tlWPf0vnr_3std3env3var5inner
+
+# inclusive (on stack), top 60
+100.00%   11794  start_wqthread
+100.00%   11794  _pthread_wqthread
+ 99.99%   11793  _dispatch_client_callout
+ 99.99%   11793  _dispatch_call_block_and_release
+ 99.98%   11792  _dispatch_worker_thread2
+ 99.98%   11792  _dispatch_root_queue_drain
+ 99.97%   11791  <deduplicated_symbol>
+ 99.97%   11791  closure #142 in variable initialization expression of WORKLOADS
+ 99.97%   11791  _RNvNtCs9e6pHsgSdNO_14benchmark_core5cases8run_case
+ 99.97%   11791  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.97%   11791  closure #2 in BenchmarkContentView.runAll()
+ 99.97%   11791  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.97%   11791  bench_run_case
+ 99.93%   11786  wasm_runtime_call_wasm
+ 99.92%   11785  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 99.92%   11784  wasm_interp_call_wasm
+ 99.92%   11784  wasm_interp_call_func_bytecode
+ 99.92%   11784  wasm_call_function
+  0.02%       2  _dispatch_lane_invoke
+  0.02%       2  _dispatch_workloop_worker_thread
+  0.02%       2  _dispatch_lane_serial_drain
+  0.02%       2  _dispatch_root_queue_drain_deferred_wlh
+  0.02%       2  memory_instantiate
+  0.02%       2  wasm_runtime_instantiate
+  0.02%       2  wasm_instantiate
+  0.02%       2  __bzero
+  0.01%       1  _dispatch_mach_msg_async_reply_invoke
+  0.01%       1  -[__NSArrayI_Transfer dealloc]
+  0.01%       1  AutoreleasePoolPage::releaseUntil(objc_object**)
+  0.01%       1  objc_autoreleasePoolPop
+  0.01%       1  objc_alloc_init
+  0.01%       1  +[RBSXPCMessage messageWithEncoder:]
+  0.01%       1  +[RBSXPCMessage messageForMethod:varguments:]
+  0.01%       1  +[RBSXPCMessage messageForMethod:arguments:]
+  0.01%       1  __27-[RBSConnection _handshake]_block_invoke
+  0.01%       1  _xzm_xzone_malloc_tiny
+  0.01%       1  _dispatch_queue_override_invoke.cold.3
+  0.01%       1  _dispatch_queue_override_invoke
+  0.01%       1  __31+[FBSSceneExtension initialize]_block_invoke
+  0.01%       1  +[NSBundle bundleForClass:]
+  0.01%       1  dyld4::RuntimeLocks::withLoadersReadLock(void () block_pointer)
+  0.01%       1  dyld4::APIs::dyld_image_path_containing_address(void const*)
+  0.01%       1  class_getImageName
+  0.01%       1  +[FBSSceneExtension _frameworkNameLoadingIfNeeded:]
+  0.01%       1  invocation function for block in dyld4::APIs::findImageMappedAt(void const*, dyld3::MachOLoaded const**, bool*, char const**, void const**, unsigned long long*, unsigned char*, dyld4::Loader const**)
+  0.01%       1  internal_class_getImageName(objc_class*, char const**)
+  0.01%       1  dyld4::PrebuiltLoader::contains(dyld4::RuntimeState&, void const*, void const**, unsigned long long*, unsigned char*) const
+  0.01%       1  dyld4::APIs::findImageMappedAt(void const*, dyld3::MachOLoaded const**, bool*, char const**, void const**, unsigned long long*, unsigned char*, dyld4::Loader const**)
+  0.01%       1  _RNvNvNtCsg8tlWPf0vnr_3std3env3var5inner

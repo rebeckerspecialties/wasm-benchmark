@@ -1,8 +1,25 @@
+From b8c66a0c826133a7dded722cdfc2b7f3db80ecf7 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:26:54 -0700
+Subject: wasmedge call indirect canonical type id fast path
+
+Rebased onto 0.17.2-rc.3: upstream #4920 hoisted retrieveFuncRef() above
+the type check and added an UninitializedElement null check, so the
+fast path now reuses that FuncInst instead of re-deriving it; the two
+header conflicts are #4850 comment rewording only.
+---
+ include/executor/executor.h          |  6 ++
+ include/runtime/instance/function.h  | 89 ++++++++++++++++++++++++++++
+ include/runtime/instance/module.h    | 16 +++++
+ lib/executor/engine/controlInstr.cpp | 45 ++++++++++----
+ lib/executor/engine/proxy.cpp        | 28 +--------
+ 5 files changed, 145 insertions(+), 39 deletions(-)
+
 diff --git a/include/executor/executor.h b/include/executor/executor.h
-index d62586fc2947f64635257c89c99116c5201acbe0..f672ed05768453ec7bab9ee668a514645548bab9 100644
+index c87e3c6c5..4d9a9f701 100644
 --- a/include/executor/executor.h
 +++ b/include/executor/executor.h
-@@ -533,6 +533,12 @@ private:
+@@ -535,6 +535,12 @@ private:
    std::vector<ValVariant>
    packVals(const ValType &Type, std::vector<ValVariant> &&Vals) const noexcept;
  
@@ -16,7 +33,7 @@ index d62586fc2947f64635257c89c99116c5201acbe0..f672ed05768453ec7bab9ee668a51464
    ValVariant unpackVal(const ValType &Type, const ValVariant &Val,
                         bool IsSigned = false) const noexcept;
 diff --git a/include/runtime/instance/function.h b/include/runtime/instance/function.h
-index 81473b58de5585cf1595b2c9f1dd2587b05872ce..3493d4f1bb57a01c0702aee3617088d00f940e12 100644
+index f19bfaab2..5b94f27d9 100644
 --- a/include/runtime/instance/function.h
 +++ b/include/runtime/instance/function.h
 @@ -18,9 +18,15 @@
@@ -81,13 +98,13 @@ index 81473b58de5585cf1595b2c9f1dd2587b05872ce..3493d4f1bb57a01c0702aee3617088d0
               std::move(Func)) {}
  
 @@ -88,6 +100,9 @@ public:
-   /// Getter of function type.
+   /// Getter for function type.
    const AST::FunctionType &getFuncType() const noexcept { return FuncType; }
  
 +  /// Getter of canonical function type ID used by hot call_indirect paths.
 +  uint32_t getCanonicalFuncTypeId() const noexcept { return CanonicalFuncTypeId; }
 +
-   /// Getter of function local variables.
+   /// Getter for function local variables.
    Span<const std::pair<uint32_t, ValType>> getLocals() const noexcept {
      return std::get_if<WasmFunction>(&Data)->Locals;
 @@ -117,6 +132,79 @@ public:
@@ -179,18 +196,18 @@ index 81473b58de5585cf1595b2c9f1dd2587b05872ce..3493d4f1bb57a01c0702aee3617088d0
                 std::unique_ptr<HostFunctionBase>>
        Data;
 diff --git a/include/runtime/instance/module.h b/include/runtime/instance/module.h
-index f89a71b898608f70e9390b100fa1e6ca42e84fc7..11dd3ef41d92fc345bbdd4ec752dc60b927ea9f3 100644
+index f35a34c20..20af900a8 100644
 --- a/include/runtime/instance/module.h
 +++ b/include/runtime/instance/module.h
-@@ -238,6 +238,7 @@ protected:
+@@ -239,6 +239,7 @@ protected:
      std::unique_lock Lock(Mutex);
      OwnedTypes.push_back(std::make_unique<AST::SubType>(SType));
      Types.push_back(OwnedTypes.back().get());
 +    CanonicalFuncTypeIds.push_back(unsafeResolveCanonicalFuncTypeId(SType));
    }
  
-   /// Create and add instances into this module instance.
-@@ -330,6 +331,10 @@ protected:
+   /// Create and add instances to this module instance.
+@@ -338,6 +339,10 @@ protected:
  
    /// Get defined type list.
    Span<const AST::SubType *const> getTypeList() const noexcept { return Types; }
@@ -201,8 +218,8 @@ index f89a71b898608f70e9390b100fa1e6ca42e84fc7..11dd3ef41d92fc345bbdd4ec752dc60b
  
    /// Get instance pointer by index.
    Expect<const AST::SubType *> getType(uint32_t Idx) const noexcept {
-@@ -464,10 +469,20 @@ protected:
-   /// Unsafe import defined type from host function into this module.
+@@ -472,10 +477,20 @@ protected:
+   /// Unsafely import a defined type from a host function into this module.
    void unsafeImportDefinedType(const AST::SubType &SType) {
      Types.push_back(&SType);
 +    CanonicalFuncTypeIds.push_back(unsafeResolveCanonicalFuncTypeId(SType));
@@ -219,10 +236,10 @@ index f89a71b898608f70e9390b100fa1e6ca42e84fc7..11dd3ef41d92fc345bbdd4ec752dc60b
 +        SType.getCompositeType().getFuncType());
 +  }
 +
-   /// Unsafe create and add the instance into this module.
+   /// Unsafely create and add the instance to this module.
    template <typename T, typename... Args>
    std::enable_if_t<IsInstanceV<T>, void>
-@@ -539,6 +554,7 @@ protected:
+@@ -547,6 +562,7 @@ protected:
    /// Defined types.
    std::vector<const AST::SubType *> Types;
    std::vector<std::unique_ptr<const AST::SubType>> OwnedTypes;
@@ -231,7 +248,7 @@ index f89a71b898608f70e9390b100fa1e6ca42e84fc7..11dd3ef41d92fc345bbdd4ec752dc60b
    /// Owned instances in this module.
    std::vector<std::unique_ptr<FunctionInstance>> OwnedFuncInsts;
 diff --git a/lib/executor/engine/controlInstr.cpp b/lib/executor/engine/controlInstr.cpp
-index 117361d777bd98ddd2b691842e5b1be12e17e0fb..9158ec59cf0c9b9eff2213aa773b42098130230a 100644
+index dda5c35fb..e5ec0e4ee 100644
 --- a/lib/executor/engine/controlInstr.cpp
 +++ b/lib/executor/engine/controlInstr.cpp
 @@ -8,6 +8,35 @@
@@ -270,7 +287,7 @@ index 117361d777bd98ddd2b691842e5b1be12e17e0fb..9158ec59cf0c9b9eff2213aa773b4209
  Expect<void> Executor::runIfElseOp(Runtime::StackManager &StackMgr,
                                     const AST::Instruction &Instr,
                                     AST::InstrView::iterator &PC) noexcept {
-@@ -193,7 +222,8 @@ Expect<void> Executor::runCallIndirectOp(Runtime::StackManager &StackMgr,
+@@ -196,7 +225,8 @@ Expect<void> Executor::runCallIndirectOp(Runtime::StackManager &StackMgr,
  
    // Get function type at index x.
    const auto *ModInst = StackMgr.getModule();
@@ -280,10 +297,10 @@ index 117361d777bd98ddd2b691842e5b1be12e17e0fb..9158ec59cf0c9b9eff2213aa773b4209
  
    // Pop the value of index from the Stack.
    const auto AddrType = TabInst->getTableType().getLimit().getAddrType();
-@@ -220,18 +250,7 @@ Expect<void> Executor::runCallIndirectOp(Runtime::StackManager &StackMgr,
+@@ -223,18 +253,7 @@ Expect<void> Executor::runCallIndirectOp(Runtime::StackManager &StackMgr,
+   }
  
    // Check function type.
-   const auto *FuncInst = retrieveFuncRef(Ref);
 -  bool IsMatch = false;
 -  if (FuncInst->getModule()) {
 -    IsMatch = AST::TypeMatcher::matchType(
@@ -301,7 +318,7 @@ index 117361d777bd98ddd2b691842e5b1be12e17e0fb..9158ec59cf0c9b9eff2213aa773b4209
      auto &ExpFuncType = ExpDefType.getCompositeType().getFuncType();
      auto &GotFuncType = FuncInst->getFuncType();
 diff --git a/lib/executor/engine/proxy.cpp b/lib/executor/engine/proxy.cpp
-index 58e0f176ceb3b95dd06ca9eaca8436fce2ab3084..2b5840191123d3e2facc7b67eb9211617ea7c737 100644
+index 8fba0a4f0..13d0dbe30 100644
 --- a/lib/executor/engine/proxy.cpp
 +++ b/lib/executor/engine/proxy.cpp
 @@ -164,21 +164,9 @@ Expect<void> Executor::proxyCallIndirect(Runtime::StackManager &StackMgr,
@@ -327,7 +344,7 @@ index 58e0f176ceb3b95dd06ca9eaca8436fce2ab3084..2b5840191123d3e2facc7b67eb921161
    if (!IsMatch) {
      return Unexpect(ErrCode::Value::IndirectCallTypeMismatch);
    }
-@@ -621,21 +609,9 @@ Expect<void *> Executor::proxyTableGetFuncSymbol(
+@@ -622,21 +610,9 @@ Expect<void *> Executor::proxyTableGetFuncSymbol(
  
    const auto *ModInst = StackMgr.getModule();
    assuming(ModInst);

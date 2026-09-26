@@ -1,0 +1,18 @@
+diff --git a/crates/tinywasm/src/interpreter/stack/value_stack.rs b/crates/tinywasm/src/interpreter/stack/value_stack.rs
+index a582ae5..fd479b7 100644
+--- a/crates/tinywasm/src/interpreter/stack/value_stack.rs
++++ b/crates/tinywasm/src/interpreter/stack/value_stack.rs
+@@ -46,10 +46,10 @@ impl<T: Copy + Default> Stack<T> {
+ 
+     #[inline(always)]
+     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
+-        // At capacity, grow (or trap) out of line. After this check `Vec::push` cannot reach its
+-        // own growth path, so the allocator call stays out of the instruction handlers.
++        // EXPERIMENT (upper bound): no growth in push and no reservation at entry. Identical to
++        // the current behavior for fixed stacks (the default config); dynamic stacks would trap.
+         if self.data.len() == self.data.capacity() {
+-            return self.push_grow(value);
++            return cold!(Err(Trap::ValueStackOverflow));
+         }
+         self.data.push(value);
+         Ok(())

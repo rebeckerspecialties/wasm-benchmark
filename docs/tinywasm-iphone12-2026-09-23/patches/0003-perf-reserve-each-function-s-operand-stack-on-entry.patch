@@ -1,0 +1,544 @@
+From bc8a0a15dfb10306ac7039d6f608a4c9b8f73556 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Wed, 23 Sep 2026 02:36:51 -0700
+Subject: perf: reserve each function's operand stack on entry
+
+The parser records the highest operand stack each function body reaches
+in each lane (WasmFunction::max_stack), and enter_locals reserves it on
+top of the locals. A push inside a function body then traps at capacity
+instead of growing, so the instruction handlers no longer call into the
+growth path. Pushes from outside a body (host arguments and results)
+still grow dynamic stacks.
+
+WasmFunction gained a field, so the archive version moves to 06 and
+examples/rust/src/print.twasm is regenerated.
+---
+ crates/parser/src/conversion.rs               |  35 ++++++-----
+ crates/parser/src/module.rs                   |   2 +
+ crates/parser/src/visit.rs                    |  36 ++++++++---
+ crates/tinywasm/src/func/mod.rs               |  14 ++---
+ crates/tinywasm/src/func/resume.rs            |  12 ++--
+ .../tinywasm/src/interpreter/executor/mod.rs  |  14 +++--
+ .../src/interpreter/stack/value_stack.rs      |  58 +++++++++++++-----
+ .../tinywasm/tests/value_stack_reservation.rs |  57 +++++++++++++++++
+ crates/types/src/archive.rs                   |   4 +-
+ crates/types/src/lib.rs                       |   2 +
+ examples/rust/src/print.twasm                 | Bin 155 -> 158 bytes
+ 11 files changed, 173 insertions(+), 61 deletions(-)
+ create mode 100644 crates/tinywasm/tests/value_stack_reservation.rs
+
+diff --git a/crates/parser/src/conversion.rs b/crates/parser/src/conversion.rs
+index 36455ee..9526125 100644
+--- a/crates/parser/src/conversion.rs
++++ b/crates/parser/src/conversion.rs
+@@ -197,34 +197,35 @@ pub(crate) fn convert_module_code(
+     }
+ 
+     #[cfg(feature = "validate")]
+-    let (body, data, uses_local_memory, validator_allocs, reader_allocs) = match validator {
++    let (body, data, uses_local_memory, max_stack, validator_allocs, reader_allocs) = match validator {
+         Some(validator) => {
+-            let (body, data, uses_local_memory, validator_allocs, reader_allocs) = process_operators_and_validate(
+-                validator,
+-                func,
+-                (local_types, local_addr_map),
+-                metadata,
+-                context,
+-                reader_allocs,
+-                options,
+-            )?;
+-            (body, data, uses_local_memory, Some(validator_allocs), reader_allocs)
++            let (body, data, uses_local_memory, max_stack, validator_allocs, reader_allocs) =
++                process_operators_and_validate(
++                    validator,
++                    func,
++                    (local_types, local_addr_map),
++                    metadata,
++                    context,
++                    reader_allocs,
++                    options,
++                )?;
++            (body, data, uses_local_memory, max_stack, Some(validator_allocs), reader_allocs)
+         }
+         None => {
+-            let (body, data, uses_local_memory, reader_allocs) =
++            let (body, data, uses_local_memory, max_stack, reader_allocs) =
+                 process_operators(func, (local_types, local_addr_map), metadata, context, reader_allocs, options)?;
+-            (body, data, uses_local_memory, None, reader_allocs)
++            (body, data, uses_local_memory, max_stack, None, reader_allocs)
+         }
+     };
+     #[cfg(not(feature = "validate"))]
+-    let (body, data, uses_local_memory, validator_allocs, reader_allocs) = {
++    let (body, data, uses_local_memory, max_stack, validator_allocs, reader_allocs) = {
+         let _ = validator;
+-        let (body, data, uses_local_memory, reader_allocs) =
++        let (body, data, uses_local_memory, max_stack, reader_allocs) =
+             process_operators(func, (local_types, local_addr_map), metadata, context, reader_allocs, options)?;
+-        (body, data, uses_local_memory, None, reader_allocs)
++        (body, data, uses_local_memory, max_stack, None, reader_allocs)
+     };
+     Ok((
+-        FunctionCode { instructions: body, data: data.finish(), locals: local_counts, uses_local_memory },
++        FunctionCode { instructions: body, data: data.finish(), locals: local_counts, max_stack, uses_local_memory },
+         validator_allocs,
+         reader_allocs,
+     ))
+diff --git a/crates/parser/src/module.rs b/crates/parser/src/module.rs
+index 03c725c..fcaba40 100644
+--- a/crates/parser/src/module.rs
++++ b/crates/parser/src/module.rs
+@@ -14,6 +14,7 @@ pub(crate) struct FunctionCode {
+     pub instructions: Vec<Instruction>,
+     pub data: WasmFunctionData,
+     pub locals: ValueCounts,
++    pub max_stack: ValueCounts,
+     pub uses_local_memory: bool,
+ }
+ 
+@@ -553,6 +554,7 @@ impl<'a> ModuleReader<'a> {
+                     locals: code.locals,
+                     params,
+                     results,
++                    max_stack: code.max_stack,
+                 }))
+             })
+             .collect::<Result<_>>()?;
+diff --git a/crates/parser/src/visit.rs b/crates/parser/src/visit.rs
+index a362f84..b1b634f 100644
+--- a/crates/parser/src/visit.rs
++++ b/crates/parser/src/visit.rs
+@@ -185,6 +185,7 @@ pub(crate) struct FunctionBuilder<'a> {
+     control_stack: Vec<ControlFrame<'a>>,
+     operand_stack: Vec<ValueLane>,
+     lane_counts: ValueCounts,
++    max_lane_counts: ValueCounts,
+     metadata: &'a ModuleMetadata,
+     local_types: Vec<ValueLane>,
+     local_addr_map: Vec<u16>,
+@@ -223,6 +224,7 @@ impl<'a> FunctionBuilder<'a> {
+             }],
+             operand_stack: Vec::new(),
+             lane_counts: ValueCounts::default(),
++            max_lane_counts: ValueCounts::default(),
+             uses_local_memory: false,
+         }
+     }
+@@ -436,7 +438,7 @@ pub(crate) fn process_operators(
+     context: FunctionLoweringContext,
+     allocs: OperatorsReaderAllocations,
+     options: &ParserOptions,
+-) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, OperatorsReaderAllocations)> {
++) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, ValueCounts, OperatorsReaderAllocations)> {
+     let (local_types, local_addr_map) = locals;
+     let body_size = body.as_bytes().len();
+     let reader = body.get_binary_reader_for_operators()?;
+@@ -459,7 +461,7 @@ pub(crate) fn process_operators(
+ 
+     reader.finish()?;
+     let instructions = builder.emitter.finish(&mut builder.data)?;
+-    Ok((instructions, builder.data, builder.uses_local_memory, reader.into_allocations()))
++    Ok((instructions, builder.data, builder.uses_local_memory, builder.max_lane_counts, reader.into_allocations()))
+ }
+ 
+ #[cfg(feature = "validate")]
+@@ -471,7 +473,14 @@ pub(crate) fn process_operators_and_validate(
+     context: FunctionLoweringContext,
+     allocs: OperatorsReaderAllocations,
+     options: &ParserOptions,
+-) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, FuncValidatorAllocations, OperatorsReaderAllocations)> {
++) -> Result<(
++    Vec<Instruction>,
++    FunctionDataBuilder,
++    bool,
++    ValueCounts,
++    FuncValidatorAllocations,
++    OperatorsReaderAllocations,
++)> {
+     let (local_types, local_addr_map) = locals;
+     let body_size = body.as_bytes().len();
+     let reader = body.get_binary_reader_for_operators()?;
+@@ -494,7 +503,14 @@ pub(crate) fn process_operators_and_validate(
+ 
+     reader.finish()?;
+     let instructions = builder.emitter.finish(&mut builder.data)?;
+-    Ok((instructions, builder.data, builder.uses_local_memory, validator.into_allocations(), reader.into_allocations()))
++    Ok((
++        instructions,
++        builder.data,
++        builder.uses_local_memory,
++        builder.max_lane_counts,
++        validator.into_allocations(),
++        reader.into_allocations(),
++    ))
+ }
+ 
+ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
+@@ -1432,17 +1448,19 @@ impl<'a> FunctionBuilder<'a> {
+         Ok((size, addr))
+     }
+ 
+-    /// Pushes logical operands while maintaining the lane counts used by `DropKeep`.
++    /// Pushes logical operands while maintaining the lane counts used by `DropKeep` and their
++    /// maximum, which the runtime reserves when it enters the function.
+     fn push_sizes(&mut self, sizes: &[ValueLane]) -> Result<()> {
+         for &size in sizes {
+-            let count = match size {
+-                ValueLane::S32 => &mut self.lane_counts.c32,
+-                ValueLane::S64 => &mut self.lane_counts.c64,
+-                ValueLane::S128 => &mut self.lane_counts.c128,
++            let (count, max) = match size {
++                ValueLane::S32 => (&mut self.lane_counts.c32, &mut self.max_lane_counts.c32),
++                ValueLane::S64 => (&mut self.lane_counts.c64, &mut self.max_lane_counts.c64),
++                ValueLane::S128 => (&mut self.lane_counts.c128, &mut self.max_lane_counts.c128),
+             };
+             *count = count
+                 .checked_add(1)
+                 .ok_or_else(|| crate::ParseError::Other("logical operand lane count is too large".into()))?;
++            *max = (*max).max(*count);
+             self.operand_stack.push(size);
+         }
+         Ok(())
+diff --git a/crates/tinywasm/src/func/mod.rs b/crates/tinywasm/src/func/mod.rs
+index cf3c855..44a2c81 100644
+--- a/crates/tinywasm/src/func/mod.rs
++++ b/crates/tinywasm/src/func/mod.rs
+@@ -157,16 +157,14 @@ impl Function {
+             let host = store.state.funcs.host(self.addr()).func.clone();
+             host.call_values(store, self.module_id, type_addr, params, results)
+         } else {
+-            let (wasm_params, wasm_locals) = {
++            let (wasm_params, wasm_locals, wasm_max_stack) = {
+                 let wasm = store.state.funcs.wasm(self.addr());
+-                let wasm_params = wasm.func.params;
+-                let wasm_locals = wasm.func.locals;
+-                (wasm_params, wasm_locals)
++                (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
+             };
+             store.push_wasm_values(params).inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+             let locals_base = store
+                 .value_stack
+-                .enter_locals(&wasm_params, &wasm_locals)
++                .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
+                 .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+             let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+             InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
+@@ -213,14 +211,14 @@ impl Function {
+             };
+         }
+ 
+-        let (type_addr, wasm_params, wasm_locals) = {
++        let (type_addr, wasm_params, wasm_locals, wasm_max_stack) = {
+             let wasm = store.state.funcs.wasm(self.addr());
+-            (wasm.type_addr, wasm.func.params, wasm.func.locals)
++            (wasm.type_addr, wasm.func.params, wasm.func.locals, wasm.func.max_stack)
+         };
+         store.push_typed_values::<false>(type_addr, params, value_stack_base)?;
+         let locals_base = store
+             .value_stack
+-            .enter_locals(&wasm_params, &wasm_locals)
++            .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
+             .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+         let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+         InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
+diff --git a/crates/tinywasm/src/func/resume.rs b/crates/tinywasm/src/func/resume.rs
+index a035ffc..106aea6 100644
+--- a/crates/tinywasm/src/func/resume.rs
++++ b/crates/tinywasm/src/func/resume.rs
+@@ -79,15 +79,15 @@ impl Function {
+                 return Ok(ExecState::Completed(Some(CallResult::Written)));
+             }
+ 
+-            let (wasm_params, wasm_locals) = {
++            let (wasm_params, wasm_locals, wasm_max_stack) = {
+                 let wasm = store.state.funcs.wasm(self.addr());
+-                (wasm.func.params, wasm.func.locals)
++                (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
+             };
+ 
+             store.call_stack.clear();
+             store.value_stack.clear();
+             store.push_wasm_values(params)?;
+-            let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals)?;
++            let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)?;
+             let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+ 
+             Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
+@@ -224,9 +224,9 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
+             let execution = ExecutionInner { store, state: ExecState::Completed(None) };
+             return Ok(FuncExecutionTyped { execution, result: Some(result) });
+         }
+-        let (type_addr, wasm_params, wasm_locals) = {
++        let (type_addr, wasm_params, wasm_locals, wasm_max_stack) = {
+             let wasm = store.state.funcs.wasm(self.func.addr());
+-            (wasm.type_addr, wasm.func.params, wasm.func.locals)
++            (wasm.type_addr, wasm.func.params, wasm.func.locals, wasm.func.max_stack)
+         };
+ 
+         store.enter_execution()?;
+@@ -236,7 +236,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
+             store.push_typed_values::<false>(type_addr, params.into_wasm_values(), StackBase::default())?;
+             let locals_base = store
+                 .value_stack
+-                .enter_locals(&wasm_params, &wasm_locals)
++                .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
+                 .inspect_err(|_| store.value_stack.clear())?;
+             let callframe = CallFrame::new(self.func.addr(), locals_base, wasm_locals);
+             Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() })
+diff --git a/crates/tinywasm/src/interpreter/executor/mod.rs b/crates/tinywasm/src/interpreter/executor/mod.rs
+index 48a99a6..73fd6bd 100644
+--- a/crates/tinywasm/src/interpreter/executor/mod.rs
++++ b/crates/tinywasm/src/interpreter/executor/mod.rs
+@@ -706,7 +706,9 @@ impl<'store> Executor<'store> {
+ 
+     fn exec_call_self(&mut self, return_instr_ptr: usize) -> ExecResult<()> {
+         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+-        let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
++        let Ok(locals_base) =
++            self.store.value_stack.enter_locals(&self.func.params, &self.func.locals, &self.func.max_stack)
++        else {
+             return cold!(Err(Trap::CallStackOverflow.into()));
+         };
+         let new = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
+@@ -718,7 +720,9 @@ impl<'store> Executor<'store> {
+         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+ 
+         self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.params);
+-        let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
++        let Ok(locals_base) =
++            self.store.value_stack.enter_locals(&self.func.params, &self.func.locals, &self.func.max_stack)
++        else {
+             return cold!(Err(Trap::CallStackOverflow.into()));
+         };
+         self.cf = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
+@@ -780,14 +784,14 @@ impl<'store> Executor<'store> {
+         return_instr_ptr: usize,
+     ) -> ExecResult<ExecFlow> {
+         let wasm_func = self.store.state.funcs.wasm(func_addr);
+-        let (params, locals, owner, next_func) = {
++        let (params, locals, max_stack, owner, next_func) = {
+             let next_func = (!Shared::ptr_eq(&self.func, &wasm_func.func)).then(|| wasm_func.func.clone());
+-            (wasm_func.func.params, wasm_func.func.locals, wasm_func.owner, next_func)
++            (wasm_func.func.params, wasm_func.func.locals, wasm_func.func.max_stack, wasm_func.owner, next_func)
+         };
+         if TAIL {
+             self.store.value_stack.truncate_keep_counts(self.cf.locals_base, params);
+         }
+-        let locals_base = self.store.value_stack.enter_locals(&params, &locals)?;
++        let locals_base = self.store.value_stack.enter_locals(&params, &locals, &max_stack)?;
+         if TAIL {
+             self.cf = CallFrame::new(func_addr, locals_base, locals);
+         } else {
+diff --git a/crates/tinywasm/src/interpreter/stack/value_stack.rs b/crates/tinywasm/src/interpreter/stack/value_stack.rs
+index a582ae5..c9e4540 100644
+--- a/crates/tinywasm/src/interpreter/stack/value_stack.rs
++++ b/crates/tinywasm/src/interpreter/stack/value_stack.rs
+@@ -44,10 +44,22 @@ impl<T: Copy + Default> Stack<T> {
+         self.data.len()
+     }
+ 
++    /// Pushes a value inside a function body. `enter_locals` reserved the function's whole operand
++    /// stack, so a full stack here is the limit and there is nothing to grow. After this check
++    /// `Vec::push` cannot reach its own growth path, so the instruction handlers make no calls.
+     #[inline(always)]
+     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
+-        // At capacity, grow (or trap) out of line. After this check `Vec::push` cannot reach its
+-        // own growth path, so the allocator call stays out of the instruction handlers.
++        if self.data.len() == self.data.capacity() {
++            return cold!(Err(Trap::ValueStackOverflow));
++        }
++        self.data.push(value);
++        Ok(())
++    }
++
++    /// Pushes a value outside a function body (host arguments and results), which no reservation
++    /// covers, so a dynamic stack grows here if needed.
++    #[inline(always)]
++    pub(crate) fn push_or_grow(&mut self, value: T) -> Result<(), Trap> {
+         if self.data.len() == self.data.capacity() {
+             return self.push_grow(value);
+         }
+@@ -131,22 +143,31 @@ impl<T: Copy + Default> Stack<T> {
+         self.data.push(last);
+     }
+ 
++    /// Enters a function: turns its parameters into the first locals, zeroes the rest, and reserves
++    /// room for its operand stack (`max_stack` values above the locals), so [`Self::push`] never
++    /// has to grow the stack while the function runs.
+     #[inline]
+-    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32, Trap> {
++    pub(crate) fn enter_locals(
++        &mut self,
++        param_count: usize,
++        local_count: usize,
++        max_stack: usize,
++    ) -> Result<u32, Trap> {
+         debug_assert!(param_count <= local_count);
+         debug_assert!(param_count <= self.data.len());
+ 
+         let len = self.data.len();
+         let start = len - param_count;
+         let end = start + local_count;
++        let reserve = end + max_stack;
+ 
+-        if end > self.data.capacity() {
++        if reserve > self.data.capacity() {
+             core::hint::cold_path();
+-            if end > self.max_size || !self.dynamic {
++            if reserve > self.max_size || !self.dynamic {
+                 return Err(Trap::ValueStackOverflow);
+             }
+             let cap = self.data.capacity();
+-            let target = end.max(cap.max(1).saturating_mul(2)).min(self.max_size);
++            let target = reserve.max(cap.max(1).saturating_mul(2)).min(self.max_size);
+             if self.data.try_reserve(target - len).is_err() {
+                 return Err(Trap::ValueStackOverflow);
+             }
+@@ -247,10 +268,18 @@ impl ValueStack {
+     }
+ 
+     #[inline(always)]
+-    pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase, Trap> {
+-        let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
+-        let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
+-        let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
++    pub(crate) fn enter_locals(
++        &mut self,
++        params: &ValueCounts,
++        locals: &ValueCounts,
++        max_stack: &ValueCounts,
++    ) -> Result<StackBase, Trap> {
++        let locals_base32 =
++            self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize, max_stack.c32 as usize)?;
++        let locals_base64 =
++            self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize, max_stack.c64 as usize)?;
++        let locals_base128 =
++            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize, max_stack.c128 as usize)?;
+         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
+     }
+ 
+@@ -268,12 +297,13 @@ impl ValueStack {
+         self.stack_128.truncate_to(base.s128 as usize);
+     }
+ 
++    /// Pushes a value from outside a function body; see [`Stack::push_or_grow`].
+     pub(crate) fn push_dyn(&mut self, value: RuntimeValue) -> Result<(), Trap> {
+         match value {
+-            RuntimeValue::Value32(value) => Value32::stack_push(self, value),
+-            RuntimeValue::Value64(value) => Value64::stack_push(self, value),
+-            RuntimeValue::Value128(value) => Value128::stack_push(self, value),
+-            RuntimeValue::ValueRef(value) => ValueRef::stack_push(self, value),
++            RuntimeValue::Value32(value) => self.stack_32.push_or_grow(value),
++            RuntimeValue::Value64(value) => self.stack_64.push_or_grow(value),
++            RuntimeValue::Value128(value) => self.stack_128.push_or_grow(value),
++            RuntimeValue::ValueRef(value) => self.stack_32.push_or_grow(value.raw()),
+         }
+     }
+ }
+diff --git a/crates/tinywasm/tests/value_stack_reservation.rs b/crates/tinywasm/tests/value_stack_reservation.rs
+new file mode 100644
+index 0000000..838d817
+--- /dev/null
++++ b/crates/tinywasm/tests/value_stack_reservation.rs
+@@ -0,0 +1,57 @@
++use tinywasm::engine::{Config, StackConfig};
++use tinywasm::{Engine, Error, ModuleInstance, Store, Trap};
++
++const DEPTH: usize = 64;
++
++/// `deep(n)` pushes `DEPTH` operands in each value lane before folding them, so its operand stack
++/// is far deeper than its locals, and recurses `n` times to stack those frames on each other.
++/// It returns `DEPTH * n * (n + 2)`.
++fn deep_module() -> Vec<u8> {
++    let i32_lane = "local.get 0\n".repeat(DEPTH) + &"i32.add\n".repeat(DEPTH - 1);
++    let i64_lane = "local.get 1\n".repeat(DEPTH) + &"i64.add\n".repeat(DEPTH - 1);
++    let v128_lane = "v128.const i64x2 1 1\n".repeat(DEPTH) + &"i64x2.add\n".repeat(DEPTH - 1);
++    wat::parse_str(format!(
++        r#"(module
++          (func $deep (export "deep") (param i32) (result i32)
++            (local i64)
++            (if (i32.eqz (local.get 0)) (then (return (i32.const 0))))
++            (local.set 1 (i64.extend_i32_u (local.get 0)))
++            {i32_lane}
++            {i64_lane}
++            i32.wrap_i64
++            i32.add
++            {v128_lane}
++            i64x2.extract_lane 0
++            i32.wrap_i64
++            i32.add
++            (call $deep (i32.sub (local.get 0) (i32.const 1)))
++            i32.add))"#
++    ))
++    .unwrap()
++}
++
++fn call_deep(stack: StackConfig, n: i32) -> tinywasm::Result<i32> {
++    let module = tinywasm::parse_bytes(&deep_module())?;
++    let mut store = Store::new(Engine::new(Config::new().with_value_stack(stack)));
++    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
++    instance.func::<i32, i32>(&store, "deep")?.call(&mut store, n)
++}
++
++#[test]
++fn dynamic_value_stacks_grow_when_a_function_is_entered() -> tinywasm::Result<()> {
++    // Stacks that start empty or tiny must grow at each function entry to cover the body's whole
++    // operand stack, since pushes inside the body no longer grow them.
++    for stack in [StackConfig::dynamic(0, 4096), StackConfig::dynamic(1, 4096), StackConfig::fixed(4096)] {
++        assert_eq!(call_deep(stack, 10)?, (DEPTH * 10 * 12) as i32);
++    }
++    Ok(())
++}
++
++#[test]
++fn value_stack_limit_still_traps() {
++    // The body needs more than 32 slots in each lane, so entering it exceeds the limit.
++    for stack in [StackConfig::dynamic(0, 32), StackConfig::fixed(32)] {
++        let result = call_deep(stack, 1);
++        assert!(matches!(result, Err(Error::Trap(Trap::ValueStackOverflow))), "{result:?}");
++    }
++}
+diff --git a/crates/types/src/archive.rs b/crates/types/src/archive.rs
+index 6a03605..bdce379 100644
+--- a/crates/types/src/archive.rs
++++ b/crates/types/src/archive.rs
+@@ -7,7 +7,7 @@ use crate::Module;
+ #[rustfmt::skip]
+ const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+ const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
+-const TWASM_VERSION: &[u8; 2] = b"05";
++const TWASM_VERSION: &[u8; 2] = b"06";
+ 
+ fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
+     if wasm.len() < TWASM_MAGIC.len() || &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
+@@ -97,7 +97,7 @@ mod tests {
+         let module = Module::from(ModuleInner { funcs: Box::new([Shared::new(function)]), ..ModuleInner::default() });
+ 
+         let archive = module.serialize_twasm().expect("serialize archive");
+-        assert_eq!(&archive[..6], b"TWAS05");
++        assert_eq!(&archive[..6], b"TWAS06");
+         let decoded = Module::try_from_twasm(&archive).expect("deserialize archive");
+         let function = &decoded.funcs[0];
+ 
+diff --git a/crates/types/src/lib.rs b/crates/types/src/lib.rs
+index a3f26f2..743f350 100644
+--- a/crates/types/src/lib.rs
++++ b/crates/types/src/lib.rs
+@@ -495,6 +495,8 @@ pub struct WasmFunction {
+     pub locals: ValueCounts,
+     pub params: ValueCounts,
+     pub results: ValueCounts,
++    /// The highest operand stack the body reaches in each lane, on top of its locals.
++    pub max_stack: ValueCounts,
+ }
+ 
+ #[derive(Clone, PartialEq, Eq, Default)]
+diff --git a/examples/rust/src/print.twasm b/examples/rust/src/print.twasm
+index 8ad32e3d8e71518dd4b3f9381eacdcb7fafae0d1..5345de3e397197c3538f2b3db4f29e1e74fb3fe6 100644
+GIT binary patch
+delta 17
+YcmbQuIFFGnB-}CBz-%I$(nQrV04k*f%m4rY
+
+delta 17
+YcmbQoIGd3zB-}CBz;q&;(nRfI04l8n&Hw-a
+

@@ -1,7 +1,7 @@
-From a1c647cc36a437e56103d5843dfd82255f51741e Mon Sep 17 00:00:00 2001
+From ff9334b56439c5934777427142b9b24f99e7f6c4 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 22:26:29 -0700
-Subject: [PATCH 06/15] fast-interp: WASM_OP_DELEGATE forward-to-outer dispatch
+Subject: fast-interp: WASM_OP_DELEGATE forward-to-outer dispatch
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -39,13 +39,15 @@ Runtime (wasm_interp_fast.c):
 Cost shape preserved: zero new bytes in CALL / LOAD / STORE; all
 delegate work lives on the cold throw walker or the cold normal-
 flow exit handler.
+
+(cherry picked from commit 974b025653d0847fa065fb4c78de7a81733c70d7)
 ---
  core/iwasm/interpreter/wasm_interp_fast.c | 78 ++++++++++++++++++--
  core/iwasm/interpreter/wasm_loader.c      | 89 ++++++++++++++++++++---
  2 files changed, 147 insertions(+), 20 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 0f13d93f..4db492ca 100644
+index 828832b4..531577aa 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -1917,6 +1917,43 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
@@ -143,10 +145,10 @@ index 0f13d93f..4db492ca 100644
                  goto got_exception;
              }
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index 9ef6603d..d637b171 100644
+index bcc6ea13..bad643f7 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12610,26 +12610,91 @@ re_scan:
+@@ -12618,26 +12618,91 @@ re_scan:
              }
              case WASM_OP_DELEGATE:
              {
@@ -250,6 +252,3 @@ index 9ef6603d..d637b171 100644
                      func->exception_handlers[eh_idx].end_of_region_pc =
                          loader_ctx->p_code_compiled;
                  }
--- 
-2.54.0
-

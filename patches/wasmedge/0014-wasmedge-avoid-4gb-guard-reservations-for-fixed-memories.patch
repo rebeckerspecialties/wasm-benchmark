@@ -1,5 +1,19 @@
+From febd9d6741a2868a8fc9697056488120f60c5649 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:27:17 -0700
+Subject: wasmedge avoid 4gb guard reservations for fixed memories
+
+Rebased onto 0.17.2-rc.3: context-only conflict with the #4850 comment
+sweep in instantiate/memory.cpp.
+---
+ include/runtime/instance/memory.h     | 13 +++++++++++--
+ include/runtime/instance/module.h     | 18 ++++++++++++++++++
+ lib/executor/instantiate/function.cpp |  3 +++
+ lib/executor/instantiate/memory.cpp   | 11 ++++++++++-
+ 4 files changed, 42 insertions(+), 3 deletions(-)
+
 diff --git a/include/runtime/instance/memory.h b/include/runtime/instance/memory.h
-index 2cde328adbde60924a94d8f8cfab0d51fe070473..467e942dba9a3f6ee974f38ad42f34c83824035c 100644
+index 62c8b4819..64e9a8008 100644
 --- a/include/runtime/instance/memory.h
 +++ b/include/runtime/instance/memory.h
 @@ -49,18 +49,21 @@ public:
@@ -47,10 +61,10 @@ index 2cde328adbde60924a94d8f8cfab0d51fe070473..467e942dba9a3f6ee974f38ad42f34c8
    uint64_t RequestedGuardPageBytes = 0;
    uint64_t GuardedReservationBytes = 0;
 diff --git a/include/runtime/instance/module.h b/include/runtime/instance/module.h
-index b9915c9e483072893f930f1e831f3a548c742059..176d8a6830c883933c4e111287b3425962e117f7 100644
+index 8911fcedf..1c63edb8a 100644
 --- a/include/runtime/instance/module.h
 +++ b/include/runtime/instance/module.h
-@@ -231,6 +231,7 @@ public:
+@@ -232,6 +232,7 @@ public:
    void reserveMemoryGuardPageBytes(uint32_t Count) {
      std::unique_lock Lock(Mutex);
      MemoryGuardPageBytes.resize(Count, 0U);
@@ -58,7 +72,7 @@ index b9915c9e483072893f930f1e831f3a548c742059..176d8a6830c883933c4e111287b34259
    }
  
    void noteMemoryGuardPageBytes(uint32_t Idx, uint64_t GuardBytes) {
-@@ -249,6 +250,22 @@ public:
+@@ -250,6 +251,22 @@ public:
      return MemoryGuardPageBytes[Idx];
    }
  
@@ -81,16 +95,16 @@ index b9915c9e483072893f930f1e831f3a548c742059..176d8a6830c883933c4e111287b34259
  protected:
    friend class Executor::Executor;
    friend class ComponentInstance;
-@@ -597,6 +614,7 @@ protected:
+@@ -606,6 +623,7 @@ protected:
    std::vector<ElementInstance *> ElemInsts;
    std::vector<DataInstance *> DataInsts;
    std::vector<uint64_t> MemoryGuardPageBytes;
 +  std::vector<bool> MemoryMayGrow;
  
-   /// Imported instances counts.
+   /// Imported instance counts.
    uint32_t ImpGlobalNum = 0;
 diff --git a/lib/executor/instantiate/function.cpp b/lib/executor/instantiate/function.cpp
-index 24df6d3ed40da6b7b1a466f05c333fdc3bcd35de..29443c48b4bd3d88496305c1e6c94edf56c8f2f2 100644
+index 85ac8b770..1ef0dd6ed 100644
 --- a/lib/executor/instantiate/function.cpp
 +++ b/lib/executor/instantiate/function.cpp
 @@ -138,6 +138,9 @@ uint64_t getMemoryAccessSize(const AST::Instruction &Instr) noexcept {
@@ -104,7 +118,7 @@ index 24df6d3ed40da6b7b1a466f05c333fdc3bcd35de..29443c48b4bd3d88496305c1e6c94edf
      if (AccessSize == 0U) {
        continue;
 diff --git a/lib/executor/instantiate/memory.cpp b/lib/executor/instantiate/memory.cpp
-index 341447a3a4e0dcf9e5b94f2d18d60e85f42a8368..497d7f2ae5a442b4bf714c49d4257dd8c3a476c0 100644
+index 6cb30c431..dd90e643a 100644
 --- a/lib/executor/instantiate/memory.cpp
 +++ b/lib/executor/instantiate/memory.cpp
 @@ -28,9 +28,18 @@ Expect<void> Executor::instantiate(Runtime::Instance::ModuleInstance &ModInst,
@@ -119,7 +133,7 @@ index 341447a3a4e0dcf9e5b94f2d18d60e85f42a8368..497d7f2ae5a442b4bf714c49d4257dd8
 +            std::min(ReservationPageCount, MemTypes[I].getLimit().getMax());
 +      }
 +    }
-     // Create and add the memory instance into the module instance.
+     // Create and add the memory instance to the module instance.
      ModInst.addMemory(MemTypes[I], Conf.getRuntimeConfigure().getMaxMemoryPage(),
 -                      ModInst.getMemoryGuardPageBytes(Index));
 +                      ModInst.getMemoryGuardPageBytes(Index),

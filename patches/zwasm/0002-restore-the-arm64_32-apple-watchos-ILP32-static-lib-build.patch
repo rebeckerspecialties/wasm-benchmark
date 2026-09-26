@@ -1,0 +1,545 @@
+From 4cc5fabf0dd490bcfe273652d92161b7b13be9e6 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 17:16:34 -0700
+Subject: Restore the arm64_32-apple-watchos (ILP32) static-lib build
+
+zwasm#98 enabled aarch64-watchos-ilp32, but later v2 work broke it again
+and no CI job builds that target:
+
+- ADR-0184's engine-owned std.Io.Threaded (created in wasm_engine_new,
+  read by engineIo) and std.debug.print's default debug_io both pull in
+  std.Io.Threaded, which does not compile under ILP32 on Zig 0.16. On
+  32-bit-pointer targets the engine now owns no io (WASI preopens / env
+  inheritance are unavailable; plain-wasm embedding is unaffected) and
+  std_options_debug_io is std.Io.failing.
+- The interpreter and C API index in-memory slices with u64 values
+  (instruction payloads, table / elem / data / global / local indices,
+  externref payloads, page-size shifts). Those now narrow explicitly
+  with @intCast, a no-op on 64-bit targets.
+
+aarch64-macos, aarch64-ios and aarch64-watchos-ilp32 static libs all
+build.
+---
+ src/api/extern_new.zig                       |  3 +-
+ src/api/instance.zig                         | 43 ++++++++++++--------
+ src/api/ref_base.zig                         | 14 +++----
+ src/instruction/wasm_2_0/bulk_memory.zig     |  4 +-
+ src/instruction/wasm_2_0/reference_types.zig |  2 +-
+ src/instruction/wasm_2_0/table_ops.zig       | 18 ++++----
+ src/interp/mvp.zig                           | 32 +++++++--------
+ src/runtime/instance/instantiate.zig         |  4 +-
+ src/runtime/value.zig                        |  4 +-
+ src/zwasm.zig                                |  9 ++++
+ 10 files changed, 77 insertions(+), 56 deletions(-)
+
+diff --git a/src/api/extern_new.zig b/src/api/extern_new.zig
+index a2f7cef27..225aa7406 100644
+--- a/src/api/extern_new.zig
++++ b/src/api/extern_new.zig
+@@ -503,7 +503,8 @@ pub export fn wasm_foreign_as_ref(f: ?*Foreign) callconv(.c) ?*instance.Ref {
+ pub export fn wasm_ref_as_foreign(r: ?*instance.Ref) callconv(.c) ?*Foreign {
+     const handle = r orelse return null;
+     if (handle.ref == 0) return null;
+-    return @ptrFromInt(handle.ref);
++    // `ref` is a u64 payload; a foreign pointer fits in usize on every target.
++    return @ptrFromInt(@as(usize, @intCast(handle.ref)));
+ }
+ 
+ pub export fn wasm_foreign_as_ref_const(f: ?*const Foreign) callconv(.c) ?*const instance.Ref {
+diff --git a/src/api/instance.zig b/src/api/instance.zig
+index 70b6d8019..c9e17d593 100644
+--- a/src/api/instance.zig
++++ b/src/api/instance.zig
+@@ -45,6 +45,11 @@ const wasm_3_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(
+ /// reference below sits behind this comptime flag, so Zig never analyzes the
+ /// JIT engine and `libzwasm.a` carries no native-codegen or W^X code.
+ pub const jit_enabled = build_options.engine_mode != .interp;
++/// std.Io.Threaded does not compile under ILP32 on Zig 0.16 (u64 -> usize
++/// narrowing, align(4) header casts), so 32-bit-pointer targets
++/// (arm64_32-apple-watchos) get no engine-owned io: WASI preopens / env
++/// inheritance are unavailable there, plain-wasm embedding is unaffected.
++const engine_io_supported = @sizeOf(usize) >= 8;
+ // ADR-0193 P4: this `ext_* = if (wasm_N_enabled) @import(...) else struct{}`
+ // block is the deliberate finished-form for Wasm-level feature gating — a
+ // file-tier feature manifest (two central comptime predicates above + the
+@@ -186,6 +191,7 @@ inline fn engineAllocator(e: *const Engine) std.mem.Allocator {
+ /// Engine-owned io token (ADR-0184). Null only for an Engine that
+ /// predates `wasm_engine_new` (e.g. a zeroed struct from C).
+ pub inline fn engineIo(e: *const Engine) ?std.Io {
++    if (comptime !engine_io_supported) return null;
+     const t: *std.Io.Threaded = @ptrCast(@alignCast(e.io_threaded orelse return null));
+     return t.io();
+ }
+@@ -220,16 +226,18 @@ pub export fn wasm_engine_new() callconv(.c) ?*Engine {
+     // surface (which cannot receive a Zig io token) can serve WASI
+     // preopens / env inheritance. Threads spawn lazily; init only
+     // needs the allocator.
+-    const threaded = alloc.create(std.Io.Threaded) catch {
+-        alloc.destroy(e);
+-        return null;
+-    };
+-    threaded.* = .init(alloc, .{});
+     e.* = .{
+         .alloc_ptr = alloc.ptr,
+         .alloc_vtable = @ptrCast(alloc.vtable),
+-        .io_threaded = threaded,
+     };
++    if (comptime engine_io_supported) {
++        const threaded = alloc.create(std.Io.Threaded) catch {
++            alloc.destroy(e);
++            return null;
++        };
++        threaded.* = .init(alloc, .{});
++        e.io_threaded = threaded;
++    }
+     return e;
+ }
+ 
+@@ -240,10 +248,12 @@ pub export fn wasm_engine_new() callconv(.c) ?*Engine {
+ pub export fn wasm_engine_delete(e: ?*Engine) callconv(.c) void {
+     const handle = e orelse return;
+     const alloc = engineAllocator(handle);
+-    if (handle.io_threaded) |t_opaque| {
+-        const t: *std.Io.Threaded = @ptrCast(@alignCast(t_opaque));
+-        t.deinit();
+-        alloc.destroy(t);
++    if (comptime engine_io_supported) {
++        if (handle.io_threaded) |t_opaque| {
++            const t: *std.Io.Threaded = @ptrCast(@alignCast(t_opaque));
++            t.deinit();
++            alloc.destroy(t);
++        }
+     }
+     alloc.destroy(handle);
+ }
+@@ -2404,7 +2414,8 @@ pub export fn wasm_memory_size(m: ?*const Memory) callconv(.c) u32 {
+         ps_log2 = @intCast(mi.page_size_log2);
+         break :dblk mi.bytes.len;
+     };
+-    return @intCast(len >> ps_log2);
++    // The shift amount must be log2(bit width of usize) wide (u5 under ILP32).
++    return @intCast(len >> @as(std.math.Log2Int(usize), @intCast(ps_log2)));
+ }
+ 
+ /// `wasm_memory_grow(*Memory, delta)` — Wasm spec §4.4.7
+@@ -2421,8 +2432,8 @@ pub export fn wasm_memory_grow(m: ?*Memory, delta: u32) callconv(.c) bool {
+         if (inst.runtime) |rt| {
+             // Custom-page-sizes (ADR-0168 v0.2): grow in the memory's page units.
+             const ps_log2: u6 = if (rt.memories.len > 0) @intCast(rt.memories[0].page_size_log2) else 16;
+-            const old_pages = rt.memory.len >> ps_log2;
+-            const new_bytes = (old_pages + delta) << ps_log2;
++            const old_pages = rt.memory.len >> @as(std.math.Log2Int(usize), @intCast(ps_log2));
++            const new_bytes = (old_pages + delta) << @as(std.math.Log2Int(usize), @intCast(ps_log2));
+             const old_len = rt.memory.len;
+             const grown: []u8 = blk: {
+                 // ADR-0202 D1 — guarded backing commits in place.
+@@ -2461,15 +2472,15 @@ pub export fn wasm_memory_grow(m: ?*Memory, delta: u32) callconv(.c) bool {
+     const alloc = storeAllocator(store) orelse return false;
+     const ps_log2: u6 = @intCast(mi.page_size_log2);
+     const old_len = mi.bytes.len;
+-    const new_bytes = ((old_len >> ps_log2) + delta) << ps_log2;
++    const new_bytes = ((old_len >> @as(std.math.Log2Int(usize), @intCast(ps_log2))) + delta) << @as(std.math.Log2Int(usize), @intCast(ps_log2));
+     // #216 — a `wasm_memory_new` memory belongs to no instance, so it reports
+     // under id 0, the value the header already defines for exactly that. The
+     // alternative, staying silent, would make the growth hook's own contract
+     // ("from a guest memory.grow or from wasm_memory_grow") false for a whole
+     // kind of memory, and would skew any host totalling pages grown.
+     const grow_site: hooks.Site = .{ .engine = store.engine, .instance_id = 0 };
+-    const new_pages = new_bytes >> ps_log2;
+-    const old_pages = old_len >> ps_log2;
++    const new_pages = new_bytes >> @as(std.math.Log2Int(usize), @intCast(ps_log2));
++    const old_pages = old_len >> @as(std.math.Log2Int(usize), @intCast(ps_log2));
+     // ADR-0202 D1 — guarded backing commits in place.
+     if (mi.reservation) |*res| {
+         mi.bytes = memory_backing.growGuarded(res, new_bytes) orelse return false;
+diff --git a/src/api/ref_base.zig b/src/api/ref_base.zig
+index 4c9262ebc..8b9527bfe 100644
+--- a/src/api/ref_base.zig
++++ b/src/api/ref_base.zig
+@@ -117,7 +117,7 @@ pub export fn wasm_global_as_ref(g: ?*handles.Global) callconv(.c) ?*handles.Ref
+ pub export fn wasm_ref_as_global(r: ?*handles.Ref) callconv(.c) ?*handles.Global {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_global_as_ref_const(g: ?*const handles.Global) callconv(.c) ?*const handles.Ref {
+     return wasm_global_as_ref(@constCast(g));
+@@ -133,7 +133,7 @@ pub export fn wasm_table_as_ref(t: ?*handles.Table) callconv(.c) ?*handles.Ref {
+ pub export fn wasm_ref_as_table(r: ?*handles.Ref) callconv(.c) ?*handles.Table {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_table_as_ref_const(t: ?*const handles.Table) callconv(.c) ?*const handles.Ref {
+     return wasm_table_as_ref(@constCast(t));
+@@ -149,7 +149,7 @@ pub export fn wasm_memory_as_ref(m: ?*handles.Memory) callconv(.c) ?*handles.Ref
+ pub export fn wasm_ref_as_memory(r: ?*handles.Ref) callconv(.c) ?*handles.Memory {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_memory_as_ref_const(m: ?*const handles.Memory) callconv(.c) ?*const handles.Ref {
+     return wasm_memory_as_ref(@constCast(m));
+@@ -165,7 +165,7 @@ pub export fn wasm_extern_as_ref(e: ?*handles.Extern) callconv(.c) ?*handles.Ref
+ pub export fn wasm_ref_as_extern(r: ?*handles.Ref) callconv(.c) ?*handles.Extern {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_extern_as_ref_const(e: ?*const handles.Extern) callconv(.c) ?*const handles.Ref {
+     return wasm_extern_as_ref(@constCast(e));
+@@ -181,7 +181,7 @@ pub export fn wasm_module_as_ref(m: ?*instance.Module) callconv(.c) ?*handles.Re
+ pub export fn wasm_ref_as_module(r: ?*handles.Ref) callconv(.c) ?*instance.Module {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_module_as_ref_const(m: ?*const instance.Module) callconv(.c) ?*const handles.Ref {
+     return wasm_module_as_ref(@constCast(m));
+@@ -197,7 +197,7 @@ pub export fn wasm_trap_as_ref(t: ?*trap_surface.Trap) callconv(.c) ?*handles.Re
+ pub export fn wasm_ref_as_trap(r: ?*handles.Ref) callconv(.c) ?*trap_surface.Trap {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_trap_as_ref_const(t: ?*const trap_surface.Trap) callconv(.c) ?*const handles.Ref {
+     return wasm_trap_as_ref(@constCast(t));
+@@ -226,7 +226,7 @@ pub export fn wasm_instance_as_ref(inst: ?*instance.Instance) callconv(.c) ?*han
+ pub export fn wasm_ref_as_instance(r: ?*handles.Ref) callconv(.c) ?*instance.Instance {
+     const h = r orelse return null;
+     if (h.ref == 0) return null;
+-    return @ptrFromInt(h.ref);
++    return @ptrFromInt(@as(usize, @intCast(h.ref)));
+ }
+ pub export fn wasm_instance_as_ref_const(inst: ?*const instance.Instance) callconv(.c) ?*const handles.Ref {
+     return wasm_instance_as_ref(@constCast(inst));
+diff --git a/src/instruction/wasm_2_0/bulk_memory.zig b/src/instruction/wasm_2_0/bulk_memory.zig
+index b9d57e9ba..6a0eaf3c7 100644
+--- a/src/instruction/wasm_2_0/bulk_memory.zig
++++ b/src/instruction/wasm_2_0/bulk_memory.zig
+@@ -128,7 +128,7 @@ fn memoryInit(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     // 10.M cycle 67 — payload = dataidx, extra = dst_memidx.
+     const dataidx = instr.payload;
+     if (dataidx >= rt.datas.len) return Trap.Unreachable;
+-    const dropped = if (dataidx < rt.data_dropped.len) rt.data_dropped[dataidx] else false;
++    const dropped = if (dataidx < rt.data_dropped.len) rt.data_dropped[@as(usize, @intCast(dataidx))] else false;
+     const seg_len: u64 = if (dropped) 0 else rt.datas[@intCast(dataidx)].len;
+     const dst_mem = memSliceByIdx(rt, instr.extra);
+ 
+@@ -151,7 +151,7 @@ fn dataDrop(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const rt = Runtime.fromOpaque(c);
+     const dataidx = instr.payload;
+     if (dataidx >= rt.data_dropped.len) return Trap.Unreachable;
+-    rt.data_dropped[dataidx] = true;
++    rt.data_dropped[@as(usize, @intCast(dataidx))] = true;
+ }
+ 
+ // ============================================================
+diff --git a/src/instruction/wasm_2_0/reference_types.zig b/src/instruction/wasm_2_0/reference_types.zig
+index dc4f00a01..2746af036 100644
+--- a/src/instruction/wasm_2_0/reference_types.zig
++++ b/src/instruction/wasm_2_0/reference_types.zig
+@@ -55,7 +55,7 @@ fn refFunc(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const rt = Runtime.fromOpaque(c);
+     const idx = instr.payload;
+     if (idx >= rt.func_entities.len) return runtime.Trap.Unreachable;
+-    try rt.pushOperand(Value.fromFuncRef(&rt.func_entities[idx]));
++    try rt.pushOperand(Value.fromFuncRef(&rt.func_entities[@as(usize, @intCast(idx))]));
+ }
+ 
+ // ============================================================
+diff --git a/src/instruction/wasm_2_0/table_ops.zig b/src/instruction/wasm_2_0/table_ops.zig
+index c7676194d..b49b4fd30 100644
+--- a/src/instruction/wasm_2_0/table_ops.zig
++++ b/src/instruction/wasm_2_0/table_ops.zig
+@@ -47,7 +47,7 @@ fn tableGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const rt = Runtime.fromOpaque(c);
+     const tableidx = instr.payload;
+     if (tableidx >= rt.tables.len) return Trap.Unreachable;
+-    const tbl = rt.tables[tableidx];
++    const tbl = rt.tables[@as(usize, @intCast(tableidx))];
+     const idx = popTableIndex(rt, tbl.idx_type);
+     if (idx >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+     try rt.pushOperand(tbl.refs[@intCast(idx)]);
+@@ -69,7 +69,7 @@ fn tableSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const rt = Runtime.fromOpaque(c);
+     const tableidx = instr.payload;
+     if (tableidx >= rt.tables.len) return Trap.Unreachable;
+-    const tbl = rt.tables[tableidx];
++    const tbl = rt.tables[@as(usize, @intCast(tableidx))];
+     const v = rt.popOperand();
+     const idx = popTableIndex(rt, tbl.idx_type);
+     if (idx >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+@@ -80,7 +80,7 @@ fn tableSize(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const rt = Runtime.fromOpaque(c);
+     const tableidx = instr.payload;
+     if (tableidx >= rt.tables.len) return Trap.Unreachable;
+-    const tbl = rt.tables[tableidx];
++    const tbl = rt.tables[@as(usize, @intCast(tableidx))];
+     try pushTableIndex(rt, tbl.idx_type, tbl.refs.len);
+ }
+ 
+@@ -100,7 +100,7 @@ fn tableGrow(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
+     const rt = Runtime.fromOpaque(c);
+     const tableidx = instr.payload;
+     if (tableidx >= rt.tables.len) return Trap.Unreachable;
+-    const tbl = &rt.tables[tableidx];
++    const tbl = &rt.tables[@as(usize, @intCast(tableidx))];
+ 
+     const n = popTableIndex(rt, tbl.idx_type);
+     const init_v = rt.popOperand();
+@@ -157,7 +157,7 @@ fn tableFill(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
+     const rt = Runtime.fromOpaque(c);
+     const tableidx = instr.payload;
+     if (tableidx >= rt.tables.len) return Trap.Unreachable;
+-    const tbl = rt.tables[tableidx];
++    const tbl = rt.tables[@as(usize, @intCast(tableidx))];
+ 
+     const n = popTableIndex(rt, tbl.idx_type);
+     const v = rt.popOperand();
+@@ -179,7 +179,7 @@ fn tableCopy(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
+     const dst_tbl_idx = instr.payload;
+     const src_tbl_idx = instr.extra;
+     if (dst_tbl_idx >= rt.tables.len or src_tbl_idx >= rt.tables.len) return Trap.Unreachable;
+-    const dst_tbl = rt.tables[dst_tbl_idx];
++    const dst_tbl = rt.tables[@as(usize, @intCast(dst_tbl_idx))];
+     const src_tbl = rt.tables[src_tbl_idx];
+ 
+     // table64: dst/src indices use their own table's width; n uses the
+@@ -221,8 +221,8 @@ fn tableInit(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
+     const elemidx = instr.payload;
+     const tableidx = instr.extra;
+     if (elemidx >= rt.elems.len or tableidx >= rt.tables.len) return Trap.Unreachable;
+-    const dropped = if (elemidx < rt.elem_dropped.len) rt.elem_dropped[elemidx] else false;
+-    const seg = rt.elems[elemidx];
++    const dropped = if (elemidx < rt.elem_dropped.len) rt.elem_dropped[@as(usize, @intCast(elemidx))] else false;
++    const seg = rt.elems[@as(usize, @intCast(elemidx))];
+     const seg_len: u64 = if (dropped) 0 else seg.len;
+     const tbl = rt.tables[tableidx];
+ 
+@@ -246,7 +246,7 @@ fn elemDrop(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
+     const rt = Runtime.fromOpaque(c);
+     const elemidx = instr.payload;
+     if (elemidx >= rt.elem_dropped.len) return Trap.Unreachable;
+-    rt.elem_dropped[elemidx] = true;
++    rt.elem_dropped[@as(usize, @intCast(elemidx))] = true;
+ }
+ 
+ // ============================================================
+diff --git a/src/interp/mvp.zig b/src/interp/mvp.zig
+index e755ae958..e8adfb2d8 100644
+--- a/src/interp/mvp.zig
++++ b/src/interp/mvp.zig
+@@ -175,7 +175,7 @@ fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const frame = rt.currentFrame();
+     const fnz = frame.func orelse return Trap.Unreachable;
+     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+-    const blk = fnz.blocks.items[instr.payload];
++    const blk = fnz.blocks.items[@as(usize, @intCast(instr.payload))];
+     // `instr.extra` packs (params << 8) | results for typeidx
+     // blocktypes (per lower.zig readBlockArity — the high byte feeds
+     // the JIT's end-of-block height calc). The interp's label arity is
+@@ -201,7 +201,7 @@ fn loopOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const frame = rt.currentFrame();
+     const fnz = frame.func orelse return Trap.Unreachable;
+     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+-    const blk = fnz.blocks.items[instr.payload];
++    const blk = fnz.blocks.items[@as(usize, @intCast(instr.payload))];
+     try frame.pushLabel(rt.alloc, .{
+         .height = rt.operand_len,
+         // `end` of a loop transfers the loop's result arity to the
+@@ -232,7 +232,7 @@ fn ifOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const cond = rt.popOperand().i32;
+     const fnz = frame.func orelse return Trap.Unreachable;
+     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+-    const blk = fnz.blocks.items[instr.payload];
++    const blk = fnz.blocks.items[@as(usize, @intCast(instr.payload))];
+     // Low byte = result arity, high byte = param count; see blockOp.
+     // `height` excludes params; `if (param T)` blocktypes would
+     // otherwise over-set arity + mis-place the restore base.
+@@ -257,7 +257,7 @@ fn elseOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const frame = rt.currentFrame();
+     const fnz = frame.func orelse return Trap.Unreachable;
+     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
+-    frame.pc = fnz.blocks.items[instr.payload].end_inst;
++    frame.pc = fnz.blocks.items[@as(usize, @intCast(instr.payload))].end_inst;
+ }
+ 
+ fn endOp(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+@@ -378,7 +378,7 @@ fn brTableOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const targets = fnz.branch_targets.items;
+     const end_idx = start + count;
+     if (end_idx >= targets.len) return Trap.Unreachable;
+-    const depth = if (idx < count) targets[start + idx] else targets[end_idx];
++    const depth = if (idx < count) targets[start + idx] else targets[@as(usize, @intCast(end_idx))];
+     try doBranch(rt, frame, depth);
+ }
+ 
+@@ -393,7 +393,7 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     // thunk + host context; defined-function indices have null
+     // and fall through to ordinary ZirFunc dispatch.
+     if (idx < rt.host_calls.len) {
+-        if (rt.host_calls[idx]) |hc| {
++        if (rt.host_calls[@as(usize, @intCast(idx))]) |hc| {
+             // D-331A: fingerprint linear memory at every host-call boundary so an
+             // interp trace can be diffed against the JIT's fd_write/poll_oneoff hooks.
+             dbg.print("mem.cksum", "interp {d} {x}", .{ idx, dbg.fnv1a(rt.memory) });
+@@ -424,7 +424,7 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+         const caller: u32 = if (rt.currentFrame().func) |zf| zf.func_idx else 0xFFFF_FFFF;
+         std.debug.print("[calledge] {d}->{d}\n", .{ caller, @as(u32, @intCast(idx)) });
+     }
+-    const callee = rt.funcs[idx];
++    const callee = rt.funcs[@as(usize, @intCast(idx))];
+     const tbl = rt.table orelse return Trap.Unreachable;
+     try invoke(rt, tbl, callee);
+ }
+@@ -478,7 +478,7 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const callee = callee_rt.funcs[fe.func_idx];
+ 
+     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+-    const expected = rt.module_types[instr.payload];
++    const expected = rt.module_types[@as(usize, @intCast(instr.payload))];
+     // Wasm 3.0 §3.3.5.5 — the callee's declared func type need only be a
+     // SUBTYPE of the expected type (not structurally equal): a `$t1` func
+     // (`$t1 <: $t0`) called via `call_indirect (type $t0)` runs (D-198).
+@@ -542,7 +542,7 @@ fn callRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const callee = callee_rt.funcs[fe.func_idx];
+ 
+     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+-    const expected = rt.module_types[instr.payload];
++    const expected = rt.module_types[@as(usize, @intCast(instr.payload))];
+     // Wasm 3.0 §3.3.5.5 — the callee's declared func type need only be a
+     // SUBTYPE of the expected type (not structurally equal): a `$t1` func
+     // (`$t1 <: $t0`) called via `call_ref (type $t0)` runs (D-198).
+@@ -641,7 +641,7 @@ fn returnCallRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const callee = callee_rt.funcs[fe.func_idx];
+ 
+     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+-    const expected = rt.module_types[instr.payload];
++    const expected = rt.module_types[@as(usize, @intCast(instr.payload))];
+     if (!sigEq(callee.sig, expected)) return Trap.IndirectCallTypeMismatch;
+ 
+     // Same-module: route through `dispatch.run` trampoline (D-187).
+@@ -706,7 +706,7 @@ fn returnCallIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const callee = callee_rt.funcs[fe.func_idx];
+ 
+     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+-    const expected = rt.module_types[instr.payload];
++    const expected = rt.module_types[@as(usize, @intCast(instr.payload))];
+     if (!sigEq(callee.sig, expected)) return Trap.IndirectCallTypeMismatch;
+ 
+     if (callee_rt == rt) {
+@@ -1064,7 +1064,7 @@ fn localGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const idx = instr.payload;
+     const frame = rt.currentFrame();
+     if (idx >= frame.locals.len) return Trap.Unreachable;
+-    try rt.pushOperand(frame.locals[idx]);
++    try rt.pushOperand(frame.locals[@as(usize, @intCast(idx))]);
+ }
+ 
+ fn localSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+@@ -1072,7 +1072,7 @@ fn localSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const idx = instr.payload;
+     const frame = rt.currentFrame();
+     if (idx >= frame.locals.len) return Trap.Unreachable;
+-    frame.locals[idx] = rt.popOperand();
++    frame.locals[@as(usize, @intCast(idx))] = rt.popOperand();
+ }
+ 
+ fn localTee(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+@@ -1080,14 +1080,14 @@ fn localTee(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const idx = instr.payload;
+     const frame = rt.currentFrame();
+     if (idx >= frame.locals.len) return Trap.Unreachable;
+-    frame.locals[idx] = rt.topOperand();
++    frame.locals[@as(usize, @intCast(idx))] = rt.topOperand();
+ }
+ 
+ fn globalGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const rt = Runtime.fromOpaque(c);
+     const idx = instr.payload;
+     if (idx >= rt.globals.len) return Trap.Unreachable;
+-    try rt.pushOperand(rt.globals[idx].*);
++    try rt.pushOperand(rt.globals[@as(usize, @intCast(idx))].*);
+ }
+ 
+ fn globalSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+@@ -1095,7 +1095,7 @@ fn globalSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+     const idx = instr.payload;
+     if (idx >= rt.globals.len) return Trap.Unreachable;
+     const v = rt.popOperand();
+-    rt.globals[idx].* = v;
++    rt.globals[@as(usize, @intCast(idx))].* = v;
+     // D-494 asyncify debug (ZWASM_DEBUG=global.trace): the TinyGo asyncify state
+     // machine drives globals 0/1/2 (i32). Byte-read the low 4 bytes so a non-i32
+     // global in another program doesn't trip the union active-field check.
+diff --git a/src/runtime/instance/instantiate.zig b/src/runtime/instance/instantiate.zig
+index 1ce4b32d1..ff26b9a8b 100644
+--- a/src/runtime/instance/instantiate.zig
++++ b/src/runtime/instance/instantiate.zig
+@@ -1343,7 +1343,7 @@ pub fn instantiateRuntime(
+                 // Custom-page-sizes (ADR-0168 v0.2): initial bytes = min ×
+                 // (1 << page_size_log2). Default 64 KiB.
+                 const page_size: usize = @as(usize, 1) << @intCast(entry.page_size_log2);
+-                const bytes_total: usize = @as(usize, pages) * page_size;
++                const bytes_total: usize = @as(usize, @intCast(pages)) * page_size;
+                 // ADR-0202 D1 — qualifying i32/64KiB memories get a guard-page
+                 // reservation (base never moves); others stay heap-backed.
+                 const backing = try memory_backing.allocBacking(
+@@ -1425,7 +1425,7 @@ pub fn instantiateRuntime(
+                     if (rt.store_table_elements_max) |cap| {
+                         if (entry.min > cap) return error.TableLimitExceeded;
+                     }
+-                    const refs = try a.alloc(Value, entry.min);
++                    const refs = try a.alloc(Value, @as(usize, @intCast(entry.min)));
+                     if (entry.init_expr.len > 0) {
+                         // Wasm 3.0 table-with-init-expr: eval the const-expr
+                         // once + fill every slot with the result.
+diff --git a/src/runtime/value.zig b/src/runtime/value.zig
+index bf527dfd8..f06d9a565 100644
+--- a/src/runtime/value.zig
++++ b/src/runtime/value.zig
+@@ -108,7 +108,7 @@ pub const Value = extern union {
+     /// or `null` if the cell holds the null reference.
+     pub fn refAsFuncEntity(v: Value) ?*const FuncEntity {
+         if (v.ref == null_ref) return null;
+-        return @ptrFromInt(v.ref);
++        return @ptrFromInt(@as(usize, @intCast(v.ref)));
+     }
+ 
+     /// Wasm 3.0 EH (10.E-exnref-a) — encode an `Exception` heap
+@@ -128,7 +128,7 @@ pub const Value = extern union {
+     /// Returns `null` for the null exnref sentinel.
+     pub fn refAsExceptionPtr(v: Value) ?*anyopaque {
+         if (v.ref == null_ref) return null;
+-        return @ptrFromInt(v.ref);
++        return @ptrFromInt(@as(usize, @intCast(v.ref)));
+     }
+ 
+     /// Encode an i32 as an i31-tagged GC reference (Wasm 3.0 GC
+diff --git a/src/zwasm.zig b/src/zwasm.zig
+index 58cdf1834..fe26cee01 100644
+--- a/src/zwasm.zig
++++ b/src/zwasm.zig
+@@ -33,6 +33,15 @@
+ 
+ const std = @import("std");
+ 
++/// `std.debug.print` (diagnostic prints behind `dbg.on(..)`, panics) writes
++/// through `std_options_debug_io`, whose default is std.Io.Threaded. That
++/// does not compile under ILP32 on Zig 0.16, so 32-bit-pointer targets
++/// (arm64_32-apple-watchos) route std.debug through `std.Io.failing`.
++pub const std_options_debug_io: std.Io = if (@sizeOf(usize) < 8)
++    std.Io.failing
++else
++    std.Io.Threaded.global_single_threaded.io();
++
+ // Single source of truth = build.zig.zon `.version`, threaded through
+ // build_options by build.zig (no hand-sync; bump the zon when the user cuts
+ // a tag, per ADR-0156 USER-only release). `--version` reads this.

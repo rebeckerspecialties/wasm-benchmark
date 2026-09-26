@@ -1,48 +1,38 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From e93db18d749cb9d8c1d8b4a676e93ce76fda387c Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
-Date: Sat, 16 May 2026 21:30:00 -0700
-Subject: [PATCH] Enable arm64_32-apple-watchos (aarch64-watchos-ilp32) build
+Date: Tue, 22 Sep 2026 16:41:37 -0700
+Subject: Enable arm64_32-apple-watchos (aarch64-watchos-ilp32) build
 
-The static-lib target compiles for `aarch64-watchos-ilp32` (the Zig 0.16
-spelling for arm64_32-apple-watchos — the legacy `arm64_32` triple was
-removed in ziglang/zig PR #20820) so wasm-benchmark can link wasmz into
-an Apple-Watch WatchKit app for the Series 4 / SE / SE2 / S8 device
-class (ILP32 ABI: 32-bit pointers, aarch64 instructions).
+Zig 0.16's std.Io.Threaded does not compile under ILP32 (u64 -> usize
+narrowing, align(4) header casts), so on 32-bit-pointer targets keep
+every reference to it out of the C API static library:
 
-Two changes:
+- build.zig: single_threaded static lib for the ILP32 target.
+- capi.zig: a trapping panic handler (upstream's FullPanic handler
+  prints through std.debug and stays on 64-bit targets), a no-op logFn,
+  std_options_debug_io = std.Io.failing, and std.Io.failing as the
+  store's Io (it backs WASI only; plain-wasm embedding is unaffected).
 
-  * build.zig: pass `.single_threaded = true` to the static-lib module.
-    This eliminates the `if (!builtin.single_threaded) { ... }` branch
-    in src/vm/handlers/memory.zig that calls `std.debug.print`, which
-    is what pulls in `std.Io.Threaded` (via std.debug.lockStderr →
-    std.Options.debug_io). std.Io.Threaded itself doesn't compile on
-    arm64_32-watchos — three errors in dirReadDarwin / pwrite paths
-    where Zig stdlib casts u64 syscall returns to a 32-bit usize.
-    Embedders that need wasm-threads can still build the dynamic
-    `clib` variant which keeps the multithreaded code paths.
-
-  * src/capi.zig: override `panic` and `std_options.logFn` to a
-    self-contained "@trap()" / no-op pair. Even with single_threaded,
-    explicit calls to `std.debug.simple_panic` would still pull
-    `lockStderr` → `debug_io` → `Threaded.io()` into the call graph,
-    and `std.log.defaultLog` does the same from `std.log.err` calls
-    inside src/wasmz/instance.zig. wasmz already surfaces all errors
-    through the C-ABI `wasmz_error_t` channel, so losing pretty panic
-    messages on this target costs nothing the C consumer ever saw.
-
-The patch is a no-op on all non-arm64_32 targets — single_threaded for
-the static lib is fine on iOS/tvOS/macOS, and the overridden panic
-namespace just produces a smaller stripped binary.
+Rebased onto v0.1.4, which added its own panic handler and the
+Store.init(io) parameter; both are now chosen by pointer width.
 ---
- build.zig     |   7 +++
- src/capi.zig  | 109 ++++++++++++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 116 insertions(+)
+ build.zig    |   7 +++
+ src/capi.zig | 134 ++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 139 insertions(+), 2 deletions(-)
 
 diff --git a/build.zig b/build.zig
-index befb75a..2b5bff1 100644
+index c828fd7..7c37f00 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -290,6 +290,12 @@ pub fn build(b: *std.Build) void {
+@@ -279,6 +279,7 @@ pub fn build(b: *std.Build) void {
+             .root_source_file = b.path("src/capi.zig"),
+             .target = target,
+             .optimize = optimize,
++            .single_threaded = true,
+             .imports = &.{
+                 .{ .name = "wasmz", .module = mod },
+             },
+@@ -303,6 +304,12 @@ pub fn build(b: *std.Build) void {
      // Mirrors the wasm-benchmark project convention (`zwasm` exposes the
      // same `static-lib` step) so `scripts/build-wasmz.sh` can call it
      // without a special case.
@@ -55,22 +45,14 @@ index befb75a..2b5bff1 100644
      const clib_static = b.addLibrary(.{
          .name = "wasmz",
          .linkage = .static,
-@@ -297,6 +303,7 @@ pub fn build(b: *std.Build) void {
-             .root_source_file = b.path("src/capi.zig"),
-             .target = target,
-             .optimize = optimize,
-+            .single_threaded = true,
-             .imports = &.{
-                 .{ .name = "wasmz", .module = mod },
-             },
 diff --git a/src/capi.zig b/src/capi.zig
-index 982c2f0..325835a 100644
+index f73eab0..444aed4 100644
 --- a/src/capi.zig
 +++ b/src/capi.zig
-@@ -13,6 +13,115 @@
+@@ -15,6 +15,123 @@
  const std = @import("std");
  const wasmz = @import("wasmz");
-
+ 
 +// On arm64_32-apple-watchos (32-bit-pointer aarch64) Zig 0.16's
 +// default panic / std.debug machinery hits `u64 → usize` narrowing
 +// errors in std.Io.Threaded.dirReadDarwin et al. Even
@@ -88,7 +70,7 @@ index 982c2f0..325835a 100644
 +fn traping_panic(_: []const u8, _: ?usize) noreturn {
 +    @trap();
 +}
-+pub const panic = struct {
++const ilp32_panic = struct {
 +    pub const call = traping_panic;
 +    pub fn sentinelMismatch(_: anytype, _: anytype) noreturn {
 +        @trap();
@@ -174,6 +156,14 @@ index 982c2f0..325835a 100644
 +    _: anytype,
 +) void {}
 +
++/// `std.debug.print` (reached from e.g. the memory.grow handler's error path)
++/// writes through `std_options_debug_io`; its default is std.Io.Threaded,
++/// which does not compile under ILP32 on Zig 0.16.
++pub const std_options_debug_io: std.Io = if (@sizeOf(usize) < 8)
++    std.Io.failing
++else
++    std.Io.Threaded.global_single_threaded.io();
++
 +pub const std_options: std.Options = .{
 +    .allow_stack_tracing = false,
 +    .networking = false,
@@ -183,5 +173,40 @@ index 982c2f0..325835a 100644
  const Engine = wasmz.Engine;
  const Config = wasmz.Config;
  const Module = wasmz.Module;
---
-2.51.0
+@@ -41,7 +158,11 @@ const alloc = std.heap.page_allocator;
+ /// `std.debug.SelfInfo` out of the archive, which on windows-msvc would
+ /// otherwise need `LdrRegisterDllNotification` — a symbol the Windows SDK's
+ /// ntdll import library does not provide.
+-pub const panic = std.debug.FullPanic(struct {
++///
++/// On 32-bit-pointer targets (arm64_32-apple-watchos) even this handler's
++/// `std.debug.print` pulls in std.Io.Threaded, which does not compile under
++/// ILP32 on Zig 0.16, so those targets use the trapping handler above.
++pub const panic = if (@sizeOf(usize) < 8) ilp32_panic else std.debug.FullPanic(struct {
+     fn call(msg: []const u8, _: ?usize) noreturn {
+         std.debug.print("wasmz: panic: {s}\n", .{msg});
+         std.process.abort();
+@@ -255,13 +376,22 @@ const CStore = struct {
+     }
+ };
+ 
++/// The store's `std.Io` backs WASI only. On 32-bit-pointer targets
++/// (arm64_32-apple-watchos) std.Io.Threaded does not compile under ILP32 on
++/// Zig 0.16, so those targets get `std.Io.failing`: WASI calls fail cleanly,
++/// plain-wasm embedding is unaffected.
++fn store_io() std.Io {
++    if (comptime @sizeOf(usize) < 8) return std.Io.failing;
++    return std.Io.Threaded.global_single_threaded.io();
++}
++
+ export fn wasmz_store_new(engine_handle: ?*wasmz_engine_t) ?*wasmz_store_t {
+     const eh = engine_handle orelse return null;
+     const eng: *Engine = @ptrCast(@alignCast(eh.ptr));
+ 
+     const cstore = alloc.create(CStore) catch return null;
+     cstore.* = .{
+-        .store = Store.init(alloc, eng.*, std.Io.Threaded.global_single_threaded.io()) catch {
++        .store = Store.init(alloc, eng.*, store_io()) catch {
+             alloc.destroy(cstore);
+             return null;
+         },

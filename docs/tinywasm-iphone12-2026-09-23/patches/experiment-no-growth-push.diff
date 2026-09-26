@@ -1,0 +1,34 @@
+diff --git a/crates/tinywasm/src/interpreter/stack/value_stack.rs b/crates/tinywasm/src/interpreter/stack/value_stack.rs
+index 814195a..63ffecf 100644
+--- a/crates/tinywasm/src/interpreter/stack/value_stack.rs
++++ b/crates/tinywasm/src/interpreter/stack/value_stack.rs
+@@ -44,11 +44,11 @@ impl<T: Copy + Default> Stack<T> {
+         self.data.len()
+     }
+ 
++    // EXPERIMENT (upper bound): no growth in push. Identical to the current behavior for fixed
++    // stacks (the default config); dynamic stacks would trap instead of growing here.
+     #[inline(always)]
+     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
+-        // Check the limit only at capacity to avoid an extra hot-path check. Vec growth may
+-        // intentionally overshoot max_size. Revisit when Vec::push_within_capacity is stable.
+-        if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
++        if self.data.len() == self.data.capacity() {
+             return cold!(Err(Trap::ValueStackOverflow));
+         }
+         self.data.push(value);
+@@ -57,13 +57,8 @@ impl<T: Copy + Default> Stack<T> {
+ 
+     #[inline(always)]
+     pub(crate) fn push_copy(&mut self, index: usize) -> Result<(), Trap> {
+-        // Keep the same capacity-based limit check as push, including intentional overshoot.
+-        if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
+-            return cold!(Err(Trap::ValueStackOverflow));
+-        }
+         let value = self.data[index];
+-        self.data.push(value);
+-        Ok(())
++        self.push(value)
+     }
+ 
+     #[inline(always)]

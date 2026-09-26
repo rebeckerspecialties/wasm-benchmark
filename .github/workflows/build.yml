@@ -64,32 +64,25 @@ jobs:
 
       - name: Install pinned rustup toolchains
         run: |
-          # 1.94.1 — default stable (cargo workspace, benchmark-core).
-          # 1.93.1 — what build-workloads.sh defaults to via TOOLCHAIN env.
-          # nightly-2026-01-25 — Tier-3 build-std + `become` Pulley TCO.
-          rustup toolchain install 1.94.1 --component rust-src
-          rustup toolchain install 1.93.1 --component rust-src
-          rustup toolchain install nightly-2026-01-25 --component rust-src
-          # Tier-1/2 targets we cross-build for. wasm32-unknown-unknown
-          # has to land on the 1.93.1 toolchain too because that's what
-          # build-workloads.sh uses by default.
-          # The Apple device + sim targets need to be added on every
-          # toolchain we'll actually `cargo build --target=...` against.
-          # build-lib.sh routes ios / ios-sim through the nightly (for
-          # the Pulley `become`-based dispatch), and routes macos host
-          # through nightly too — but workloads and the staticlib build
-          # against 1.94.1 in other places. So add to all three.
-          for tc in 1.94.1 1.93.1 nightly-2026-01-25; do
-            rustup target add --toolchain "$tc" \
-              aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim \
-              wasm32-unknown-unknown
-          done
+          # nightly-2026-07-05 (1.98.0-nightly) — every harness build:
+          #   build-lib.sh (device libs, Tier-3 build-std) and
+          #   build-host-cli.sh; needed for --cfg=pulley_tail_calls and
+          #   tinywasm's nightly-tail-calls. wasmtime v49 needs >= 1.96,
+          #   tinywasm 0.11 >= 1.98.
+          # 1.93.1 — the wasm32 guest builds (build-workloads.sh etc.).
+          rustup toolchain install nightly-2026-07-05 --component rust-src
+          rustup toolchain install 1.93.1
+          rustup target add --toolchain nightly-2026-07-05 \
+            aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
+          rustup target add --toolchain 1.93.1 wasm32-unknown-unknown wasm32-wasip2
           # Tier-3 watchOS/tvOS use build-std on the nightly; nothing to
           # add via `rustup target`.
 
-      - name: Install build deps (cmake, ninja, zig 0.16)
+      - name: Install build deps (cmake, ninja, zig 0.16, wasm-tools)
         run: |
-          brew install cmake ninja zig
+          # wasm-tools: build-workloads.sh assembles the feature benchmarks'
+          # WAT and checks their opcodes survived.
+          brew install cmake ninja zig wasm-tools
 
       - name: Build wasm workloads
         run: ./scripts/build-workloads.sh
@@ -122,7 +115,7 @@ jobs:
           path: wasm3/build
           key: ${{ runner.os }}-wasm3-macos-${{ hashFiles('.ci-cache-inputs/wasm3.sha', 'patches/wasm3/**', 'scripts/build-wasm3.sh', 'scripts/apply_patch_series.sh') }}
 
-      - name: Build wasm3 (macOS) — applies patches/wasm3/0001 (v128 opaque)
+      - name: Build wasm3 (macOS) — v0.9.0, no patches
         if: steps.cache-wasm3-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wasm3.sh macos
 
@@ -135,7 +128,7 @@ jobs:
           path: wasmz/build
           key: ${{ runner.os }}-wasmz-macos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh') }}
 
-      - name: Build wasmz (macOS) — applies patches/wasmz/{0001 stdlib port, 0002 watchos}
+      - name: Build wasmz (macOS) — applies patches/wasmz/0002 (watchOS)
         if: steps.cache-wasmz-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wasmz.sh macos
 
@@ -148,13 +141,13 @@ jobs:
           path: zwasm/build
           key: ${{ runner.os }}-zwasm-macos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh') }}
 
-      - name: Build zwasm (macOS) — applies patches/zwasm/0001 watchos
+      - name: Build zwasm (macOS) — applies patches/zwasm/{0001 no JIT, 0002 watchOS}
         if: steps.cache-zwasm-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-zwasm.sh macos
 
       # ─── WasmEdge ─────────────────────────────────────────────────
       # WasmEdge is the slowest build in the matrix (~90 s on the
-      # macOS-15 runner) and the patch series is the largest (27
+      # macOS-15 runner) and the patch series is the largest (26
       # patches), so it benefits the most from caching.
 
       - name: Cache WasmEdge (macOS host)
@@ -164,7 +157,7 @@ jobs:
           path: WasmEdge/build
           key: ${{ runner.os }}-wasmedge-macos-${{ hashFiles('.ci-cache-inputs/WasmEdge.sha', 'patches/wasmedge/**', 'scripts/build-wasmedge.sh', 'scripts/apply_patch_series.sh') }}
 
-      - name: Build WasmEdge (macOS) — applies 27-patch series in patches/wasmedge/
+      - name: Build WasmEdge (macOS) — applies the patch series in patches/wasmedge/
         if: steps.cache-wasmedge-macos.outputs.cache-hit != 'true'
         run: ./scripts/build-wasmedge.sh macos
 
@@ -239,5 +232,9 @@ jobs:
       - name: Build benchmark-core static lib (arm64_32-apple-watchos)
         run: ./scripts/build-lib.sh watchos
 
-      - name: Build all native test binaries (validates harness wiring)
-        run: cargo build --release -p benchmark-core --bins
+      - name: Build the host CLIs (validates harness wiring)
+        # Same toolchain and flags as the measurement passes. run_femtovg_e2e
+        # needs the femtovg-e2e feature (wgpu on Metal).
+        run: |
+          ./scripts/build-host-cli.sh --bins
+          ./scripts/build-host-cli.sh --bin run_femtovg_e2e --features femtovg-e2e

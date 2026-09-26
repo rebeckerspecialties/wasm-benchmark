@@ -1,7 +1,7 @@
-From 683a9dbee72cb7777bfd291e233ff469ce3d1949 Mon Sep 17 00:00:00 2001
+From dee35cc1c100ad0dee2e202308e636b5aa6d7f2c Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 17 May 2026 20:57:10 -0700
-Subject: [PATCH 05/15] fast-interp: WASM_OP_RETHROW catch-walk re-raise
+Subject: fast-interp: WASM_OP_RETHROW catch-walk re-raise
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -61,13 +61,15 @@ Verified by three new cases in
     suite pass; AS / porf-fast / porf-accurate benchmark medians
     overlap the prior commit's range within run-to-run variance
     (three runs each).
+
+(cherry picked from commit ed4d2b1f3702f2afeb5915bfe5d41d5c17aefa7c)
 ---
  core/iwasm/interpreter/wasm_interp_fast.c | 120 ++++++++++++++++------
  core/iwasm/interpreter/wasm_loader.c      |  55 +++++++---
  2 files changed, 130 insertions(+), 45 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index f8167fea..0f13d93f 100644
+index a2930efc..828832b4 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -103,15 +103,18 @@ typedef float64 CellType_F64;
@@ -252,10 +254,10 @@ index f8167fea..0f13d93f 100644
              /* param_cell_num, local_cell_num, const_cell_num and
                 max_stack_cell_num are all no larger than UINT16_MAX (checked
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index cef9db11..9ef6603d 100644
+index f4fb6083..bcc6ea13 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -12555,21 +12555,50 @@ re_scan:
+@@ -12563,21 +12563,50 @@ re_scan:
              }
              case WASM_OP_RETHROW:
              {
@@ -319,6 +321,3 @@ index cef9db11..9ef6603d 100644
                  }
  
                  BranchBlock *cur_block = loader_ctx->frame_csp - 1;
--- 
-2.54.0
-

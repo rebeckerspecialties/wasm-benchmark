@@ -1,0 +1,81 @@
+busiest thread: WasmBench (0x3b918)  samples: 11796 (99.9% on E cores)  all threads: 11908
+
+# self time (leaf frame), top 60
+ 95.67%   11285  wasm_interp_call_func_bytecode
+  4.04%     477  _platform_memset
+  0.18%      21  __bzero
+  0.01%       1  lookUpImpOrForward
+  0.01%       1  id2data(objc_object*, SyncKind, usage)
+  0.01%       1  realizeClassWithoutSwift(objc_class*, objc_class*)
+  0.01%       1  dyld4::PrebuiltLoader::matchesPath(dyld4::RuntimeState const&, char const*) const
+  0.01%       1  __mac_syscall
+  0.01%       1  stat
+  0.01%       1  objc_retain
+  0.01%       1  -[NSMethodSignature getArgumentTypeAtIndex:]
+  0.01%       1  0x1a66d2131
+  0.01%       1  swift::TargetMetadata<swift::InProcess>::getTypeContextDescriptor() const
+  0.01%       1  objc_autoreleasePoolPop
+  0.01%       1  start_wqthread
+  0.01%       1  wasm_loader_load
+
+# inclusive (on stack), top 60
+100.00%   11796  start_wqthread
+ 99.99%   11795  _dispatch_client_callout
+ 99.99%   11795  _dispatch_call_block_and_release
+ 99.99%   11795  _pthread_wqthread
+ 99.94%   11789  _dispatch_worker_thread2
+ 99.94%   11789  _dispatch_root_queue_drain
+ 99.93%   11788  <deduplicated_symbol>
+ 99.90%   11784  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.90%   11784  closure #2 in BenchmarkContentView.runAll()
+ 99.90%   11784  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.90%   11784  closure #2 in variable initialization expression of WORKLOADS
+ 99.90%   11784  bench_run_fib_wamr
+ 99.88%   11782  wasm_call_function
+ 99.88%   11782  wasm_interp_call_wasm
+ 99.88%   11782  wasm_runtime_call_wasm
+ 99.88%   11782  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 95.67%   11285  wasm_interp_call_func_bytecode
+  4.04%     477  _platform_memset
+  0.18%      21  __bzero
+  0.05%       6  _dispatch_lane_serial_drain
+  0.05%       6  _dispatch_workloop_worker_thread
+  0.05%       6  _dispatch_root_queue_drain_deferred_wlh
+  0.05%       6  _dispatch_lane_invoke
+  0.04%       5  _dispatch_once_callout
+  0.04%       5  __63-[BSXPCServiceConnectionEventHandler connection:handleMessage:]_block_invoke
+  0.04%       5  _BSXPCDecodeObjectForKey
+  0.04%       5  +[BSXPCServiceConnectionProxy decodeArguments:outArgs:fromMessage:forConnection:]
+  0.04%       5  -[BSXPCServiceConnectionEventHandler connection:handleMessage:]
+  0.04%       5  -[BSXPCServiceConnection _connection_handleMessage:fromPeer:withHandoff:]
+  0.04%       5  +[BSXPCServiceConnectionProxy invokeMethod:onTarget:withMessage:forConnection:completion:]
+  0.04%       5  BSXPCServiceConnectionExecuteCallOut
+  0.04%       5  _BSXPCDecodeObjectFromContext
+  0.04%       5  -[FBSSceneParameters initWithXPCDictionary:]
+  0.03%       4  _dispatch_lane_barrier_sync_invoke_and_complete
+  0.03%       4  0x1a8ce5893
+  0.03%       4  0x1b6805b1f
+  0.03%       4  0x1a8ce58b7
+  0.03%       4  0x1a8ce75e3
+  0.03%       4  0x1a8ce76a7
+  0.03%       4  0x1a8c3baf3
+  0.03%       4  0x1b680549b
+  0.03%       3  +[BSObjCProtocol protocolForProtocol:interpreter:]
+  0.03%       3  +[BSObjCProtocol _gatherMethodMetadataForRequired:onProtocol:toMethods:andErrors:]
+  0.03%       3  +[BSObjCMethod methodWithSelector:typeEncoding:outParsingError:]
+  0.03%       3  +[BSObjCProtocol protocolForProtocol:]
+  0.02%       2  0x1b68055cb
+  0.02%       2  lookUpImpOrForward
+  0.02%       2  _objc_msgSend_uncached
+  0.02%       2  +[BSObjCValue valueForArgumentAtIndex:inSignature:]
+  0.02%       2  +[BSObjCValue(ExternalCreation) valueWithEncoding:error:]
+  0.02%       2  +[BSObjCValue valueWithCEncoding:]
+  0.02%       2  +[BSObjCValue(ExternalCreation) valueWithEncoding:]
+  0.02%       2  FBSRealizeSettingsExtension
+  0.02%       2  FBSRealizeSubclassExtension
+  0.02%       2  +[FBSSettingsExtension BSObjCProtocol]
+  0.02%       2  _realizeSettingsExtension
+  0.02%       2  -[FBSSceneParameters initWithSpecification:]
+  0.02%       2  -[FBSSceneSettings initWithSettings:]
+  0.02%       2  -[FBSSettings initWithSettings:]
+  0.02%       2  __36-[BSSettings initWithXPCDictionary:]_block_invoke.16

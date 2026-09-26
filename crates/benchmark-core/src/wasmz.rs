@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::{taskinfo, RunReport};
+use crate::RunReport;
 
 // Opaque pointer types — wasmz.h documents them as opaque structs.
 #[allow(non_camel_case_types)]
@@ -219,13 +219,9 @@ pub fn run_workload_wasmz_iters(
     // main thread (the standalone C test environment) provides.
     let wasm_bytes_owned = wasm_bytes.to_vec();
     let fn_name_owned = fn_name.to_string();
-    std::thread::Builder::new()
-        .name("wasmz-runner".to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || run_workload_wasmz_iters_inner(&wasm_bytes_owned, &fn_name_owned, arg, iters))
-        .context("wasmz: failed to spawn dedicated 8 MiB-stack thread")?
-        .join()
-        .map_err(|_| anyhow!("wasmz-runner thread panicked"))?
+    crate::run_on_thread("wasmz-runner", 8 * 1024 * 1024, move || {
+        run_workload_wasmz_iters_inner(&wasm_bytes_owned, &fn_name_owned, arg, iters)
+    })?
 }
 
 fn run_workload_wasmz_iters_inner(
@@ -335,8 +331,7 @@ fn run_workload_wasmz_iters_inner(
         iters
     };
 
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
+    let window = crate::Window::start();
 
     let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
     for _ in 0..n {
@@ -345,52 +340,90 @@ fn run_workload_wasmz_iters_inner(
         samples.push(it_start.elapsed().as_nanos() as u64);
     }
 
-    let cpu_after = taskinfo::thread_times();
-    let events_after = taskinfo::events_info();
-    let basic = taskinfo::basic_info();
-
-    samples.sort_unstable();
-    let run_min = Duration::from_nanos(samples[0]);
-    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
-    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
-    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
-
-    #[cfg(target_vendor = "apple")]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
-        match (cpu_before, cpu_after, events_before, events_after) {
-            (Some(b), Some(a), Some(eb), Some(ea)) => (
-                to(a.user_time).saturating_sub(to(b.user_time)),
-                to(a.system_time).saturating_sub(to(b.system_time)),
-                (ea.faults as u64).saturating_sub(eb.faults as u64),
-            ),
-            _ => (0, 0, 0),
-        }
-    };
-    #[cfg(not(target_vendor = "apple"))]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let _ = (cpu_before, cpu_after, events_before, events_after);
-        (0u64, 0u64, 0u64)
-    };
-
-    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
-
-    Ok(RunReport {
-        result,
-        iterations: n,
-        load_time,
-        run_min,
-        run_median,
-        run_p99,
-        cpu_user_ns,
-        cpu_system_ns,
-        rss_peak_bytes,
-        page_faults,
-    })
+    Ok(window.finish(result, n, load_time, samples))
 }
 
 pub fn run_workload_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
     run_workload_wasmz_iters(wasm_bytes, fn_name, arg, 0)
+}
+
+/// `Shape::InstantiateEach` on wasmz: module compiled once, then a fresh
+/// instance per sample, deleted after the clock stops.
+pub fn run_instantiate_each_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    let wasm_bytes_owned = wasm_bytes.to_vec();
+    let fn_name_owned = fn_name.to_string();
+    crate::run_on_thread("wasmz-instantiate", 8 * 1024 * 1024, move || {
+        instantiate_each_inner(&wasm_bytes_owned, &fn_name_owned, arg)
+    })?
+}
+
+struct InstGuard(*mut wasmz_instance_t);
+impl Drop for InstGuard {
+    fn drop(&mut self) {
+        unsafe { wasmz_instance_delete(self.0) };
+    }
+}
+
+fn instantiate_each_inner(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
+    init()?;
+    let load_start = Instant::now();
+    let engine = unsafe { wasmz_engine_new() };
+    if engine.is_null() {
+        return Err(anyhow!("wasmz_engine_new returned NULL"));
+    }
+    struct EngGuard(*mut wasmz_engine_t);
+    impl Drop for EngGuard {
+        fn drop(&mut self) {
+            unsafe { wasmz_engine_delete(self.0) };
+        }
+    }
+    let _eg = EngGuard(engine);
+    let store = unsafe { wasmz_store_new(engine) };
+    if store.is_null() {
+        return Err(anyhow!("wasmz_store_new returned NULL"));
+    }
+    struct StoreGuard(*mut wasmz_store_t);
+    impl Drop for StoreGuard {
+        fn drop(&mut self) {
+            unsafe { wasmz_store_delete(self.0) };
+        }
+    }
+    let _sg = StoreGuard(store);
+    let mut module: *mut wasmz_module_t = std::ptr::null_mut();
+    let err = unsafe { wasmz_module_new(engine, wasm_bytes.as_ptr(), wasm_bytes.len(), &mut module) };
+    if !err.is_null() {
+        return Err(anyhow!("wasmz_module_new failed: {}", err_msg(err)));
+    }
+    struct ModGuard(*mut wasmz_module_t);
+    impl Drop for ModGuard {
+        fn drop(&mut self) {
+            unsafe { wasmz_module_delete(self.0) };
+        }
+    }
+    let _mg = ModGuard(module);
+    let cname = std::ffi::CString::new(fn_name)?;
+    let load_time = load_start.elapsed();
+
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
+        let err = unsafe { wasmz_instance_new(store, module, &mut instance) };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_instance_new failed: {}", err_msg(err)));
+        }
+        let inst = InstGuard(instance);
+        let args: [WasmzVal; 1] = [WasmzVal::i32_val(arg)];
+        let mut results: [WasmzVal; 1] = [WasmzVal::i32_val(0)];
+        let err = unsafe {
+            wasmz_instance_call(instance, cname.as_ptr(), args.as_ptr(), 1, results.as_mut_ptr(), 1)
+        };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_instance_call trap: {}", err_msg(err)));
+        }
+        let elapsed = t.elapsed();
+        drop(inst);
+        Ok((elapsed, results[0].as_i32()))
+    })
 }
 
 /// Dedicated Porffor-graphql runner. Wires the `("", "b") : (f64) → ()`
@@ -399,13 +432,9 @@ pub fn run_workload_wasmz(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<
 /// runners.
 pub fn run_graphql_validation_porf_wasmz(wasm_bytes: &[u8]) -> Result<RunReport> {
     let wasm_bytes_owned = wasm_bytes.to_vec();
-    std::thread::Builder::new()
-        .name("wasmz-porf".to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || run_graphql_validation_porf_wasmz_inner(&wasm_bytes_owned))
-        .context("wasmz: failed to spawn 8 MiB-stack thread")?
-        .join()
-        .map_err(|_| anyhow!("wasmz-porf thread panicked"))?
+    crate::run_on_thread("wasmz-porf", 8 * 1024 * 1024, move || {
+        run_graphql_validation_porf_wasmz_inner(&wasm_bytes_owned)
+    })?
 }
 
 fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunReport> {
@@ -485,30 +514,27 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
     }
     let _mg = ModGuard(module);
 
-    let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
-    let err = unsafe {
-        wasmz_instance_new_with_linker(store, module, linker, &mut instance)
-    };
-    if !err.is_null() {
-        return Err(anyhow!(
-            "wasmz_instance_new_with_linker failed: {}",
-            err_msg(err)
-        ));
-    }
-    struct InstGuard(*mut wasmz_instance_t);
-    impl Drop for InstGuard {
-        fn drop(&mut self) {
-            unsafe { wasmz_instance_delete(self.0) };
-        }
-    }
-    let _ig = InstGuard(instance);
-
     let cname = std::ffi::CString::new("m")?;
 
     let load_time = load_start.elapsed();
 
-    // m() → (f64, i32). 0 params, 2 results.
-    let call = || -> Result<i32> {
+    // m() → (f64, i32). 0 params, 2 results. Each sample instantiates a
+    // fresh instance and runs m() once: instantiate + m() is the timed
+    // unit on every runtime, because Porffor never frees and grows memory
+    // across calls. The instance is deleted after the clock stops.
+    crate::measure_samples(load_time, || {
+        let t = Instant::now();
+        let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
+        let err = unsafe {
+            wasmz_instance_new_with_linker(store, module, linker, &mut instance)
+        };
+        if !err.is_null() {
+            return Err(anyhow!(
+                "wasmz_instance_new_with_linker failed: {}",
+                err_msg(err)
+            ));
+        }
+        let inst = InstGuard(instance);
         let mut results: [WasmzVal; 2] = [WasmzVal { kind: WASMZ_VAL_I32, _pad: [0; 4], of: [0; 16] }; 2];
         // Pre-fill result kinds so the underlying call knows how to
         // marshal them. Per wasmz.h convention.
@@ -527,65 +553,185 @@ fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunRepor
         if !err.is_null() {
             return Err(anyhow!("wasmz m() trap: {}", err_msg(err)));
         }
-        Ok(results[1].as_i32())
-    };
+        let elapsed = t.elapsed();
+        drop(inst);
+        Ok((elapsed, results[1].as_i32()))
+    })
+}
 
-    let mut result = call().context("wasmz porf init-warmup failed")?;
-    let warm_start = Instant::now();
-    result = call().context("wasmz porf steady-warmup failed")?;
-    let warm = warm_start.elapsed();
-    let n = crate::pick_iters(warm, Duration::from_millis(200));
+// --- femtovg E2E guest binding -------------------------------------------
 
-    let cpu_before = taskinfo::thread_times();
-    let events_before = taskinfo::events_info();
+#[cfg(feature = "femtovg-e2e")]
+mod femtovg_binding {
+    use super::*;
+    use crate::femtovg_e2e as e2e;
 
-    let mut samples: Vec<u64> = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        let it_start = Instant::now();
-        result = call()?;
-        samples.push(it_start.elapsed().as_nanos() as u64);
+    extern "C" {
+        fn wasmz_context_memory(ctx: *mut wasmz_ctx_t) -> *mut u8;
+        fn wasmz_context_memory_size(ctx: *mut wasmz_ctx_t) -> usize;
     }
 
-    let cpu_after = taskinfo::thread_times();
-    let events_after = taskinfo::events_info();
-    let basic = taskinfo::basic_info();
-
-    samples.sort_unstable();
-    let run_min = Duration::from_nanos(samples[0]);
-    let run_median = Duration::from_nanos(samples[samples.len() / 2]);
-    let p99_idx = ((samples.len() as f64) * 0.99) as usize;
-    let run_p99 = Duration::from_nanos(samples[p99_idx.min(samples.len() - 1)]);
-
-    #[cfg(target_vendor = "apple")]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let to = |t: taskinfo::TimeValue| taskinfo::time_value_to_ns(t);
-        match (cpu_before, cpu_after, events_before, events_after) {
-            (Some(b), Some(a), Some(eb), Some(ea)) => (
-                to(a.user_time).saturating_sub(to(b.user_time)),
-                to(a.system_time).saturating_sub(to(b.system_time)),
-                (ea.faults as u64).saturating_sub(eb.faults as u64),
-            ),
-            _ => (0, 0, 0),
+    unsafe fn memory<'a>(ctx: *mut wasmz_ctx_t) -> &'a [u8] {
+        let base = wasmz_context_memory(ctx);
+        if base.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(base, wasmz_context_memory_size(ctx))
         }
-    };
-    #[cfg(not(target_vendor = "apple"))]
-    let (cpu_user_ns, cpu_system_ns, page_faults) = {
-        let _ = (cpu_before, cpu_after, events_before, events_after);
-        (0u64, 0u64, 0u64)
-    };
+    }
 
-    let rss_peak_bytes = basic.map(|b| b.resident_size_max).unwrap_or(0);
+    unsafe fn arg(p: *const WasmzVal, i: usize) -> i32 {
+        (*p.add(i)).as_i32()
+    }
 
-    Ok(RunReport {
-        result,
-        iterations: n,
-        load_time,
-        run_min,
-        run_median,
-        run_p99,
-        cpu_user_ns,
-        cpu_system_ns,
-        rss_peak_bytes,
-        page_faults,
-    })
+    extern "C" fn set_size(
+        _d: *mut c_void, _c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, _r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe { e2e::host_set_size(arg(p, 0), arg(p, 1), arg(p, 2)) };
+        0
+    }
+    extern "C" fn image_alloc(
+        _d: *mut c_void, _c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe { *r = WasmzVal::i32_val(e2e::host_image_alloc(arg(p, 0), arg(p, 1), arg(p, 2), arg(p, 3))) };
+        0
+    }
+    extern "C" fn image_update(
+        _d: *mut c_void, c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe {
+            let a = |i| arg(p, i);
+            let rc = match e2e::guest_span(memory(c), a(6), a(7).max(0) as usize) {
+                Some(data) => e2e::host_image_update(a(0), a(1), a(2), a(3), a(4), a(5), data),
+                None => -1,
+            };
+            *r = WasmzVal::i32_val(rc);
+        }
+        0
+    }
+    extern "C" fn image_delete(
+        _d: *mut c_void, _c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, _r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe { e2e::host_image_delete(arg(p, 0)) };
+        0
+    }
+    extern "C" fn render(
+        _d: *mut c_void, c: *mut wasmz_ctx_t, p: *const WasmzVal, _n: usize, _r: *mut WasmzVal, _rn: usize,
+    ) -> c_int {
+        unsafe {
+            let mem = memory(c);
+            let verts = e2e::guest_span(mem, arg(p, 0), arg(p, 1).max(0) as usize * 16);
+            let cmds = e2e::guest_span(mem, arg(p, 2), arg(p, 3).max(0) as usize * 4);
+            if let (Some(v), Some(k)) = (verts, cmds) {
+                e2e::host_render(v, k);
+            }
+        }
+        0
+    }
+
+    pub(crate) struct WasmzGuest {
+        instance: *mut wasmz_instance_t,
+        module: *mut wasmz_module_t,
+        linker: *mut wasmz_linker_t,
+        store: *mut wasmz_store_t,
+        engine: *mut wasmz_engine_t,
+    }
+
+    impl WasmzGuest {
+        fn call(&mut self, name: &[u8], args: &[i32]) -> Result<i32> {
+            let a: Vec<WasmzVal> = args.iter().map(|&v| WasmzVal::i32_val(v)).collect();
+            let mut r = [WasmzVal::i32_val(0)];
+            let err = unsafe {
+                wasmz_instance_call(self.instance, name.as_ptr() as *const c_char, a.as_ptr(), a.len(),
+                                    r.as_mut_ptr(), 1)
+            };
+            if !err.is_null() {
+                return Err(anyhow!("wasmz_instance_call trap: {}", err_msg(err)));
+            }
+            Ok(r[0].as_i32())
+        }
+    }
+
+    impl e2e::Guest for WasmzGuest {
+        fn init(&mut self, scene: i32, width: i32, height: i32) -> Result<i32> {
+            self.call(b"fvg_init\0", &[scene, width, height])
+        }
+        fn frame(&mut self, index: i32, count: i32) -> Result<i32> {
+            self.call(b"fvg_frame\0", &[index, count])
+        }
+        fn mem_pages(&mut self) -> Result<i32> {
+            self.call(b"fvg_mem_pages\0", &[])
+        }
+    }
+
+    impl Drop for WasmzGuest {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.instance.is_null() {
+                    wasmz_instance_delete(self.instance);
+                }
+                if !self.module.is_null() {
+                    wasmz_module_delete(self.module);
+                }
+                wasmz_linker_delete(self.linker);
+                wasmz_store_delete(self.store);
+                wasmz_engine_delete(self.engine);
+            }
+        }
+    }
+
+    pub(crate) fn guest(wasm: &[u8]) -> Result<Box<dyn e2e::Guest>> {
+        init()?;
+        let engine = unsafe { wasmz_engine_new() };
+        if engine.is_null() {
+            return Err(anyhow!("wasmz_engine_new returned NULL"));
+        }
+        let mut g = WasmzGuest {
+            instance: std::ptr::null_mut(),
+            module: std::ptr::null_mut(),
+            linker: unsafe { wasmz_linker_new() },
+            store: unsafe { wasmz_store_new(engine) },
+            engine,
+        };
+        let i = WASMZ_VAL_I32;
+        let defs: [(&[u8], &[c_int], &[c_int], WasmzFunc); 5] = [
+            (b"set_size\0", &[i, i, i], &[], set_size),
+            (b"image_alloc\0", &[i, i, i, i], &[i], image_alloc),
+            (b"image_update\0", &[i, i, i, i, i, i, i, i], &[i], image_update),
+            (b"image_delete\0", &[i], &[], image_delete),
+            (b"render\0", &[i, i, i, i], &[], render),
+        ];
+        for (name, params, results, f) in defs {
+            let err = unsafe {
+                wasmz_linker_define_func(
+                    g.linker,
+                    b"fvg\0".as_ptr() as *const c_char,
+                    name.as_ptr() as *const c_char,
+                    params.as_ptr(),
+                    params.len(),
+                    results.as_ptr(),
+                    results.len(),
+                    f,
+                    std::ptr::null_mut(),
+                )
+            };
+            if !err.is_null() {
+                return Err(anyhow!("wasmz_linker_define_func failed: {}", err_msg(err)));
+            }
+        }
+        let err = unsafe { wasmz_module_new(engine, wasm.as_ptr(), wasm.len(), &mut g.module) };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_module_new failed: {}", err_msg(err)));
+        }
+        let err = unsafe { wasmz_instance_new_with_linker(g.store, g.module, g.linker, &mut g.instance) };
+        if !err.is_null() {
+            return Err(anyhow!("wasmz_instance_new_with_linker failed: {}", err_msg(err)));
+        }
+        Ok(Box::new(g))
+    }
+}
+
+#[cfg(feature = "femtovg-e2e")]
+pub(crate) fn femtovg_guest(wasm: &'static [u8]) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+    femtovg_binding::guest(wasm)
 }

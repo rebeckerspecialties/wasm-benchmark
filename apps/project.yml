@@ -76,6 +76,11 @@ targets:
     sources:
       - path: WasmBenchmarkIOS
       - path: Shared
+    dependencies:
+      # femtovg E2E: the Rust library's wgpu Metal backend (watchOS has no
+      # Metal, so the watch library is built without the E2E).
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.ios
@@ -135,6 +140,10 @@ targets:
     sources:
       - path: WasmBenchmarkMac
       - path: Shared
+    dependencies:
+      # femtovg E2E: the Rust library's wgpu Metal backend.
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.mac

@@ -1,5 +1,17 @@
+From 87213a175a34874cc7cd88e57c73013ffba45980 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:29:01 -0700
+Subject: wasmedge local get stack duplicate fast path
+
+Rebased onto 0.17.2-rc.3: context-only conflict with the #4850 comment
+sweep in stackmgr.h.
+---
+ include/runtime/stackmgr.h            | 14 ++++++++++++++
+ lib/executor/engine/variableInstr.cpp |  2 +-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
 diff --git a/include/runtime/stackmgr.h b/include/runtime/stackmgr.h
-index 3456052..9fe5d59 100644
+index 0adf0d962..d80af7f00 100644
 --- a/include/runtime/stackmgr.h
 +++ b/include/runtime/stackmgr.h
 @@ -16,7 +16,9 @@
@@ -28,11 +40,11 @@ index 3456052..9fe5d59 100644
 +    std::memcpy(&ValueStack.back(), &ValueStack[SrcIndex], sizeof(Value));
 +  }
 +
-   /// Push a vector of value to stack
+   /// Push a vector of values to the stack.
    void pushValVec(const std::vector<Value> &ValVec) {
      ValueStack.insert(ValueStack.end(), ValVec.begin(), ValVec.end());
 diff --git a/lib/executor/engine/variableInstr.cpp b/lib/executor/engine/variableInstr.cpp
-index cb0c25c..ae4fc91 100644
+index cb0c25cd4..ae4fc91e8 100644
 --- a/lib/executor/engine/variableInstr.cpp
 +++ b/lib/executor/engine/variableInstr.cpp
 @@ -253,7 +253,7 @@ Expect<void> Executor::runLocalGetLocalGetI32StoreOp(

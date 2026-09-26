@@ -1,5 +1,20 @@
+From 24c5fe510bec5d9d02d342e1e246645d5ceb5cea Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:25:13 -0700
+Subject: add wasi nn autoload build option
+
+---
+ CMakeLists.txt                      |  1 +
+ lib/api/CMakeLists.txt              |  7 +++++++
+ lib/api/wasmedge.cpp                |  5 +++++
+ lib/executor/CMakeLists.txt         |  7 +++++++
+ lib/executor/instantiate/import.cpp |  2 ++
+ lib/vm/CMakeLists.txt               |  7 +++++++
+ lib/vm/vm.cpp                       | 11 ++++++++++-
+ 7 files changed, 39 insertions(+), 1 deletion(-)
+
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 5327ce405541c582363d4bf3f4c5b492a8e0dba3..86581743f9caf3e87909cec2c7025fe0ec54e081 100644
+index a1109d54d..0e2174cbf 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -65,6 +65,7 @@ option(WASMEDGE_BUILD_FUZZING "Generate fuzzing test tools. Couldn't build with
@@ -11,7 +26,7 @@ index 5327ce405541c582363d4bf3f4c5b492a8e0dba3..86581743f9caf3e87909cec2c7025fe0
  if(WASMEDGE_BUILD_AOT_RUNTIME)
    message(WARNING "WASMEDGE_BUILD_AOT_RUNTIME option was renamed to WASMEDGE_USE_LLVM.")
 diff --git a/lib/api/CMakeLists.txt b/lib/api/CMakeLists.txt
-index cfc8cbc2cd60b91d6beaea9aaf9705014b74cf69..c8d92f5a4dd348b7e104b67f3362591380013f12 100644
+index 6dae1b6e1..033b1e39a 100644
 --- a/lib/api/CMakeLists.txt
 +++ b/lib/api/CMakeLists.txt
 @@ -89,6 +89,13 @@ wasmedge_add_library(wasmedgeCAPI OBJECT
@@ -29,10 +44,10 @@ index cfc8cbc2cd60b91d6beaea9aaf9705014b74cf69..c8d92f5a4dd348b7e104b67f33625913
    PUBLIC
    wasmedgeVM
 diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
-index 5a4cf0130125e086560514f0b30950915fe3a7a2..c8ea89c8c0e668f7a020c73df9445d094dc8ae82 100644
+index e1cee5d13..b0df599f8 100644
 --- a/lib/api/wasmedge.cpp
 +++ b/lib/api/wasmedge.cpp
-@@ -3877,6 +3877,7 @@ WASMEDGE_CAPI_EXPORT void
+@@ -3902,6 +3902,7 @@ WASMEDGE_CAPI_EXPORT void
  WasmEdge_PluginInitWASINN(const char *const *NNPreloads,
                            const uint32_t PreloadsLen) noexcept {
    try {
@@ -40,7 +55,7 @@ index 5a4cf0130125e086560514f0b30950915fe3a7a2..c8ea89c8c0e668f7a020c73df9445d09
      using namespace std::literals::string_view_literals;
      if (const auto *Plugin = WasmEdge::Plugin::Plugin::find("wasi_nn"sv)) {
        PO::ArgumentParser Parser;
-@@ -3885,6 +3886,10 @@ WasmEdge_PluginInitWASINN(const char *const *NNPreloads,
+@@ -3910,6 +3911,10 @@ WasmEdge_PluginInitWASINN(const char *const *NNPreloads,
            "nn-preload"sv,
            std::vector<std::string>(NNPreloads, NNPreloads + PreloadsLen));
      }
@@ -52,7 +67,7 @@ index 5a4cf0130125e086560514f0b30950915fe3a7a2..c8ea89c8c0e668f7a020c73df9445d09
      handleCAPIError();
    }
 diff --git a/lib/executor/CMakeLists.txt b/lib/executor/CMakeLists.txt
-index aa773fb934fdb25a27b6c359765a61bfd6c0ca50..0c32de09a4c40823a1004916934712ac1d6f1dde 100644
+index aa773fb93..0c32de09a 100644
 --- a/lib/executor/CMakeLists.txt
 +++ b/lib/executor/CMakeLists.txt
 @@ -34,6 +34,13 @@ wasmedge_add_library(wasmedgeExecutor
@@ -70,7 +85,7 @@ index aa773fb934fdb25a27b6c359765a61bfd6c0ca50..0c32de09a4c40823a1004916934712ac
    PUBLIC
    wasmedgeCommon
 diff --git a/lib/executor/instantiate/import.cpp b/lib/executor/instantiate/import.cpp
-index e653469fc8ee4acf4392069be606118d8253a0ce..6b0b0a90443b94c4eee3e19d88ca068312569d13 100644
+index 9b9ca1a1b..2a44e3df7 100644
 --- a/lib/executor/instantiate/import.cpp
 +++ b/lib/executor/instantiate/import.cpp
 @@ -127,10 +127,12 @@ Expect<void> Executor::instantiate(
@@ -87,7 +102,7 @@ index e653469fc8ee4acf4392069be606118d8253a0ce..6b0b0a90443b94c4eee3e19d88ca0683
                   ModName == "wasi_crypto_asymmetric_common"sv ||
                   ModName == "wasi_crypto_kx"sv ||
 diff --git a/lib/vm/CMakeLists.txt b/lib/vm/CMakeLists.txt
-index fc55ecd0b2d05e32649276b425ebbf5e97706e9a..2c3e96f5687a89b5f320f4727c87814b651a5baa 100644
+index fc55ecd0b..2c3e96f56 100644
 --- a/lib/vm/CMakeLists.txt
 +++ b/lib/vm/CMakeLists.txt
 @@ -5,6 +5,13 @@ wasmedge_add_library(wasmedgeVM
@@ -105,7 +120,7 @@ index fc55ecd0b2d05e32649276b425ebbf5e97706e9a..2c3e96f5687a89b5f320f4727c87814b
    PUBLIC
    wasmedgeCommon
 diff --git a/lib/vm/vm.cpp b/lib/vm/vm.cpp
-index 9ac64fccd4aefa39e2cb00313c715c07440c1cd8..05254057049fe1cf6974648b65d0e14853821892 100644
+index 680d35094..972d1bee5 100644
 --- a/lib/vm/vm.cpp
 +++ b/lib/vm/vm.cpp
 @@ -13,7 +13,9 @@

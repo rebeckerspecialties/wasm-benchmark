@@ -1,0 +1,41 @@
+From b40619b9c39f749a3b0b9cc108abb646aa782637 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Thu, 21 May 2026 12:57:46 -0700
+Subject: fixup: MSVC `__builtin_expect` shim for the cold-path hints
+
+Windows MSVC build of upstream PR #4949 failed with
+`LNK2019: unresolved external symbol __builtin_expect` because
+`__builtin_expect` is a GCC/Clang builtin and MSVC has nothing
+equivalent. The branch-predictor hints are an optimization, not
+correctness, so the simplest portable fix is a no-op fallback
+gated on `!defined(__GNUC__) && !defined(__clang__)`.
+
+Lives at the top of `wasm_interp_fast.c` rather than in
+`bh_platform.h` to avoid touching the shared header for a
+local cold-path concern.
+
+(cherry picked from commit 31fe94eac90dd58a4d5a8e07bac0d7e0e936dd72)
+---
+ core/iwasm/interpreter/wasm_interp_fast.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
+index 5a27017a..97b08589 100644
+--- a/core/iwasm/interpreter/wasm_interp_fast.c
++++ b/core/iwasm/interpreter/wasm_interp_fast.c
+@@ -25,6 +25,15 @@
+ #include "simde/wasm/simd128.h"
+ #endif
+ 
++/* MSVC has no `__builtin_expect`; the cold-path hints below are
++ * GCC/Clang only. Provide a no-op fallback so the loop still
++ * compiles on the Windows MSVC build. Branch-predictor hints are
++ * an optimization, not correctness, so dropping them on MSVC is
++ * fine. */
++#if !defined(__GNUC__) && !defined(__clang__)
++#define __builtin_expect(expr, expected) (expr)
++#endif
++
+ typedef int32 CellType_I32;
+ typedef int64 CellType_I64;
+ typedef float32 CellType_F32;

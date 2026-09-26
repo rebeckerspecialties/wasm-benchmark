@@ -1,8 +1,8 @@
-From 231862aa6455dc4142e4701759e7150b6589516f Mon Sep 17 00:00:00 2001
+From 55e2962e0e9cde3481674dc4222eb0fa7f8b1d7e Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 22:13:24 -0700
-Subject: [PATCH 15/15] fast-interp: reject br/br_if/br_table to loop entry
- from inside try-region
+Subject: fast-interp: reject br/br_if/br_table to loop entry from inside
+ try-region
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -47,17 +47,19 @@ ignored `br_out_of_try_inside_loop` became
 `br_out_of_try_inside_loop_rejected`, which asserts the loader
 fails with the expected error string.
 
-Codex P1 review feedback on both PRs ("Reject branches that leak
+P1 review feedback on both PRs ("Reject branches that leak
 EH entries" / "Reject branches that leak EH stack entries").
+
+(cherry picked from commit 09020197869defb03080378f823e7b25a8d0284e)
 ---
  core/iwasm/interpreter/wasm_loader.c | 67 +++++++++++++++++++++-------
  1 file changed, 51 insertions(+), 16 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index a20cf800..6f83a371 100644
+index 4204c96c..525254e8 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -13433,20 +13433,37 @@ re_scan:
+@@ -13441,20 +13441,37 @@ re_scan:
                      goto fail;
  
  #if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
@@ -107,7 +109,7 @@ index a20cf800..6f83a371 100644
                          LOG_WARNING("wasm fast-interp: br at func[%u] crosses "
                                      "%u try-region(s); each leaks one "
                                      "eh-stack entry until frame teardown",
-@@ -13470,10 +13487,19 @@ re_scan:
+@@ -13478,10 +13495,19 @@ re_scan:
                      goto fail;
  
  #if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
@@ -129,7 +131,7 @@ index a20cf800..6f83a371 100644
                          LOG_WARNING(
                              "wasm fast-interp: br_if at func[%u] crosses "
                              "%u try-region(s); each leaks one "
-@@ -13550,10 +13576,19 @@ re_scan:
+@@ -13558,10 +13584,19 @@ re_scan:
                      }
  
  #if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
@@ -151,6 +153,3 @@ index a20cf800..6f83a371 100644
                              LOG_WARNING(
                                  "wasm fast-interp: br_table[%u] at "
                                  "func[%u] crosses %u try-region(s); each "
--- 
-2.54.0
-

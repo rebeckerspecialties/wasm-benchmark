@@ -1,8 +1,17 @@
+From 5a409b9ac6541605dc0c3fc1d14d4a3b4ab7f0e2 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Tue, 22 Sep 2026 16:26:01 -0700
+Subject: wasmedge stack fast path for c api host calls
+
+---
+ lib/api/wasmedge.cpp | 39 +++++++++++++++++++++++++++++++--------
+ 1 file changed, 31 insertions(+), 8 deletions(-)
+
 diff --git a/lib/api/wasmedge.cpp b/lib/api/wasmedge.cpp
-index 4c733d569cce0f7f903b4e51fb1eff42200d00b0..5c0b125bbe4583d7928501b9e18aba609b99b802 100644
+index 0bdb5539b..8ffa2c45c 100644
 --- a/lib/api/wasmedge.cpp
 +++ b/lib/api/wasmedge.cpp
-@@ -483,24 +483,47 @@ public:
+@@ -489,24 +489,47 @@ public:
                     Span<const ValVariant> Args,
                     Span<ValVariant> Rets) override {
      auto &FuncType = DefType.getCompositeType().getFuncType();

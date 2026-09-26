@@ -1,0 +1,36 @@
+busiest thread: WasmBench (0x4030d)  samples: 11802 (100.0% on E cores)  all threads: 11921
+
+# self time (leaf frame), top 60
+ 99.97%   11799  wasm_interp_call_func_bytecode
+  0.01%       1  objc_opt_self
+  0.01%       1  __bzero
+  0.01%       1  _tlv_get_addr
+
+# inclusive (on stack), top 60
+100.00%   11802  _dispatch_worker_thread2
+100.00%   11802  _dispatch_client_callout
+100.00%   11802  start_wqthread
+100.00%   11802  _dispatch_root_queue_drain
+100.00%   11802  <deduplicated_symbol>
+100.00%   11802  _pthread_wqthread
+100.00%   11802  _dispatch_call_block_and_release
+ 99.99%   11801  _RNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters
+ 99.99%   11801  closure #18 in variable initialization expression of WORKLOADS
+ 99.99%   11801  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.99%   11801  bench_run_audio_dsp_wamr
+ 99.99%   11801  closure #2 in BenchmarkContentView.runAll()
+ 99.98%   11800  wasm_runtime_call_wasm
+ 99.98%   11800  wasm_call_function
+ 99.98%   11800  _RNCNvNtCs9e6pHsgSdNO_14benchmark_core4wamr23run_workload_wamr_iters0B5_
+ 99.97%   11799  wasm_interp_call_wasm
+ 99.97%   11799  wasm_interp_call_func_bytecode
+  0.01%       1  0x1dd92450b
+  0.01%       1  objc_opt_self
+  0.01%       1  0x1dd924b03
+  0.01%       1  0x1dd924b5f
+  0.01%       1  __bzero
+  0.01%       1  wasm_runtime_instantiate
+  0.01%       1  memory_instantiate
+  0.01%       1  wasm_instantiate
+  0.01%       1  _tlv_get_addr
+  0.01%       1  wasm_exec_env_set_thread_info
