@@ -179,5 +179,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.mac
         INFOPLIST_FILE: WasmBenchmarkMac/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkMac/BridgingHeader.h
+        # Where scripts/build-lib.sh macos writes (it passes --target).
         LIBRARY_SEARCH_PATHS:
-          - $(SRCROOT)/../target/release
+          - $(SRCROOT)/../target/aarch64-apple-darwin/release
