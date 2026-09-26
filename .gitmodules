@@ -9,9 +9,6 @@
 [submodule "wasm-micro-runtime"]
 	path = wasm-micro-runtime
 	url = https://github.com/bytecodealliance/wasm-micro-runtime.git
-[submodule "porffor"]
-	path = porffor
-	url = https://github.com/CanadaHonk/porffor.git
 [submodule "sightglass"]
 	path = sightglass
 	url = https://github.com/bytecodealliance/sightglass.git

@@ -14,7 +14,7 @@
 use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
-use tinywasm::{FuncContext, HostFunction, Imports, Module, ModuleInstance, Store};
+use tinywasm::{Module, ModuleInstance, Store};
 
 use crate::RunReport;
 
@@ -75,38 +75,13 @@ pub fn run_instantiate_each_tinywasm(wasm_bytes: &[u8], fn_name: &str, arg: i32)
     })
 }
 
-/// Porffor graphql-validation: `m() -> (f64, i32)` with a
-/// `("", "b"): (f64) -> ()` host print. Like the Pulley runner, each
-/// iteration instantiates a fresh store, because Porffor never frees and
-/// grows linear memory without bound across calls.
-pub fn run_graphql_validation_porf_tinywasm(wasm_bytes: &[u8]) -> Result<RunReport> {
-    let load_start = Instant::now();
-    let module = parse(wasm_bytes)?;
-    let load_time = load_start.elapsed();
-    // Timed unit: fresh Store + instantiate + m(); the Store is dropped
-    // after the clock stops, as on every runtime.
-    crate::measure_samples(load_time, || {
-        let t = Instant::now();
-        let mut store = Store::default();
-        let mut imports = Imports::new();
-        imports.define("", "b", HostFunction::from(|_ctx: FuncContext<'_>, _ch: f64| Ok(())));
-        let instance = tw(ModuleInstance::instantiate(&mut store, &module, Some(&imports)))
-            .context("tinywasm porf instantiate failed")?;
-        let m = tw(instance.func::<(), (f64, i32)>(&store, "m")).context("export `m`")?;
-        let (_, r) = tw(m.call(&mut store, ())).context("tinywasm m() trapped")?;
-        let elapsed = t.elapsed();
-        drop(store);
-        Ok((elapsed, r))
-    })
-}
-
 // --- femtovg E2E guest binding -------------------------------------------
 
 #[cfg(feature = "femtovg-e2e")]
 mod femtovg_binding {
     use super::*;
     use crate::femtovg_e2e as e2e;
-    use tinywasm::FunctionTyped;
+    use tinywasm::{FuncContext, FunctionTyped, HostFunction, Imports};
 
     /// Copies `[ptr, ptr + len)` out of the caller's memory (tinywasm's
     /// memory API reads into a buffer; it has no borrowed view).

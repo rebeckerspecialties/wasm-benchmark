@@ -25,7 +25,7 @@
 #   BUNDLE=com.rebeckerspecialties.wasmbench
 #   MAX_WAIT_SECS=2400           per launch
 #   SPLIT_RUNTIMES="zwasm"       runtimes whose heavy rows each get a launch
-#   HEAVY_ROWS="xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm"
+#   HEAVY_ROWS="xmrsplayer;extended-const instantiate;extended-const twin;memory64;tail-call fsm"
 #                                ';'-separated label substrings. On the iPhone
 #                                zwasm's footprint reaches ~1.3 GB during
 #                                xmrsplayer and the next heavy row gets the
@@ -47,7 +47,7 @@ DEVICE_NAME="${DEVICE_NAME:-iphonexs}"
 BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-2400}"
 SPLIT_RUNTIMES=" ${SPLIT_RUNTIMES-zwasm} "
-HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm}"
+HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;extended-const instantiate;extended-const twin;memory64;tail-call fsm}"
 if [[ -n "${E2E}" ]]; then MARKER="FEMTOVG_E2E done"; else MARKER="BENCH_DONE"; fi
 mkdir -p "${OUT}"
 

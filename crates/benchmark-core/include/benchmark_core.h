@@ -56,20 +56,12 @@ BenchReport bench_run_call_indirect(void);
 // libc-wasi, not yet enabled in our libiwasm.a builds).
 BenchReport bench_run_sqlite3(void);
 
-// Hand-written graphql-js validation-shape benchmarks, two parallel
-// implementations of the same workload (validate a fixed schema + query
-// AST through 5 graphql-js-shape rules). See
-// workloads/graphql-validation/{ASSEMBLYSCRIPT,PORFFOR}-NOTES.md.
-//
-// AS variant: 61 KB, 0 imports, 13 call_indirect — optimizer-friendly
-// (most dispatch lowered to direct calls because AS resolves receiver
-// types statically).
-//
-// Porffor variant: 121 KB, 1 import (host print, stubbed), 98
-// call_indirect — preserves graphql-js's megamorphic dispatch shape;
-// primary target for call_indirect-focused optimization work.
+// Hand-written graphql-js validation-shape benchmark, AssemblyScript
+// port: validates a fixed schema + query AST through 5 graphql-js-shape
+// rules. 61 KB, 0 imports, 13 call_indirect (most dispatch lowered to
+// direct calls because AS resolves receiver types statically). See
+// workloads/graphql-validation/ASSEMBLYSCRIPT-NOTES.md.
 BenchReport bench_run_graphql_validation_as(void);
-BenchReport bench_run_graphql_validation_porf(void);
 
 // xmrsplayer rendering `unreal.s3m` (Scream Tracker 3 module) at
 // 44.1 kHz stereo to a null sound driver. Real-world
@@ -102,7 +94,6 @@ BenchReport bench_run_vtable_bi_wamr(void);
 BenchReport bench_run_vtable_poly4_wamr(void);
 BenchReport bench_run_vtable_poly6_wamr(void);
 BenchReport bench_run_graphql_validation_as_wamr(void);
-BenchReport bench_run_graphql_validation_porf_wamr(void);
 
 // Initialize the WAMR runtime. MUST be called from the main thread before
 // any bench_run_*_wamr call. Returns 1 on success, 0 on failure (e.g. if
@@ -147,7 +138,6 @@ BenchReport bench_run_vtable_bi_wasm3(void);
 BenchReport bench_run_vtable_poly4_wasm3(void);
 BenchReport bench_run_vtable_poly6_wasm3(void);
 BenchReport bench_run_graphql_validation_as_wasm3(void);
-BenchReport bench_run_graphql_validation_porf_wasm3(void);
 
 // WasmEdge — pure interpreter (WASMEDGE_USE_LLVM=OFF + 27-patch
 // Apple-mobile enablement stack). Incumbent runtime for the user's
@@ -174,7 +164,6 @@ BenchReport bench_run_vtable_bi_wasmedge(void);
 BenchReport bench_run_vtable_poly4_wasmedge(void);
 BenchReport bench_run_vtable_poly6_wasmedge(void);
 BenchReport bench_run_graphql_validation_as_wasmedge(void);
-BenchReport bench_run_graphql_validation_porf_wasmedge(void);
 
 // zwasm (clojurewasm/zwasm) — Zig pure-interpreter built with
 // `-Djit=false`. arm64_32-apple-watchos is structurally unsupported
@@ -200,7 +189,6 @@ BenchReport bench_run_vtable_bi_zwasm(void);
 BenchReport bench_run_vtable_poly4_zwasm(void);
 BenchReport bench_run_vtable_poly6_zwasm(void);
 BenchReport bench_run_graphql_validation_as_zwasm(void);
-BenchReport bench_run_graphql_validation_porf_zwasm(void);
 
 // wasmz (Ray-D-Song/wasmz) — Zig pure-interpreter, ported to Zig 0.16
 // (the upstream sources pin Zig 0.15.2 but Zig 0.15's build runner
@@ -227,7 +215,6 @@ BenchReport bench_run_vtable_bi_wasmz(void);
 BenchReport bench_run_vtable_poly4_wasmz(void);
 BenchReport bench_run_vtable_poly6_wasmz(void);
 BenchReport bench_run_graphql_validation_as_wasmz(void);
-BenchReport bench_run_graphql_validation_porf_wasmz(void);
 
 // Free a `BenchReport.error_msg` previously returned by bench_run_*.
 // Calling with NULL is a no-op.

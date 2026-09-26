@@ -2,11 +2,12 @@
 """Generate crates/benchmark-core/src/score_reference.rs, the app's score
 reference times, from an iPhone pass's per-rep matrix CSV.
 
-For every case, the reference is the geometric mean, over the engines that
-ran the case in at least half of the reps, of each engine's per-call median
-(the median of its per-rep medians). A benchmark score is then
-100 x reference / measured median: the typical engine on the reference
-device scores 100 on every benchmark, and higher is faster.
+For every case still in the case table, the reference is the geometric
+mean, over the engines that ran the case in at least half of the reps, of
+each engine's per-call median (the median of its per-rep medians). A
+benchmark score is then 100 x reference / measured median: the typical
+engine on the reference device scores 100 on every benchmark, and higher
+is faster.
 
 Usage:
   scripts/score-reference.py [matrix.csv] [out.rs]
@@ -17,6 +18,7 @@ crates/benchmark-core/src/score_reference.rs.
 import csv
 import math
 import os
+import re
 import statistics
 import sys
 from collections import defaultdict
@@ -27,7 +29,12 @@ SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
     ROOT, "crates/benchmark-core/src/score_reference.rs")
 
-rows = list(csv.DictReader(open(SRC)))
+# Case ids from the CASES table (`c("id", ...)` or `Case { id: "id", ... }`).
+cases_rs = open(os.path.join(ROOT, "crates/benchmark-core/src/cases.rs")).read()
+table = cases_rs[cases_rs.index("pub const CASES"):]
+CASES = set(re.findall(r'(?:c\(\s*|id:\s*)"([^"]+)"', table[:table.index("];")]))
+
+rows = [r for r in csv.DictReader(open(SRC)) if r["case"] in CASES]
 reps = defaultdict(set)      # case -> reps seen
 ok = defaultdict(list)       # (case, runtime) -> per-rep medians
 order = []

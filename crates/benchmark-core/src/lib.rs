@@ -50,9 +50,6 @@ pub mod wamr {
     ) -> Result<RunReport> {
         Err(anyhow!("WAMR not linked into this build"))
     }
-    pub fn run_graphql_validation_porf_wamr(_wasm_bytes: &[u8]) -> Result<RunReport> {
-        Err(anyhow!("WAMR not linked into this build"))
-    }
     pub fn run_instantiate_each_wamr(
         _wasm_bytes: &[u8],
         _fn_name: &str,
@@ -90,9 +87,6 @@ pub mod zwasm {
         _arg: i32,
         _iters: u32,
     ) -> Result<RunReport> {
-        Err(anyhow!("zwasm not linked into this build"))
-    }
-    pub fn run_graphql_validation_porf_zwasm(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("zwasm not linked into this build"))
     }
     pub fn run_instantiate_each_zwasm(
@@ -134,9 +128,6 @@ pub mod wasmz {
     ) -> Result<RunReport> {
         Err(anyhow!("wasmz not linked into this build"))
     }
-    pub fn run_graphql_validation_porf_wasmz(_wasm_bytes: &[u8]) -> Result<RunReport> {
-        Err(anyhow!("wasmz not linked into this build"))
-    }
     pub fn run_instantiate_each_wasmz(
         _wasm_bytes: &[u8],
         _fn_name: &str,
@@ -174,9 +165,6 @@ pub mod wasmedge {
         _arg: i32,
         _iters: u32,
     ) -> Result<RunReport> {
-        Err(anyhow!("WasmEdge not linked into this build"))
-    }
-    pub fn run_graphql_validation_porf_wasmedge(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("WasmEdge not linked into this build"))
     }
     pub fn run_instantiate_each_wasmedge(
@@ -241,7 +229,7 @@ pub mod wasm3 {
 /// portable interpreter; `Wamr` is the WAMR fast interpreter
 /// (preprocessed bytecode mode); `Wasm3` is the wasm3 m3 interpreter
 /// (C, used as a 3rd cross-runtime data point — missing SIMD, so the
-/// matmul / Porffor / xmrsplayer rows return ERROR; that's signal).
+/// matmul / xmrsplayer rows return ERROR; that's signal).
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runtime {
@@ -538,28 +526,6 @@ pub const GRAPHQL_VALIDATION_AS_WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../workloads/graphql-validation-as.wasm"
 ));
-/// Hand-written graphql-js validation-shape benchmark, Porffor port
-/// (Option C). 121 KB, 1 import (host print), 98 `call_indirect`. Preserves
-/// graphql-js's megamorphic-dispatch shape much more faithfully than the
-/// AS port — primary workload for `call_indirect` optimization work.
-/// See `workloads/graphql-validation/PORFFOR-NOTES.md`.
-pub const GRAPHQL_VALIDATION_PORF_WASM: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../workloads/graphql-validation-porf.wasm"
-));
-/// "Accurate" Porffor variant — the same JS source, but the JS
-/// `validate()` wraps `visit()` in a real try/catch / abortObj
-/// sentinel pattern (mirrors graphql-js's `validation/validate.mjs`):
-/// 1 legacy `try` + 1 `catch 0` around the visit, 607 `throw`s.
-/// Case `graphql_porf_trycatch`. Runs on WAMR fast-interp (legacy EH,
-/// patches/wasm-micro-runtime/0001-0017); Pulley's Cranelift-to-Pulley
-/// path has no legacy `try` ("Unsupported feature: operator Try"), and
-/// wasm3 / WasmEdge / zwasm / tinywasm do not parse legacy EH in the
-/// builds we ship.
-pub const GRAPHQL_VALIDATION_PORF_ACCURATE_WASM: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../workloads/graphql-validation-porf-accurate.wasm"
-));
 /// Real-world `call_indirect`-shaped workload: the `xmrsplayer` Rust
 /// soundtracker player rendering `unreal.s3m` (a Scream Tracker 3
 /// module) at 44 100 Hz stereo to a null sound driver. ~340 KB
@@ -798,7 +764,7 @@ mod qos {
 }
 
 /// Measurement loop for cases whose timed unit is more than a call
-/// (`Shape::InstantiateEach`, Porffor): each `sample` does its own timing
+/// (`Shape::InstantiateEach`): each `sample` does its own timing
 /// and returns `(elapsed, result)`, so work that must stay outside the
 /// timed region (tearing the fresh instance down) happens after the clock
 /// stops. Same warmup and sizing as `measure_calls`.
@@ -951,14 +917,6 @@ pub(crate) fn pulley_engine() -> Result<Engine> {
     config.wasm_tail_call(true);
     // Bulk memory is default-on; explicit for the bulk_memory workload.
     config.wasm_bulk_memory(true);
-    // Legacy wasm-eh (phase-3) — Porffor lowers JS try/catch to the
-    // legacy `try`/`catch tag` opcodes. The wasmtime API for this is
-    // marked deprecated upstream ("internal usage with the spec
-    // testsuite") but it's the only way to make our Porffor-compiled
-    // graphql-validation workload load. The new (phase-4) `try_table`
-    // proposal isn't relevant: Porffor doesn't emit it.
-    #[allow(deprecated)]
-    config.wasm_legacy_exceptions(true);
     // Wasm GC objects live in wasmtime's GC heap; the DRC collector is the
     // one wasmtime ships as its default when compiled in. Explicit so the
     // gc_trees workload never silently runs on the null (never-reclaiming)
@@ -1439,8 +1397,6 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
 //     so the result depends on how many iterations the harness picks.
 //   * sqlite3 speedtest1 — returns 0 on success; other runtimes don't
 //     run it yet so there's no reference besides Pulley.
-//   * graphql-validation (Porffor) — only Pulley wires the host print
-//     stub end-to-end; other runtimes ERROR on the import.
 // -----------------------------------------------------------------------------
 const EXPECTED_FIB_30: i32 = 832040;
 const EXPECTED_FIB_TAIL_100K: i32 = 873876091;
@@ -1475,7 +1431,7 @@ pub(crate) const EXPECTED_EXTCONST_INIT: i32 = -1152068691;
 /// `Err(...)` (and therefore an ERR row in the device console) — silent
 /// miscompiles are the worst kind of "benchmark win". Pass `None` for
 /// workloads whose result is iteration-dependent (xmrsplayer) or that
-/// have no reference yet (sqlite3, graphql-validation Porffor).
+/// have no reference yet (sqlite3).
 fn report_from_checked(r: Result<RunReport>, expected: Option<i32>) -> BenchReport {
     let r = match (r, expected) {
         (Ok(rr), Some(exp)) if rr.result != exp => Err(anyhow::anyhow!(
@@ -1691,18 +1647,6 @@ pub extern "C" fn bench_run_graphql_validation_as_wamr() -> BenchReport {
     report_from_checked(wamr::run_workload_wamr(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0), Some(EXPECTED_GRAPHQL_AS))
 }
 
-/// graphql-validation Porffor port on WAMR. Porffor compiles JS
-/// try/catch to the wasm exceptions proposal, which is not enabled
-/// in our WAMR build (`WAMR_BUILD_EXCE_HANDLING=0`). The
-/// `run_graphql_validation_porf_wamr` runner attempts the load
-/// anyway; the harness reports the wasm-level error string from
-/// `wasm_runtime_get_exception` if WAMR refuses the module. Treat as
-/// a "WAMR can't run this shape" data point — Pulley side runs both.
-#[unsafe(no_mangle)]
-pub extern "C" fn bench_run_graphql_validation_porf_wamr() -> BenchReport {
-    report_from(wamr::run_graphql_validation_porf_wamr(GRAPHQL_VALIDATION_PORF_WASM))
-}
-
 /// Sightglass `sqlite3` benchmark (speedtest1 against an in-memory DB).
 /// Single-shot, ~minutes on weak cores, ~5-30 s on M4.
 #[unsafe(no_mangle)]
@@ -1714,7 +1658,7 @@ pub extern "C" fn bench_run_sqlite3() -> BenchReport {
 // wasm3 (m3) — pure C interpreter, no SIMD / no exceptions. Same
 // `(wasm_bytes, fn_name, arg)` signature as the WAMR exports above.
 // Workloads that require features wasm3 lacks (matmul_simd /
-// matmul_fma / xmrsplayer / graphql-validation-porf / sqlite3) will
+// matmul_fma / xmrsplayer / sqlite3) will
 // fail at load time; that's data, not a regression — the harness
 // surfaces the wasm3 error string in the workload row.
 // ---------------------------------------------------------------------
@@ -1815,25 +1759,10 @@ pub extern "C" fn bench_run_graphql_validation_as_wasm3() -> BenchReport {
     report_from_checked(wasm3::run_workload_wasm3(GRAPHQL_VALIDATION_AS_WASM, "validate_once", 0), Some(EXPECTED_GRAPHQL_AS))
 }
 
-/// graphql-validation Porffor on wasm3. Porffor compiles JS try/catch
-/// to the wasm exceptions proposal; wasm3 doesn't implement exceptions,
-/// so this will fail at load with `unknownOpcode` or similar.
-#[unsafe(no_mangle)]
-pub extern "C" fn bench_run_graphql_validation_porf_wasm3() -> BenchReport {
-    report_from(wasm3::run_workload_wasm3(
-        GRAPHQL_VALIDATION_PORF_WASM,
-        "m",
-        0,
-    ))
-}
-
 // ---------------------------------------------------------------------
 // WasmEdge — pure-interpreter mode (WASMEDGE_USE_LLVM=OFF) with the
 // 27-patch Apple-mobile enablement stack. Unlike WAMR, WasmEdge's
-// interpreter supports SIMD + wasm-exceptions simultaneously, so
-// Porffor's graphql-validation should run on this path (subject to the
-// host-print import; the runner uses no imports, so it'll trap on the
-// missing import — same shape as Pulley would without the host stub).
+// interpreter supports SIMD + wasm-exceptions simultaneously.
 // ---------------------------------------------------------------------
 
 /// Initialize WasmEdge. No process-global state to set up — kept
@@ -1934,18 +1863,6 @@ pub extern "C" fn bench_run_graphql_validation_as_wasmedge() -> BenchReport {
         "validate_once",
         0,
     ), Some(EXPECTED_GRAPHQL_AS))
-}
-
-/// graphql-validation Porffor on WasmEdge. Unlike WAMR, WasmEdge's
-/// interpreter has both SIMD and wasm-exceptions enabled simultaneously,
-/// so the load should succeed. The Porffor `b` host print is stubbed
-/// in `crates/benchmark-core/src/wasmedge.rs`, and the dedicated
-/// runner handles the `m() → (f64, i32)` multi-value signature.
-#[unsafe(no_mangle)]
-pub extern "C" fn bench_run_graphql_validation_porf_wasmedge() -> BenchReport {
-    report_from(wasmedge::run_graphql_validation_porf_wasmedge(
-        GRAPHQL_VALIDATION_PORF_WASM,
-    ))
 }
 
 // ---------------------------------------------------------------------
@@ -2052,11 +1969,6 @@ pub extern "C" fn bench_run_graphql_validation_as_zwasm() -> BenchReport {
         "validate_once",
         0,
     ), Some(EXPECTED_GRAPHQL_AS))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn bench_run_graphql_validation_porf_zwasm() -> BenchReport {
-    report_from(zwasm::run_graphql_validation_porf_zwasm(GRAPHQL_VALIDATION_PORF_WASM))
 }
 
 // ---------------------------------------------------------------------
@@ -2170,11 +2082,6 @@ pub extern "C" fn bench_run_graphql_validation_as_wasmz() -> BenchReport {
     ), Some(EXPECTED_GRAPHQL_AS))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn bench_run_graphql_validation_porf_wasmz() -> BenchReport {
-    report_from(wasmz::run_graphql_validation_porf_wasmz(GRAPHQL_VALIDATION_PORF_WASM))
-}
-
 /// Hand-written graphql-js validation-shape benchmark, AssemblyScript port.
 /// 13 `call_indirect`s — the optimizer-friendly comparison baseline.
 #[unsafe(no_mangle)]
@@ -2182,16 +2089,6 @@ pub extern "C" fn bench_run_graphql_validation_as() -> BenchReport {
     report_from_checked(graphql_validation::run_graphql_validation_as(
         GRAPHQL_VALIDATION_AS_WASM,
     ), Some(EXPECTED_GRAPHQL_AS))
-}
-
-/// Hand-written graphql-js validation-shape benchmark, Porffor port.
-/// 98 `call_indirect`s — preserves graphql-js's megamorphic-dispatch shape.
-/// Primary workload for `call_indirect` optimization work.
-#[unsafe(no_mangle)]
-pub extern "C" fn bench_run_graphql_validation_porf() -> BenchReport {
-    report_from(graphql_validation::run_graphql_validation_porf(
-        GRAPHQL_VALIDATION_PORF_WASM,
-    ))
 }
 
 /// femtovg E2E (docs/femtovg-e2e-abi.md) on runtime `runtime` (the

@@ -28,8 +28,6 @@ pub const SCORE_REFERENCE_NS: &[(&str, u64, u32)] = &[
     ("fib_tail", 1601756, 7),
     ("gc_trees", 186981024, 4),
     ("graphql_as", 33846020, 6),
-    ("graphql_porf", 33415875, 4),
-    ("graphql_porf_trycatch", 19597000, 1),
     ("matmul_fma", 6755467, 5),
     ("matmul_simd", 9001053, 5),
     ("mem64_chase", 114850712, 5),

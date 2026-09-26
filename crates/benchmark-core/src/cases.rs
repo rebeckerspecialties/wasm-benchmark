@@ -13,9 +13,6 @@ use crate::*;
 pub enum Shape {
     /// `export(arg: i32) -> i32`, no imports.
     I32ToI32,
-    /// Porffor's `m() -> (f64, i32)` with a `("", "b"): (f64) -> ()` host
-    /// print import; each runtime has a dedicated runner.
-    PorfforMain,
     /// Sightglass sqlite3 speedtest1: WASI preview-1 + `bench.*` imports.
     /// Only the Pulley side has the import shim.
     Sqlite3,
@@ -140,27 +137,6 @@ pub const CASES: &[Case] = &[
         shape: Shape::InstantiateEach,
     },
     Case {
-        id: "graphql_porf",
-        label: "graphql-validation (Porffor)",
-        wasm: GRAPHQL_VALIDATION_PORF_WASM,
-        func: "m",
-        arg: 0,
-        expected: None,
-        shape: Shape::PorfforMain,
-    },
-    // The same JS with graphql-js's real `try { visit() } catch (e) { if (e
-    // !== abortObj) throw e; }`: one legacy try/catch around the visit, the
-    // visitor's throws unwinding into it.
-    Case {
-        id: "graphql_porf_trycatch",
-        label: "graphql-validation (Porffor try/catch)",
-        wasm: GRAPHQL_VALIDATION_PORF_ACCURATE_WASM,
-        func: "m",
-        arg: 0,
-        expected: None,
-        shape: Shape::PorfforMain,
-    },
-    Case {
         id: "sqlite3",
         label: "sqlite3 speedtest1 (in-mem)",
         wasm: SQLITE3_WASM,
@@ -219,8 +195,6 @@ pub const WATCH_EXCLUDED_CASES: &[(&str, &str)] = &[
     ("gc_trees", "WasmEdge and wasmz never collect GC structs"),
     ("mem64_chase", "touches a 64 MiB linear memory"),
     ("mem64_chase.mem32", "touches a 64 MiB linear memory"),
-    ("graphql_porf", "peaks at 586 MB on zwasm and 1 GB on tinywasm (macOS)"),
-    ("graphql_porf_trycatch", "same program as graphql_porf"),
 ];
 
 /// (runtime, case id, reason) rows the app leaves out because the runtime
@@ -232,8 +206,6 @@ pub const WATCH_EXCLUDED_CASES: &[(&str, &str)] = &[
 pub const APP_SKIPS: &[(Runtime, &str, &str)] = &[
     (Runtime::Zwasm, "xmrsplayer",
      "zwasm v2.7.0 keeps memory per call; the footprint reached 1.2 GB on an iPhone XS"),
-    (Runtime::Zwasm, "graphql_porf",
-     "zwasm v2.7.0 keeps memory per call; the iPhone XS killed the app (jetsam) in this row"),
     (Runtime::Zwasm, "tailcall_fsm",
      "zwasm v2.7.0's return_call is not constant-space (~50 B per call)"),
     (Runtime::Zwasm, "mem64_chase",
@@ -263,16 +235,6 @@ pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
     }
     let r = match case.shape {
         Shape::I32ToI32 => run_workload_with(rt, case.wasm, case.func, case.arg),
-        Shape::PorfforMain => match rt {
-            Runtime::Pulley => graphql_validation::run_graphql_validation_porf(case.wasm),
-            Runtime::Wamr => wamr::run_graphql_validation_porf_wamr(case.wasm),
-            Runtime::WasmEdge => wasmedge::run_graphql_validation_porf_wasmedge(case.wasm),
-            Runtime::Zwasm => zwasm::run_graphql_validation_porf_zwasm(case.wasm),
-            Runtime::Wasmz => wasmz::run_graphql_validation_porf_wasmz(case.wasm),
-            Runtime::Tinywasm => tinywasm::run_graphql_validation_porf_tinywasm(case.wasm),
-            // wasm3 has no exception handling or multi-value host call path.
-            Runtime::Wasm3 => wasm3::run_workload_wasm3(case.wasm, case.func, case.arg),
-        },
         Shape::InstantiateEach => run_instantiate_each_with(rt, case.wasm, case.func, case.arg),
         Shape::Sqlite3 => match rt {
             Runtime::Pulley => sqlite3::run_sqlite3(case.wasm),

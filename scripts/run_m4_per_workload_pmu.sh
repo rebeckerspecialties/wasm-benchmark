@@ -10,7 +10,7 @@
 #
 # Usage:
 #   COND=phase4 OUTDIR=out/exp-3way-m4/pmu-phase4 \
-#   WORKLOADS_LIST=call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation-as,graphql-validation-porf \
+#   WORKLOADS_LIST=call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation-as \
 #   scripts/run_m4_per_workload_pmu.sh
 
 set -uo pipefail
@@ -20,7 +20,7 @@ COND="${COND:?need COND}"
 OUTDIR="${OUTDIR:?need OUTDIR}"
 TEMPLATE="${TEMPLATE:-CPU Counters}"
 BIN="${BIN:-./target/release/run_dispatch_workloads}"
-WORKLOADS_LIST="${WORKLOADS_LIST:-call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation-as,graphql-validation-porf}"
+WORKLOADS_LIST="${WORKLOADS_LIST:-call_indirect,xmrsplayer,vtable_mono,vtable_bi,vtable_poly4,vtable_poly6,graphql-validation-as}"
 BENCH_TARGET_MS="${BENCH_TARGET_MS:-12000}"
 TIME_LIMIT_MS="${TIME_LIMIT_MS:-25000}"
 
