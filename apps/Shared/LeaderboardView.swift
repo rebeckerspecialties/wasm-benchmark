@@ -131,7 +131,7 @@ struct LeaderboardList: View {
         } header: {
             Text("Engines")
         } footer: {
-            Text("100 is the typical engine on an iPhone XS. Each benchmark scores 100 × its reference time ÷ the median time per call; an engine's score is the geometric mean over the benchmarks it completed. Higher is better.")
+            Text("100 is the typical engine on an iPhone XS. Each benchmark scores 100 × its reference time ÷ the median time per call, and \(Format.score(Scoring.failurePenalty)) if the engine cannot run it. An engine's score is the average of its benchmark scores. Higher is better.")
         }
     }
 
@@ -303,9 +303,14 @@ struct EngineSummaryRow: View {
     private func score(_ standing: Standing) -> some View {
         Text(standing.score.map(Format.score) ?? "—")
             .font(Metrics.engineScoreFont.monospacedDigit())
-            .foregroundStyle(standing.score == nil ? .tertiary : .primary)
+            .foregroundStyle(scoreStyle(standing.score))
             .contentTransition(.numericText(value: standing.score ?? 0))
             .fixedSize()
+    }
+
+    private func scoreStyle(_ score: Double?) -> AnyShapeStyle {
+        guard let score else { return AnyShapeStyle(.tertiary) }
+        return score < 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary)
     }
 
     private func accessibilityLabel(rank: Int?) -> String {
@@ -317,7 +322,8 @@ struct EngineSummaryRow: View {
         guard let score = standing.score else {
             return session.isAvailable(engine) ? "No score yet" : "Not available"
         }
-        return "Score \(Format.score(score)), \(standing.scored) of \(standing.total) benchmarks"
+        let failed = standing.failed > 0 ? ", \(standing.failed) failed" : ""
+        return "Score \(Format.score(score)), \(standing.scored) of \(standing.total) benchmarks\(failed)"
     }
 }
 
@@ -421,9 +427,7 @@ struct BenchmarkRow: View {
                 Text("—").foregroundStyle(.tertiary)
             }
         case .failed:
-            Image(systemName: "xmark.circle")
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Failed")
+            PenaltyText(font: .body.weight(.semibold))
         case .skipped:
             Image(systemName: "forward.end.circle")
                 .foregroundStyle(.secondary)
@@ -433,6 +437,18 @@ struct BenchmarkRow: View {
         }
     }
     #endif
+}
+
+/// A failed benchmark's score, in red.
+struct PenaltyText: View {
+    let font: Font
+
+    var body: some View {
+        Text(Format.score(Scoring.failurePenalty))
+            .font(font.monospacedDigit())
+            .foregroundStyle(.red)
+            .accessibilityLabel("Failed, score \(Format.score(Scoring.failurePenalty))")
+    }
 }
 
 #if os(watchOS)
@@ -457,9 +473,12 @@ struct WatchResultLine: View {
             }
         // The engine's message is in the benchmark's detail view.
         case .failed:
-            Label("Failed", systemImage: "xmark.circle")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                PenaltyText(font: .headline)
+                Text("Failed")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         case .skipped:
             Label("Skipped", systemImage: "forward.end.circle")
                 .font(.footnote)

@@ -311,14 +311,20 @@ final class BenchmarkSession {
                     scores.append(score)
                     standing.scored += 1
                 }
-            case .failed, .skipped:
+            case .failed:
+                standing.finished += 1
+                standing.failed += 1
+                scores.append(Scoring.failurePenalty)
+            case .skipped:
+                // Only the device's memory stops a benchmark the app attempts;
+                // that is not the engine's failure.
                 standing.finished += 1
             case .pending, .running:
                 break
             }
         }
         if outcomes.isEmpty, available.contains(engineID) { standing.total = benchmarks.count }
-        standing.score = Scoring.geometricMean(scores)
+        standing.score = Scoring.mean(scores)
         standings[engineID] = standing
     }
 
@@ -352,9 +358,10 @@ final class BenchmarkSession {
             let standing = standing(engine)
             let score = standing.score.map(Format.score) ?? "—"
             let rank = rank(of: engine).map { "\($0). " } ?? "   "
-            lines.append("\(rank)\(engine.name) (\(engine.versionLine)): \(score) — \(standing.scored) of \(standing.total) benchmarks")
+            let failed = standing.failed > 0 ? ", \(standing.failed) failed" : ""
+            lines.append("\(rank)\(engine.name) (\(engine.versionLine)): \(score) — \(standing.scored) of \(standing.total) benchmarks\(failed)")
         }
-        lines.append("Score: 100 = the typical engine on an iPhone XS; higher is better.")
+        lines.append("Score: 100 = the typical engine on an iPhone XS, \(Format.score(Scoring.failurePenalty)) for a benchmark the engine cannot run; higher is better.")
         return lines.joined(separator: "\n")
     }
 
@@ -533,8 +540,10 @@ enum Runner {
             }
             let key = ResultKey(engine: item.engine.id, benchmark: item.benchmark.id)
             let label = "\(item.engine.prefix) \(item.benchmark.label)"
+            // A known engine failure the app does not attempt scores like
+            // any other failure.
             if let skip = item.skip {
-                post(.finished(key, .skipped(skip)))
+                post(.finished(key, .failed("N/A — not run: \(skip)")))
                 continue
             }
             if mode == .interactive {

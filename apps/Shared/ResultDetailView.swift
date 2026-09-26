@@ -91,6 +91,9 @@ struct ResultDetailView: View {
             }
         case .failed(let message):
             Section("Did not complete") {
+                LabeledContent("Score") {
+                    PenaltyText(font: .title2.weight(.semibold))
+                }
                 Text(message)
                     .font(.callout.monospaced())
                     #if os(iOS) || os(macOS) || os(visionOS)
@@ -146,7 +149,13 @@ struct ResultSummaryView: View {
                         }
                     }
                 case .failed(let message):
-                    Label("Did not complete", systemImage: "xmark.circle")
+                    HStack(alignment: .firstTextBaseline, spacing: 16) {
+                        PenaltyText(font: .system(size: 88, weight: .bold))
+                        Text("score")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Did not complete")
                         .font(.title3)
                     Text(message)
                         .font(.callout.monospaced())
@@ -252,9 +261,13 @@ struct OverviewView: View {
 
     private var footnote: String {
         #if os(tvOS)
-        "Move to a benchmark in an engine's list to see its measurements here. 100 is the typical engine on an iPhone XS; an engine's score is the geometric mean of its benchmark scores."
+        "Move to a benchmark in an engine's list to see its measurements here. \(scoring)"
         #else
-        "Select a benchmark in an engine's list to see its measurements. 100 is the typical engine on an iPhone XS; an engine's score is the geometric mean of its benchmark scores."
+        "Select a benchmark in an engine's list to see its measurements. \(scoring)"
         #endif
+    }
+
+    private var scoring: String {
+        "100 is the typical engine on an iPhone XS, and a benchmark an engine cannot run scores \(Format.score(Scoring.failurePenalty)). An engine's score is the average of its benchmark scores."
     }
 }
