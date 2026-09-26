@@ -28,6 +28,9 @@ struct HarnessConfig: Sendable {
     var excludes: [String]
     /// FEMTOVG_E2E: scenes to run the femtovg E2E on instead of the rows.
     var femtovgScenes: String?
+    /// BENCH_REVEAL: an engine token to expand and scroll to when the run
+    /// finishes, so a screenshot shows its rows. Does not start a run.
+    var reveal: String?
 
     private static let triggers = [
         "BENCH_AUTORUN", "WORKLOADS", "RUNTIMES", "WORKLOADS_EXCLUDE", "BENCH_TARGET_MS", "FEMTOVG_E2E",
@@ -51,7 +54,8 @@ struct HarnessConfig: Sendable {
             workloads: list("WORKLOADS"),
             runtimes: list("RUNTIMES"),
             excludes: list("WORKLOADS_EXCLUDE"),
-            femtovgScenes: scenes.isEmpty ? nil : scenes
+            femtovgScenes: scenes.isEmpty ? nil : scenes,
+            reveal: list("BENCH_REVEAL").first.map { aliases[$0] ?? $0 }
         )
     }
 

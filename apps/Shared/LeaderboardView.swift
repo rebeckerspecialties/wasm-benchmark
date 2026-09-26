@@ -96,13 +96,23 @@ struct LeaderboardList: View {
     }
 
     @ViewBuilder private var list: some View {
-        if let selection {
-            List(selection: selection) { sections }
-                #if os(iOS) || os(visionOS)
-                .listStyle(.insetGrouped)
-                #endif
-        } else {
-            List { sections }
+        ScrollViewReader { proxy in
+            Group {
+                if let selection {
+                    List(selection: selection) { sections }
+                        #if os(iOS) || os(visionOS)
+                        .listStyle(.insetGrouped)
+                        #endif
+                } else {
+                    List { sections }
+                }
+            }
+            .onChange(of: session.isRunning) { _, running in
+                guard !running, let token = session.harness?.reveal,
+                      let engine = session.engines.first(where: { $0.token == token }) else { return }
+                expanded.insert(engine.id)
+                withAnimation(.snappy) { proxy.scrollTo(EngineGroup.anchor(engine), anchor: .top) }
+            }
         }
     }
 
@@ -161,6 +171,9 @@ struct LeaderboardList: View {
 struct EngineGroup: View {
     @Environment(BenchmarkSession.self) private var session
     let engine: EngineInfo
+
+    /// The engine row's scroll target.
+    static func anchor(_ engine: EngineInfo) -> String { "engine-\(engine.id)" }
     @Binding var isExpanded: Bool
     #if os(tvOS)
     var tvFocus: FocusState<TVRow?>.Binding
@@ -189,6 +202,7 @@ struct EngineGroup: View {
         .focused(tvFocus, equals: .engine(engine.id))
         #endif
         .accessibilityHint(isExpanded ? "Hides this engine's benchmarks" : "Shows this engine's benchmarks")
+        .id(Self.anchor(engine))
         if isExpanded {
             children
                 .padding(.leading, Metrics.childIndent)
@@ -206,6 +220,7 @@ struct EngineGroup: View {
                     withAnimation(.snappy) { isExpanded.toggle() }
                 }
         }
+        .id(Self.anchor(engine))
         #endif
     }
 
