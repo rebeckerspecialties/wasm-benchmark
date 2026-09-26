@@ -102,6 +102,21 @@ Pick this up cold without re-deriving state:
     [`docs/tinywasm-iphone12-2026-09-23.md`](docs/tinywasm-iphone12-2026-09-23.md).
   - #59 adds `pub max_stack` to `tinywasm_types::WasmFunction` and bumps
     the archive to `06`.
+  - Since then, fork PRs with no upstream counterpart yet:
+    - #9: exception-handling spec tests, plus exnref unwinding cases
+      ported from the retired WAMR legacy-EH bugs. tinywasm passes all
+      of them.
+    - #10: shared-memory locking out of line (−4.6 % instructions and
+      −8.6 % cycles on its worst watch row).
+    - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
+      closed by the maintainer, who plans his own memory operand
+      encoding) and #64 (borrow the instruction stream; upstream draft).
+  - Apple Watch Series 10 analysis:
+    [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
+    tinywasm needs 1.9× WAMR's cycles because of instruction count, not
+    mispredicts or cache misses. About 47 instructions per op, half of
+    them value-stack plumbing, which is the maintainer's `exp/acc` area.
+    The upstream discussion draft is Matt's to post.
   - Local checkout `~/src/tinywasm`: `origin` is upstream, `fork` is
     ours; worktrees in `~/src/tinywasm-worktrees/`. A/B tooling:
     `scripts/tinywasm-ab-build-ios.sh`, `scripts/tinywasm-ab-iphone.sh`,
@@ -475,7 +490,10 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   BENCH_TARGET_MS, FEMTOVG_E2E or `BENCH_AUTORUN=1` in the environment
   starts a run at launch over every selected case, engine by engine, with
   no skips, writing the `[[<prefix>] <label>] ...` lines, the
-  `WORKLOADS filter:` line and `BENCH_DONE` as before.
+  `WORKLOADS filter:` line and `BENCH_DONE` as before. `BENCH_REVEAL=<engine>`
+  (not a trigger) expands that engine and scrolls to it when the run
+  finishes, for screenshots: `devicectl device capture screenshot` works on
+  the watch, which cannot be scrolled remotely.
 
 ### The three passes (2026-09 refresh)
 

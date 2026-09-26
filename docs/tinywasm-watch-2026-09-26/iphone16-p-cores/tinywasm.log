@@ -1,0 +1,45 @@
+wamr init: ok
+wasm3 init: ok
+wasmedge init: ok
+zwasm init: ok
+wasmz init: ok
+tinywasm init: ok
+pac probe: supported=1 code1=0x99a160d600000000 code2=0x99a160d600000000 code3=0x5497346d00000000 | nonzero=1 deterministic=1 input_dep=1 low_zero=1
+WORKLOADS filter: (any); RUNTIMES filter: tinywasm
+[[tinywm] fib(30)] result=832040  iter=6  load=0.552ms  min=29.549 median=30.718 p99=31.188 ms  cpu(u/s)=227.75/9.34 ms  rss=80320KB  faults=404  e_share=0.062  ipc=6.61  insns=5712718623  cycles=864389717
+Charts: Custom UnitPoint values are not supported in AxisValueLabel's anchor property. Please use leading, topLeading, center, etc.
+[[tinywm] fib_tail(100000) [return_call]] result=873876091  iter=1189  load=0.092ms  min=0.164 median=0.174 p99=0.186 ms  cpu(u/s)=236.92/13.55 ms  rss=84672KB  faults=615  e_share=0.048  ipc=7.96  insns=7030099815  cycles=883060008
+[[tinywm] factorial(20)] result=-2102132736  iter=16384  load=0.145ms  min=0.000 median=0.000 p99=0.000 ms  cpu(u/s)=6.40/0.10 ms  rss=84880KB  faults=14  e_share=0.001  ipc=3.35  insns=80913294  cycles=24134352
+[[tinywm] sieve(10000)] result=1229  iter=1009  load=0.121ms  min=0.181 median=0.207 p99=0.610 ms  cpu(u/s)=249.79/6.39 ms  rss=85904KB  faults=239  e_share=0.133  ipc=7.09  insns=6197740033  cycles=874373929
+[[tinywm] crc32(64KB)] result=-1910355869  iter=119  load=0.127ms  min=1.560 median=1.636 p99=1.744 ms  cpu(u/s)=207.81/3.17 ms  rss=86272KB  faults=155  e_share=0.009  ipc=7.62  insns=5571379529  cycles=731055350
+[[tinywm] matmul simd128 (64×64 f32)] result=48907  iter=166  load=1.074ms  min=1.118 median=1.202 p99=1.261 ms  cpu(u/s)=205.41/3.66 ms  rss=87072KB  faults=180  e_share=0.011  ipc=7.59  insns=5620125258  cycles=740128643
+[[tinywm] matmul relaxed-simd FMA] result=48907  iter=70  load=0.059ms  min=0.857 median=0.944 p99=1.383 ms  cpu(u/s)=71.78/1.26 ms  rss=87200KB  faults=45  e_share=0.076  ipc=7.14  insns=1841945743  cycles=258142580
+[[tinywm] convolution 256×256] result=8190685  iter=99  load=1.028ms  min=1.762 median=1.949 p99=2.107 ms  cpu(u/s)=200.55/2.28 ms  rss=88336KB  faults=59  e_share=0.002  ipc=6.90  insns=4915115996  cycles=712042774
+[[tinywm] bulk_memory (memory.copy/fill)] result=8698902  iter=63  load=0.098ms  min=2.959 median=3.164 p99=3.334 ms  cpu(u/s)=206.71/1.64 ms  rss=89152KB  faults=42  e_share=0.002  ipc=8.16  insns=5806069778  cycles=711644789
+[[tinywm] call_indirect (200K dispatches)] result=-9175573  iter=22  load=1.196ms  min=8.635 median=8.784 p99=9.030 ms  cpu(u/s)=200.37/1.62 ms  rss=89664KB  faults=0  e_share=0.001  ipc=4.69  insns=3435128247  cycles=732938898
+[[tinywm] factorial(20) [scalar build]] result=-2102132736  iter=16384  load=0.086ms  min=0.000 median=0.000 p99=0.000 ms  cpu(u/s)=4.80/0.10 ms  rss=89664KB  faults=0  e_share=0.022  ipc=4.27  insns=75177768  cycles=17617187
+[[tinywm] sieve(10000) [scalar build]] result=1229  iter=907  load=0.050ms  min=0.209 median=0.228 p99=0.256 ms  cpu(u/s)=224.39/1.85 ms  rss=89680KB  faults=10  e_share=0.002  ipc=7.51  insns=5910768768  cycles=786888702
+[[tinywm] crc32(64KB) [scalar build]] result=-1910355869  iter=122  load=0.061ms  min=1.427 median=1.650 p99=1.759 ms  cpu(u/s)=217.22/1.57 ms  rss=89696KB  faults=1  e_share=0.001  ipc=7.63  insns=5825150223  cycles=763328721
+[[tinywm] convolution 256×256 [scalar build]] result=8190685  iter=43  load=0.074ms  min=4.278 median=4.445 p99=4.688 ms  cpu(u/s)=201.48/1.60 ms  rss=89728KB  faults=0  e_share=0.001  ipc=7.70  insns=5542875652  cycles=719926425
+[[tinywm] bulk_memory (memory.copy/fill) [scalar build]] result=8698902  iter=57  load=0.080ms  min=2.886 median=3.421 p99=3.656 ms  cpu(u/s)=206.05/1.21 ms  rss=89824KB  faults=1  e_share=0.000  ipc=7.89  insns=5764154332  cycles=730697751
+[[tinywm] xmrsplayer (1024-frame buffer)] result=561877875  iter=38  load=3.772ms  min=5.084 median=5.204 p99=5.497 ms  cpu(u/s)=206.76/1.79 ms  rss=106272KB  faults=0  e_share=0.001  ipc=6.32  insns=4594089193  cycles=727401494
+[[tinywm] vtable_mono (200K)] result=-318559695  iter=18  load=1.440ms  min=9.613 median=10.585 p99=10.873 ms  cpu(u/s)=196.84/1.77 ms  rss=106304KB  faults=0  e_share=0.001  ipc=6.88  insns=4811437976  cycles=699215925
+[[tinywm] vtable_bi (200K)] result=-208336512  iter=15  load=0.075ms  min=12.292 median=12.430 p99=12.533 ms  cpu(u/s)=195.45/1.54 ms  rss=106336KB  faults=0  e_share=0.000  ipc=6.95  insns=4826567899  cycles=694609823
+[[tinywm] vtable_poly4 (200K)] result=-126115384  iter=14  load=0.061ms  min=13.248 median=13.985 p99=14.371 ms  cpu(u/s)=204.67/1.24 ms  rss=106384KB  faults=0  e_share=0.005  ipc=6.57  insns=4773904279  cycles=726746880
+[[tinywm] vtable_poly6 (200K)] result=579248763  iter=12  load=0.101ms  min=15.514 median=15.632 p99=15.800 ms  cpu(u/s)=198.71/1.41 ms  rss=106400KB  faults=0  e_share=0.001  ipc=6.55  insns=4485268989  cycles=684641820
+[[tinywm] graphql-validation (AS)] result=5  iter=51  load=1.596ms  min=3.420 median=3.968 p99=4.616 ms  cpu(u/s)=227.90/1.40 ms  rss=106672KB  faults=1  e_share=0.008  ipc=5.90  insns=4602134753  cycles=779688079
+[[tinywm] tail-call FSM (65536 return_call)] result=-1841735369  iter=111  load=0.042ms  min=1.763 median=1.857 p99=2.007 ms  cpu(u/s)=233.38/2.08 ms  rss=106672KB  faults=0  e_share=0.001  ipc=6.63  insns=5296824839  cycles=799391826
+[[tinywm] EH parser, exnref (4096 stmts, 25% throw)] result=830008030  iter=34  load=1.651ms  min=5.349 median=5.675 p99=5.871 ms  cpu(u/s)=213.20/1.56 ms  rss=106672KB  faults=65  e_share=0.003  ipc=5.50  insns=4082640730  cycles=742719103
+[[tinywm] call_ref dispatch (200K, typed table)] result=-750120562  iter=25  load=0.026ms  min=6.901 median=7.879 p99=8.300 ms  cpu(u/s)=216.42/1.56 ms  rss=106672KB  faults=0  e_share=0.001  ipc=5.13  insns=3886604369  cycles=757149382
+[[tinywm] call_ref twin: call_indirect (200K)] result=-750120562  iter=26  load=0.023ms  min=7.652 median=8.145 p99=8.496 ms  cpu(u/s)=232.12/1.11 ms  rss=106672KB  faults=0  e_share=0.001  ipc=4.62  insns=3853812984  cycles=833545096
+[[tinywm] relaxed-SIMD int8 dot (64×64×256)] result=-551922832  iter=258  load=0.087ms  min=0.740 median=0.786 p99=0.882 ms  cpu(u/s)=244.13/2.10 ms  rss=106672KB  faults=5  e_share=0.001  ipc=6.03  insns=5126997894  cycles=850679378
+[[tinywm] relaxed-SIMD FMA Horner (16K pts)] result=-1435646925  iter=725  load=0.055ms  min=0.174 median=0.273 p99=0.322 ms  cpu(u/s)=215.16/0.00 ms  rss=106672KB  faults=5  e_share=0.000  ipc=5.47  insns=4319366054  cycles=789237817
+[[tinywm] multi-memory transform (3 memories)] result=902712413  iter=88  load=0.031ms  min=2.072 median=2.190 p99=2.334 ms  cpu(u/s)=228.52/1.27 ms  rss=106672KB  faults=1  e_share=0.002  ipc=7.53  insns=5748402628  cycles=763750222
+[[tinywm] multi-memory twin: one memory] result=902712413  iter=93  load=0.024ms  min=1.982 median=2.094 p99=2.230 ms  cpu(u/s)=239.22/1.43 ms  rss=106672KB  faults=0  e_share=0.001  ipc=7.62  insns=6074659915  cycles=797334407
+[[tinywm] extended-const instantiate (2560 globals)] result=-1152068691  iter=1611  load=4.175ms  min=0.101 median=0.121 p99=0.137 ms  cpu(u/s)=239.38/1.76 ms  rss=106672KB  faults=2  e_share=0.002  ipc=6.54  insns=5440824226  cycles=832566368
+[[tinywm] extended-const twin: MVP consts] result=-1152068691  iter=7729  load=1.731ms  min=0.026 median=0.031 p99=0.040 ms  cpu(u/s)=297.83/2.02 ms  rss=106672KB  faults=4  e_share=0.002  ipc=6.53  insns=6460217295  cycles=989850749
+No comparable workloads yet (need at least one workload completed on ≥2 runtimes).
+BENCH_DONE
+Launched application with com.rebeckerspecialties.wasmbench bundle identifier.
+Waiting for the application to terminate...
+App terminated due to signal 15.
