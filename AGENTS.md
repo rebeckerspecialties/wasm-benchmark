@@ -109,8 +109,11 @@ Pick this up cold without re-deriving state:
       [explodingcamera/tinywasm#71](https://github.com/explodingcamera/tinywasm/pull/71).
     - #10: shared-memory locking out of line, with atomics keeping the
       lock inline (−4.6 % instructions and −8.6 % cycles on its worst
-      watch row). Its shared-memory cost and references to other
-      runtimes are in the watch report.
+      watch row; −3.7 % cycles geomean on the iPhone 12 E-cores, shared
+      memory included). Upstream as
+      [explodingcamera/tinywasm#72](https://github.com/explodingcamera/tinywasm/pull/72).
+      Its shared-memory cost and references to other runtimes are in
+      the watch report.
     - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
       closed by the maintainer, who plans his own memory operand
       encoding) and #64 (borrow the instruction stream; upstream draft).
@@ -152,10 +155,10 @@ Pick this up cold without re-deriving state:
     tinywasm stay flat.
   - `--cfg=pulley_tail_calls` is still opt-in upstream in v49 (same three
     dispatch modes in `pulley/src/interp.rs`), so it stays.
-- **Open fork PRs** (state checked 2026-09-22):
+- **Open fork PRs** (state checked 2026-09-26):
   - [`rebeckerspecialties/wasmtime#2`](https://github.com/rebeckerspecialties/wasmtime/pull/2) — table-mutability tracking (open; `#4`, the phase 1–4 fusion PR, is closed)
   - [`rebeckerspecialties/wasm-micro-runtime#3`–`#4`](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls) — relaxed SIMD, PROT_NONE linear memory (open; relaxed SIMD also upstream as [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950), open). #1 and #2 (fast-interp legacy EH) were closed on 2026-09-26: exnref supersedes legacy EH.
-  - [`rebeckerspecialties/wasm3#1`](https://github.com/rebeckerspecialties/wasm3/pull/1) — v128 opaque slot; superseded by upstream [wasm3#559](https://github.com/wasm3/wasm3/pull/559) (merged, in v0.9.0)
+  - Closed on 2026-09-26 because the same branches merged upstream: tinywasm #1–#3 (explodingcamera/tinywasm#57–#59), wasmtime #1 ([bytecodealliance/wasmtime#13259](https://github.com/bytecodealliance/wasmtime/pull/13259)), wasm3 #1 ([wasm3/wasm3#559](https://github.com/wasm3/wasm3/pull/559), in v0.9.0) and target-lexicon #1 ([bytecodealliance/target-lexicon#131](https://github.com/bytecodealliance/target-lexicon/pull/131)). The target-lexicon submodule could now move to an upstream release that includes #131.
   - Upstream wasmtime [#13445](https://github.com/bytecodealliance/wasmtime/pull/13445) / [#13447](https://github.com/bytecodealliance/wasmtime/pull/13447) and the July split [#13909](https://github.com/bytecodealliance/wasmtime/pull/13909) / [#13910](https://github.com/bytecodealliance/wasmtime/pull/13910) are closed; [#13259](https://github.com/bytecodealliance/wasmtime/pull/13259) (arm64_32 unwinder) is merged.
 - **Hot tools**:
   - `./scripts/run-m4-pass.sh <out>` — M4 E-core N=10 (matrix + femtovg E2E + CM async)

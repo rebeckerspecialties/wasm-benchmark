@@ -185,11 +185,40 @@ known from the module's memory types when the function is lowered, so
 dedicated shared-memory opcodes would remove the runtime branch
 altogether. The instruction encoding is the maintainer's area.
 
+### iPhone 12 (A14) efficiency cores
+
+The M4 is a cross-check, not a stand-in for A-series silicon, so the
+final version of #10 (with atomics inline) was also measured on an
+iPhone 12. The two apps were built by `scripts/tinywasm-ab-build-ios.sh`
+(upstream `next` against #10), with the shared-memory loops added as
+temporary rows. They ran in five interleaved launches each (`.utility`,
+2 s windows) via `scripts/tinywasm-ab-iphone.sh`. Every counted row ran
+at 97% or more E-core residency; `factorial(20)` is again left out
+([raw](tinywasm-watch-2026-09-26/iphone12-ab.csv)).
+
+| row | instructions | cycles |
+|---|---:|---:|
+| multi-memory twin: one memory | −3.6% | −4.2% |
+| crc32(64KB) [scalar build] | −4.0% | −6.3% |
+| sieve(10000) [scalar build] | −4.2% | −7.8% |
+| convolution 256×256 [scalar build] | −5.7% | −3.3% |
+| bulk_memory [scalar build] | −1.1% | −2.2% |
+| graphql-validation (AS) | −3.4% | −2.7% |
+| xmrsplayer (1024-frame buffer) | −2.7% | −1.1% |
+| shared memory, plain load + store | −4.2% | −4.1% |
+| shared memory, atomic RMW | −6.3% | −10.7% |
+| ordinary memory, plain load + store | −5.8% | −4.4% |
+| call_indirect / call_ref twin / fib(30) (controls) | −1.2 / −0.0 / −0.1% | −0.6 / −0.3 / −0.0% |
+| geomean, 13 rows | −3.3% | −3.7% |
+
+On the A14 the plain shared-memory path is faster too; only the M4's
+performance cores showed the +1.6%.
+
 ## Action plan
 
 | # | change | owner | evidence | status |
 |---|---|---|---|---|
-| 1 | Shared-memory locking out of line, atomics kept inline | us, within the maintainer's rules (safe; cold path out of line, like #57–#59) | −4.6% instructions, −8.6% cycles on the worst row; shared memory: faster except plain accesses on P-cores (+1.6%) | fork PR #10; upstream once its description is updated |
+| 1 | Shared-memory locking out of line, atomics kept inline | us, within the maintainer's rules (safe; cold path out of line, like #57–#59) | −4.6% instructions, −8.6% cycles on the worst row; shared memory: faster except plain accesses on P-cores (+1.6%) | upstream [#72](https://github.com/explodingcamera/tinywasm/pull/72) (fork #10) |
 | 2 | Borrow the instruction stream across tail dispatch (saves the function `Arc` reload, 7 of 31 instructions in `LocalSet32`) | us | −7.2% cycles on A14, −6.8% on A12 | upstream draft #64 (fork #8); not yet measured on the watch |
 | 3 | Keep the value-stack pointer and length in registers across handlers (51% of samples) | maintainer (`exp/acc` accumulator work) | profile above | discussion draft: ask whether `exp/acc` carries the stack pointer; offer watch measurements of `exp/acc` |
 | 4 | Memory operand offsets in the instruction (side-pool `resolve`) | maintainer (planned u16 memory index; our #63 was closed) | ~2.3% of samples | wait for the maintainer |
@@ -219,3 +248,5 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
     Profiler histogram.
   - `shared-memory.wat` and `shared-memory-reps.json`: the shared-memory
     loops and their per-rep counters.
+  - `iphone12-ab.csv`: the iPhone 12 A/B, every sample (`tmp` rows are the
+    shared-memory loops).
