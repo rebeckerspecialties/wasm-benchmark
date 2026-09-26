@@ -80,25 +80,18 @@ Pick this up cold without re-deriving state:
     `wasm-micro-runtime/product-mini/platforms/darwin/build/`, then
     rebuild the host CLI (rerun-if-changed relinks). Remove the
     `wasm_c_api.c.o` member first (see *WAMR* below) or zwasm crashes.
-- **tinywasm contributions**: a three-PR stack, upstream as
+- **tinywasm contributions**: a three-PR stack, merged upstream on
+  2026-09-24 (squash-merged into `next`):
   [explodingcamera/tinywasm#57](https://github.com/explodingcamera/tinywasm/pull/57)
   (value-stack growth out of line),
   [#58](https://github.com/explodingcamera/tinywasm/pull/58) (inlined fused
-  binop / compare helpers) and
+  binop / compare helpers, `7af50cc9`) and
   [#59](https://github.com/explodingcamera/tinywasm/pull/59) (per-function
-  operand-stack reservation). All three target `next` (the maintainer's
-  working branch; `main` lags it).
-  - GitHub's native stacked PRs don't work across forks and we can't
-    push upstream, so it is a manual stack: #58 and #59 contain the
-    commits below them, and each description says which commits are new.
-    After a squash-merge, rebase the next branch onto `next` and drop the
-    merged commit.
-  - Branches live in the fork `rebeckerspecialties/tinywasm`, where the
-    same stack is fork PRs #1-#3 (`perf/value-stack-cold-growth` →
-    `perf/inline-fused-binop-helpers` → `perf/reserve-operand-stack`).
-    They were rebased 2026-09-23 onto `next` `785be0e`: #2's attributes
-    moved onto the `impl_value_ops!` macro, and #3 no longer touches the
-    removed `examples/rust` archive fixture.
+  operand-stack reservation, `c0be6478`). The harness still pins the
+  0.11.0 release from crates.io, which predates them.
+  - It was a manual stack (GitHub's native stacked PRs don't work across
+    forks): #58 and #59 contained the commits below them. The branches
+    live in the fork `rebeckerspecialties/tinywasm` (fork PRs #1-#3).
   - Measured on `next` `b45a98a`, before the rebase: −4.1 % / −5.3 % /
     −8.0 % cycles on the iPhone 12 E-cores; #3 matches the no-growth
     upper bound. See
