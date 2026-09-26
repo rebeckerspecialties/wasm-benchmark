@@ -51,6 +51,19 @@ pub mod wamr {
     pub fn run_graphql_validation_porf_wamr(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("WAMR not linked into this build"))
     }
+    pub fn run_instantiate_each_wamr(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("WAMR not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("WAMR not linked into this build"))
+    }
 }
 
 #[cfg(have_zwasm)]
@@ -78,6 +91,19 @@ pub mod zwasm {
         Err(anyhow!("zwasm not linked into this build"))
     }
     pub fn run_graphql_validation_porf_zwasm(_wasm_bytes: &[u8]) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+    pub fn run_instantiate_each_zwasm(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("zwasm not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
         Err(anyhow!("zwasm not linked into this build"))
     }
 }
@@ -109,6 +135,19 @@ pub mod wasmz {
     pub fn run_graphql_validation_porf_wasmz(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("wasmz not linked into this build"))
     }
+    pub fn run_instantiate_each_wasmz(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("wasmz not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("wasmz not linked into this build"))
+    }
 }
 
 #[cfg(have_wasmedge)]
@@ -138,6 +177,19 @@ pub mod wasmedge {
     pub fn run_graphql_validation_porf_wasmedge(_wasm_bytes: &[u8]) -> Result<RunReport> {
         Err(anyhow!("WasmEdge not linked into this build"))
     }
+    pub fn run_instantiate_each_wasmedge(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
+        Err(anyhow!("WasmEdge not linked into this build"))
+    }
 }
 
 #[cfg(have_wasm3)]
@@ -163,6 +215,19 @@ pub mod wasm3 {
         _arg: i32,
         _iters: u32,
     ) -> Result<RunReport> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
+    pub fn run_instantiate_each_wasm3(
+        _wasm_bytes: &[u8],
+        _fn_name: &str,
+        _arg: i32,
+    ) -> Result<RunReport> {
+        Err(anyhow!("wasm3 not linked into this build"))
+    }
+    #[cfg(feature = "femtovg-e2e")]
+    pub(crate) fn femtovg_guest(
+        _wasm: &'static [u8],
+    ) -> Result<Box<dyn crate::femtovg_e2e::Guest>> {
         Err(anyhow!("wasm3 not linked into this build"))
     }
 }
