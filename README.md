@@ -41,7 +41,7 @@ have no native tier at all).
 
 ```sh
 # Clone with submodules (wasmtime, WAMR, wasm3, WasmEdge, wasmz, zwasm,
-# femtovg, target-lexicon, mach2, sightglass — all pinned)
+# femtovg, target-lexicon, sightglass — all pinned)
 git clone --recurse-submodules https://github.com/rebeckerspecialties/wasm-benchmark.git
 cd wasm-benchmark
 
@@ -128,8 +128,8 @@ zwasm/                   v2.7.0; patches/zwasm/0001 (JIT compiled out of
                          build time.
 femtovg/                 rebeckerspecialties/femtovg, branch wire-renderer
                          (the E2E's Renderer wire stream).
-mach2/                   pinned to fork's arm64_32-apple-watchos branch.
-target-lexicon/          pinned to fork's arm64_32-apple-watchos branch.
+target-lexicon/          upstream main (arm64_32-apple-watchos support,
+                         target-lexicon#131, is not in a release yet).
 sightglass/              pinned to upstream main (sqlite3.wasm source).
 ```
 
@@ -195,8 +195,8 @@ sightglass/              pinned to upstream main (sqlite3.wasm source).
 - **[docs/archived-ic-branches.md](docs/archived-ic-branches.md)** —
   SHAs for the deleted `pulley-call-indirect-ic*` branches, in case
   a future 2-way-IC or poisoning variant wants that baseline.
-- **[patches/README.md](patches/README.md)** — patch-stack workflow
-  for the wasmtime + mach2 + target-lexicon upstream PRs.
+- **[patches/README.md](patches/README.md)** — the patch series and
+  the fork-branch exports of the 2026-05 Pulley fusion work.
 
 ## Cross-runtime results across Apple silicon E-cores (2026-05)
 
@@ -294,10 +294,11 @@ Runtime PRs:
   SIMD superinstruction primitives, part of the Apple-mobile stack.
   **Merged**; the rest is carried in `patches/wasmedge/`.
 
-The **target-lexicon + mach2** patches live on `rebeckerspecialties`
-forks (arm64_32-apple-watchos branches); `.gitmodules` already pins
-them. See [`patches/README.md`](patches/README.md) for the
-patch-stack workflow.
+The arm64_32-apple-watchos support once carried as target-lexicon,
+mach2 and wasmtime fork patches is upstream:
+[target-lexicon#131](https://github.com/bytecodealliance/target-lexicon/pull/131)
+(on main, awaiting a release), mach2 0.6, and
+[wasmtime#13259](https://github.com/bytecodealliance/wasmtime/pull/13259).
 
 ## License
 

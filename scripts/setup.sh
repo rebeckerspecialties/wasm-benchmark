@@ -4,14 +4,14 @@
 #
 # Does:
 #   1. Init submodules. All runtime sources live as submodules —
-#      target-lexicon, mach2, wasmtime, wasm-micro-runtime, wasm3,
+#      target-lexicon, wasmtime, wasm-micro-runtime, wasm3,
 #      WasmEdge, wasmz, zwasm, femtovg, sightglass — each
 #      pinned per .gitmodules to a specific SHA. CI runs `git submodule
 #      update --init --recursive` and reproduces the source state
-#      exactly. (tinywasm is a crates.io dependency.)
+#      exactly. (tinywasm is a git dependency, pinned in
+#      crates/benchmark-core/Cargo.toml.)
 #
-#      Four submodules point at rebeckerspecialties forks:
-#        - target-lexicon, mach2 (arm64_32-apple-watchos branches)
+#      Two submodules point at rebeckerspecialties forks:
 #        - wasmtime (pulley-bench-stack-v49: v49.0.0 + the Pulley stack)
 #        - femtovg (wire-renderer: the E2E's Renderer wire stream; a
 #          path dependency of benchmark-core, so it must be initialized

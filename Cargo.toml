@@ -12,9 +12,11 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
-# Mirror of wasmtime/Cargo.toml's [patch.crates-io] so cargo applies the
-# arm64_32-apple-watchos patches when building from THIS workspace too.
-# Both workspaces' [patch.crates-io] sections must agree.
+# Mirror of wasmtime/Cargo.toml's [patch.crates-io]; both must agree.
+# target-lexicon's arm64_32-apple-watchos support is on upstream main
+# (bytecodealliance/target-lexicon#131) but in no release yet (0.13.5
+# predates it), so both workspaces patch it to the submodule, which
+# tracks upstream main.
 #
 # `mach2` is no longer patched: wasmtime's bump to 0.6 (which already has
 # Apple non-iOS-non-macOS target support upstream) covers what we need.

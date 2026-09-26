@@ -307,7 +307,8 @@ femtovg/                 rebeckerspecialties/femtovg, branch wire-renderer
                          (path dependency of benchmark-core and of the
                          guest — must be initialized even though the
                          `femtovg-e2e` feature is optional)
-target-lexicon/, mach2/  forks with arm64_32-apple-watchos support
+target-lexicon/          upstream main: arm64_32-apple-watchos support
+                         (target-lexicon#131) is in no release yet
 sightglass/              workload source (sqlite3)
 ```
 
@@ -711,8 +712,8 @@ pages or signal-based traps).
 
 ### Patch-stack discipline across all runtime submodules
 
-Every runtime submodule pins an UPSTREAM SHA (target-lexicon, mach2,
-wasmtime and femtovg are the only ones pointing at our forks). Local
+Every runtime submodule pins an UPSTREAM SHA (wasmtime and femtovg are
+the only ones pointing at our forks). Local
 fixes we carry without bumping the pin live as `.patch` files in
 `patches/<runtime>/`, applied at build time by each
 `scripts/build-<runtime>.sh` via `scripts/apply_patch_series.sh`. The
