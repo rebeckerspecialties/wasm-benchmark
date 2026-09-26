@@ -22,7 +22,7 @@
 #                                scene's footprint peak is its own
 #   FEMTOVG_FRAMES=121 FEMTOVG_PASSES=2
 #   UDID=00008020-001C292A2190003A (iPhone XS Max)  DEVICE_NAME=iphonexs
-#   BUNDLE=com.rebeckerspecialties.wasmbench.ios
+#   BUNDLE=com.rebeckerspecialties.wasmbench
 #   MAX_WAIT_SECS=2400           per launch
 #   SPLIT_RUNTIMES="zwasm"       runtimes whose heavy rows each get a launch
 #   HEAVY_ROWS="xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm"
@@ -44,7 +44,7 @@ WORKLOADS="${WORKLOADS:-}"
 E2E="${E2E:-}"
 UDID="${UDID:-00008020-001C292A2190003A}"
 DEVICE_NAME="${DEVICE_NAME:-iphonexs}"
-BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
+BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-2400}"
 SPLIT_RUNTIMES=" ${SPLIT_RUNTIMES-zwasm} "
 HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm}"

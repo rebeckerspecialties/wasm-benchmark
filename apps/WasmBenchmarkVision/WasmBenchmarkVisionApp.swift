@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct WasmBenchmarkWatchApp: App {
+struct WasmBenchmarkVisionApp: App {
     @State private var session = BenchmarkSession()
 
     var body: some Scene {
@@ -9,5 +9,6 @@ struct WasmBenchmarkWatchApp: App {
             RootView()
                 .environment(session)
         }
+        .defaultSize(width: 1180, height: 820)
     }
 }

@@ -21,7 +21,7 @@ set -uo pipefail
 
 UDID="${UDID:-B5D4CA48-8949-525C-8E5D-4F661161BD9D}"
 XCTRACE_DEV="${XCTRACE_DEV:-00008101-000A044A3C28801E}"
-BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
+BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench}"
 COND="${COND:?need COND}"
 OUTDIR="${OUTDIR:?need OUTDIR}"
 TEMPLATE="${TEMPLATE:-CPU Counters}"
