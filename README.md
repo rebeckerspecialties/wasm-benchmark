@@ -63,7 +63,9 @@ cd wasm-benchmark
 ./scripts/build-lib.sh macos        # M-series host
 ./scripts/build-lib.sh ios          # iPhone (aarch64-apple-ios)
 ./scripts/build-lib.sh watchos      # arm64_32-apple-watchos
-./scripts/build-lib.sh tvos         # Apple TV 4K (aarch64-apple-tvos)
+./scripts/build-lib.sh watchos-arm64  # aarch64-apple-watchos (Series 9+)
+./scripts/build-lib.sh tvos         # Apple TV (aarch64-apple-tvos)
+./scripts/build-lib.sh visionos     # Apple Vision Pro (aarch64-apple-visionos)
 ./scripts/build-lib.sh all          # everything
 
 # Host CLIs (pinned nightly, --cfg=pulley_tail_calls, fat LTO)
@@ -80,10 +82,12 @@ RUNTIMES_LIST=tinywasm ./scripts/run-m4-pmu-pass.sh out/pmu   # M4 PMU (separate
 ./scripts/summarize-pass.py out docs/<report-data-dir>
 ```
 
-iOS / watchOS / tvOS app builds via `xcodebuild` from `apps/`. See
-[AGENTS.md](AGENTS.md) for full build/deploy/measurement procedures
-(including the `ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO` watchOS gotcha and
-the xctrace PMU-attach workaround for Xcode 26.5).
+The app (iOS / iPadOS, watchOS, tvOS, visionOS; `apps/`) ranks the
+engines on the device it runs on: each engine is an expandable row with
+its version, short commit and an aggregate score, and its benchmarks'
+scores inside. It builds with `xcodebuild` from `apps/`; see
+[AGENTS.md](AGENTS.md) for build, deploy and measurement procedures and
+the App Store packaging.
 
 CI (`.github/workflows/build.yml`) reproduces the full submodule init +
 patch-series application + per-target build on every PR, so a clean
@@ -92,7 +96,7 @@ checkout from any branch should succeed end-to-end without local state.
 ## Repo layout
 
 ```
-apps/                    SwiftUI app — iOS / watchOS / tvOS / macOS targets
+apps/                    SwiftUI app — iOS / watchOS / tvOS / visionOS / macOS targets
 crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 + WasmEdge +
                          zwasm + wasmz + tinywasm adapters, the case table
                          (cases.rs), the femtovg E2E host, PMU-aware

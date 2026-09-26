@@ -22,10 +22,19 @@ Pick this up cold without re-deriving state:
   benchmarks, the femtovg E2E, M4 E-core + iPhone XS N=10, tinywasm's M4
   PMU profile).
   Raw per-rep data is in `docs/runtime-comparison-2026-09-22/`.
-- **Working branch**: `runtime-refresh-2026-09` on
-  `rebeckerspecialties/wasm-benchmark`, on top of the WAMR relaxed-SIMD
-  work of open PR #4 (`claude/wasm-benchmark-continue-wuuPd`) and
-  `claude/relaxed-simd-diff-fuzz`.
+- **The app** (`apps/`, 2026-09-25): a leaderboard of the seven engines,
+  each an expandable row with the release and short commit it was built
+  from and an aggregate score (higher is better; 100 is the typical
+  engine on an iPhone XS), ranked best first and re-sorted after every
+  result; inside, each benchmark's score. SwiftUI for iOS 17+ / iPadOS,
+  watchOS 11+, tvOS 18+ and visionOS 26+ (plus the macOS dev host),
+  packaged for the App Store (*App Store packaging* below). It reads the
+  engines, cases and score references from benchmark-core
+  (`bench_catalog_json`, `src/catalog.rs`). Launched by hand it waits
+  for Run; launched by the harness it runs on its own and prints the
+  console lines the scripts parse (*Measurement methodology*).
+- **Main**: the 2026-09 refresh (PR #6) and the WAMR relaxed-SIMD work
+  (PR #4) are merged.
 - **Runtime pins** (details, flags and caveats in *Cross-runtime
   comparison* below):
 
@@ -218,8 +227,10 @@ not switch toolchains here; use `rustup run`.
 **Rustup targets**: `aarch64-apple-darwin`, `aarch64-apple-ios`,
 `aarch64-apple-ios-sim`, `wasm32-unknown-unknown` and `wasm32-wasip2`
 (on 1.93.1, for the guests), `wasm32-wasip1` (wasmtime's own
-`cargo test --test disas`). `aarch64-apple-tvos` and
-`arm64_32-apple-watchos` are Tier 3: `-Z build-std` on the nightly.
+`cargo test --test disas`). `aarch64-apple-tvos`,
+`arm64_32-apple-watchos`, `aarch64-apple-watchos` (Series 9 and later)
+and `aarch64-apple-visionos` (and their `-sim` twins) are Tier 3:
+`-Z build-std` on the nightly.
 
 ## Pulley dispatch loop selection (critical for perf)
 
@@ -245,8 +256,11 @@ feature.
 ## Repo layout
 
 ```
-apps/                    iOS / watchOS / tvOS / macOS SwiftUI app
-                         (Metal + QuartzCore linked for the femtovg E2E)
+apps/                    SwiftUI app: iOS / iPadOS, watchOS, tvOS,
+                         visionOS and macOS targets over one Shared/ UI
+                         (Metal + QuartzCore linked for the femtovg E2E);
+                         Resources/PrivacyInfo.xcprivacy; per-platform
+                         Assets.xcassets (scripts/make-app-icons.swift)
 crates/benchmark-core/   Rust library — the seven runtime adapters
                          (lib.rs = Pulley, wamr.rs, wasm3.rs, wasmedge.rs,
                          zwasm.rs, wasmz.rs, tinywasm.rs), the case table
@@ -305,8 +319,10 @@ tinywasm is a crates.io dependency (`=0.11.0`), not a submodule.
 ./scripts/build-wasmz.sh all         # wasmz libwasmz.a
 
 # benchmark-core static lib for a platform (nightly, pulley_tail_calls,
-# nightly-dispatch, fat LTO; femtovg-e2e on macos / ios / ios-sim)
-./scripts/build-lib.sh macos | ios | ios-sim | watchos | watchos-sim | tvos | tvos-sim | all
+# nightly-dispatch, fat LTO; femtovg-e2e on macos / ios / ios-sim). Every
+# runtime script takes the same target names.
+./scripts/build-lib.sh macos | ios | ios-sim | watchos | watchos-arm64 | watchos-sim \
+  | tvos | tvos-sim | visionos | visionos-sim | all
 
 # macOS host CLIs, same flags as the device libs
 ./scripts/build-host-cli.sh --bin run_matrix
@@ -316,33 +332,80 @@ tinywasm is a crates.io dependency (`=0.11.0`), not a submodule.
 # Component-aware CLIs for the feature matrix and the WASI 0.3 benchmark
 ./scripts/build-cm-tools.sh          # target/cm-tools/{wasmtime,zwasm-p3,iwasm-cm}
 
-# iOS app (iPhone XS: DerivedData-xs-ios)
+# iOS app (iPhone XS: DerivedData-xs-ios). It embeds the watch app, so it
+# needs the watch libraries too: watchos + watchos-arm64 for a device
+# build, watchos-sim for a simulator one.
 cd apps && xcodebuild -project WasmBenchmark.xcodeproj \
   -scheme WasmBenchmarkIOS -configuration Release \
   -destination "generic/platform=iOS" \
   -derivedDataPath build/DerivedData-xs-ios \
   -allowProvisioningUpdates build
 
-# watchOS app (Watch SE2 S8). MUST pass ARCHS=arm64_32 + ONLY_ACTIVE_ARCH=NO
-# since Xcode defaults to arm64 (S9+) but the Rust lib is arm64_32-only.
+# watchOS app. Release builds both slices (arm64_32 for Series 6-8 / SE,
+# arm64 for Series 9 and later); for an SE2-only build pass ARCHS=arm64_32.
 xcodebuild -project apps/WasmBenchmark.xcodeproj \
   -scheme WasmBenchmarkWatch -configuration Release \
   -destination "generic/platform=watchOS" \
   -derivedDataPath apps/build/DerivedData-se2-watch \
-  -allowProvisioningUpdates \
-  ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO \
-  build
-
-# tvOS app (Apple TV 4K, tvOS 26+).
-xcodebuild -project apps/WasmBenchmark.xcodeproj \
-  -scheme WasmBenchmarkTV -configuration Release \
-  -destination "generic/platform=tvOS" \
-  -derivedDataPath apps/build/DerivedData-tv \
   -allowProvisioningUpdates build
+
+# tvOS app (tvOS 18+) and visionOS app (visionOS 26+): same shape with
+# -scheme WasmBenchmarkTV / WasmBenchmarkVision and
+# -destination "generic/platform=tvOS" / "generic/platform=visionOS".
+# App Store archives: `xcodebuild archive -scheme <scheme>
+# -destination generic/platform=<OS> -archivePath build/<name>.xcarchive`.
 ```
 
 The Xcode project is generated from `apps/project.yml` (XcodeGen); keep
 both in sync.
+
+## App Store packaging
+
+One App Store record, universal purchase:
+
+| target | platform, minimum | bundle ID | libraries |
+|---|---|---|---|
+| WasmBenchmarkIOS | iOS / iPadOS 17 | `com.rebeckerspecialties.wasmbench` | `aarch64-apple-ios` |
+| WasmBenchmarkWatch | watchOS 11, embedded in the iOS app | `…wasmbench.watchkitapp` | `arm64_32-apple-watchos` + `aarch64-apple-watchos` |
+| WasmBenchmarkTV | tvOS 18 | `com.rebeckerspecialties.wasmbench` | `aarch64-apple-tvos` |
+| WasmBenchmarkVision | visionOS 26 | `com.rebeckerspecialties.wasmbench` | `aarch64-apple-visionos` |
+| WasmBenchmarkMac | macOS 26 (dev host, not for the store) | `…wasmbench.mac` | `aarch64-apple-darwin` |
+
+- **CPU baselines**: the libraries are built for `apple-a12`, so the iOS
+  app requires an A12 (`iphone-ipad-minimum-performance-a12` in
+  UIRequiredDeviceCapabilities; iPadOS 17/18 still run on A10 iPads).
+  tvOS 18 still runs on the Apple TV HD (A8), which has no such key, so
+  the tvOS libraries use the target's ARMv8.0 baseline instead (the
+  tvOS archive's only post-ARMv8.0 instruction is the PAC probe's
+  `pacga`, which runs only when the CPU reports PAuth).
+- **watchOS arm64**: App Store Connect has required an arm64 slice next
+  to arm64_32 since April 2026; Release builds carry both.
+- **Required-reason APIs**: `Resources/PrivacyInfo.xcprivacy` declares
+  file timestamps (C617.1: `stat` / `fstat` / `fstatat` / `lstat` from Rust
+  std and the runtimes) and system boot time (35F9.1:
+  `mach_absolute_time`), no tracking, no collected data. Re-check with
+  `nm -u` on the app binary when a runtime or dependency changes.
+- **No non-public API**: `proc_pid_rusage` (libproc.h is macOS-only) is
+  only linked on macOS; the other platforms read the same counters from
+  `task_info` / `task_inspect` (`residency.rs`). The Zig runtimes'
+  `_dyld_get_image_header_containing_address` is a local no-op
+  definition, not a reference to dyld's.
+- **Versions**: `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in
+  project.yml (the watch app's must match the iOS app's);
+  `ITSAppUsesNonExemptEncryption` is NO.
+- **Icons**: `swift scripts/make-app-icons.swift` regenerates every
+  platform's icon (tvOS layered App Icon + Top Shelf, visionOS image
+  stack) from one drawing.
+- Left for App Store Connect: the app record, screenshots, description,
+  privacy label ("Data Not Collected"), age rating, and signing with a
+  distribution certificate.
+- Checked 2026-09-25 in simulators: iPhone 17 Pro (iOS 26.5), iPad Air
+  13-inch, Apple TV 4K (tvOS 18.5; Siri Remote navigation driven by an
+  XCUITest with `XCUIRemote`), Apple Watch SE 40 mm (watchOS 11.5), and
+  the visionOS layout on the only installed runtime, 2.5 (built with
+  `XROS_DEPLOYMENT_TARGET=2.5`, generic destination, `simctl install`).
+  Unsigned `xcodebuild archive` of the iOS (with the watch app), tvOS
+  and visionOS apps; not yet run on hardware.
 
 ## Workload registration pattern
 
@@ -368,12 +431,15 @@ To add a workload:
    `EXPECTED_<NAME>`.
 4. In `cases.rs`: a `c("<id>", "<label>", ...)` entry. The CLIs
    (`run_matrix`, the passes) pick it up from there.
-5. In `apps/Shared/BenchmarkContentView.swift`: one row per runtime
-   calling `bench_run_case(runtime, "<id>")`, labeled
-   `"<prefix> <label>"` with the label identical to the case table's.
-   Prefixes: `[Pulley]`, `[ WAMR ]`, `[wasm3 ]`, `[WE    ]`, `[zwasm ]`,
-   `[wasmz ]`, `[tinywm]` — the RUNTIMES filter and
-   `scripts/summarize-pass.py` both match on them.
+5. The app lists the case from the catalog without Swift changes; its
+   console row label is `"<prefix> <label>"` (prefixes `[Pulley]`,
+   `[ WAMR ]`, `[wasm3 ]`, `[WE    ]`, `[zwasm ]`, `[wasmz ]`, `[tinywm]`,
+   which the RUNTIMES filter and `scripts/summarize-pass.py` match on).
+   Give it a score reference: rerun `scripts/score-reference.py` after
+   the next iPhone pass (`tests/catalog.rs` fails for a case without
+   one). Add it to `WATCH_EXCLUDED_CASES` in `cases.rs` if a call takes
+   seconds on an S8 or it needs a lot of memory, and to `APP_SKIPS` for
+   a runtime that keeps the row's memory for the life of the process.
 
 The older per-workload `bench_run_<name>` FFI functions still exist for
 the original rows; new rows don't need them.
@@ -388,6 +454,22 @@ the window's P-core CPU time (so **measured E-core residency**
 The kernel keeps those from the always-on fixed counters, so they work
 on every device, including the A12 and S8 where xctrace exposes no PMU.
 Teardown of instantiate-per-sample cases runs outside the clock.
+
+### The app's two modes
+
+- **By hand**: the app waits for Run, then goes benchmark by benchmark
+  across the engines (so the leaderboard always compares engines on the
+  same benchmarks), in `.utility` QoS with the default 200 ms window. It
+  runs the device's suite (every case but sqlite3; the watch also leaves
+  out `WATCH_EXCLUDED_CASES`), skips `APP_SKIPS`, pauses while the app is
+  not in the foreground and measures an interrupted benchmark again, and
+  skips a row when `os_proc_available_memory()` is under 192 MB (48 MB on
+  the watch).
+- **Harness**: any of WORKLOADS, RUNTIMES, WORKLOADS_EXCLUDE,
+  BENCH_TARGET_MS, FEMTOVG_E2E or `BENCH_AUTORUN=1` in the environment
+  starts a run at launch over every selected case, engine by engine, with
+  no skips, writing the `[[<prefix>] <label>] ...` lines, the
+  `WORKLOADS filter:` line and `BENCH_DONE` as before.
 
 ### The three passes (2026-09 refresh)
 
@@ -422,7 +504,7 @@ Teardown of instantiate-per-sample cases runs outside the clock.
 - **iPhone 12 (A14 Icestorm) / iPhone XS (A12 Tempest)**: launch via
   `devicectl device process launch --console --terminate-existing
   --environment-variables ...`. `.utility` QoS pins to E-cores (set in
-  `BenchmarkContentView.swift`). Threads the harness spawns (the Zig
+  `apps/Shared/BenchmarkSession.swift`). Threads the harness spawns (the Zig
   runtimes' and the E2E's big-stack threads) must carry the caller's
   QoS: `run_on_thread` in lib.rs does that. A bare
   `std::thread::spawn` starts at the default QoS and moved the E2E onto
@@ -443,17 +525,16 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   reservations everywhere (`pulley_engine()` in lib.rs), otherwise
   modules with a GC heap or several memories fail to instantiate.
 - **Apple TV 4K (A12 / A15)**: same `devicectl` flow, bundle ID
-  `com.rebeckerspecialties.wasmbench.tv`. tvOS reads
-  `devicectl --environment-variables` into Swift `ProcessInfo` the same
-  way iOS does (unlike watchOS). tvOS 26+ deployment target.
+  `com.rebeckerspecialties.wasmbench` (shared with iOS and visionOS).
+  tvOS 18+ deployment target; the tvOS libraries keep the Apple TV HD's
+  (A8) ARMv8.0 baseline instead of `apple-a12`.
 - **Apple Watch SE2 (S8)**: same `devicectl` launch flow, bundle ID
-  `com.rebeckerspecialties.wasmbench.watch`. **xcodebuild requires
-  `ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO`**. The watch app's workload
-  filter is the hardcoded `WATCHOS_WORKLOADS_FILTER` constant in
-  `apps/Shared/BenchmarkContentView.swift` —
-  `devicectl --environment-variables` does **not** propagate to Swift
-  `ProcessInfo` on watchOS, though it does propagate to Rust
-  `std::env::var` (so `BENCH_TARGET_MS=2000` works). Watch BLE tunnel
+  `com.rebeckerspecialties.wasmbench.watchkitapp` (the iOS app's
+  companion, installable on its own). `devicectl --environment-variables`
+  does **not** propagate to Swift `ProcessInfo` on watchOS, though it
+  does propagate to Rust `std::env::var`; the app reads every harness
+  variable through `bench_getenv` for that reason, so WORKLOADS /
+  RUNTIMES filters work on the watch too (not yet tried on a device). Watch BLE tunnel
   drops mid-session are common; wrap installs in a 5-attempt retry loop
   with `sleep 3`. If a run stalls on `Network.NWError` 60, wake the
   watch and retry. (Not re-measured in 2026-09: no watch attached.)
@@ -519,7 +600,7 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   xcrun devicectl device process launch --device <UDID> \
     --terminate-existing \
     --environment-variables '{"WORKLOADS":"vtable","BENCH_TARGET_MS":"15000"}' \
-    com.rebeckerspecialties.wasmbench.ios &
+    com.rebeckerspecialties.wasmbench &
   sleep 3
   PID=$(xcrun devicectl device info processes --device <UDID> \
         | grep -i wasmbench | awk '{print $1}' | head -1)
