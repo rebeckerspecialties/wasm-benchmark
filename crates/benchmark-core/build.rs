@@ -49,18 +49,31 @@ fn submodule_version(repo: &Path, submodule: &str, patch_dir: &str, key: &str) {
     println!("cargo:rustc-env=BENCH_PATCHES_{key}={n_patches}");
 }
 
-/// tinywasm is a crates.io dependency: its version is the lockfile's.
-fn locked_version(repo: &Path, package: &str) -> String {
+/// tinywasm is a Cargo dependency: its version, and for a git dependency
+/// the 8-hex commit, come from the lockfile.
+fn locked_package(repo: &Path, package: &str) -> (String, String) {
     let lock = repo.join("Cargo.lock");
     println!("cargo:rerun-if-changed={}", lock.display());
     let text = std::fs::read_to_string(lock).unwrap_or_default();
-    let needle = format!("name = \"{package}\"\nversion = \"");
-    text.find(&needle)
-        .and_then(|i| {
-            let rest = &text[i + needle.len()..];
-            rest.find('"').map(|j| rest[..j].to_string())
-        })
-        .unwrap_or_default()
+    let Some(start) = text.find(&format!("name = \"{package}\"\n")) else {
+        return (String::new(), String::new());
+    };
+    let entry = text[start..].split("\n\n").next().unwrap_or_default();
+    let field = |key: &str| {
+        entry
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{key} = \"")))
+            .and_then(|v| v.strip_suffix('"'))
+            .unwrap_or_default()
+            .to_string()
+    };
+    // source = "git+https://...?rev=<sha>#<sha>"
+    let source = field("source");
+    let commit = match source.strip_prefix("git+").and_then(|s| s.rsplit_once('#')) {
+        Some((_, sha)) => sha.chars().take(8).collect(),
+        None => String::new(),
+    };
+    (field("version"), commit)
 }
 
 /// Resolve the per-Apple-target output dir for a runtime that follows
@@ -99,7 +112,9 @@ fn main() {
     submodule_version(&repo, "WasmEdge", "wasmedge", "WASMEDGE");
     submodule_version(&repo, "zwasm", "zwasm", "ZWASM");
     submodule_version(&repo, "wasmz", "wasmz", "WASMZ");
-    println!("cargo:rustc-env=BENCH_VERSION_TINYWASM={}", locked_version(&repo, "tinywasm"));
+    let (version, commit) = locked_package(&repo, "tinywasm");
+    println!("cargo:rustc-env=BENCH_VERSION_TINYWASM={version}");
+    println!("cargo:rustc-env=BENCH_COMMIT_TINYWASM={commit}");
 
     // -- workloads -----------------------------------------------------
     let workloads = manifest.join(WORKLOADS_DIR_REL);

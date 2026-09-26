@@ -18,7 +18,7 @@ pub struct Engine {
     pub upstream: &'static str,
     /// Release plus commits past it ("2.4.1+364"); empty when unknown.
     pub version: &'static str,
-    /// Short hash of the pinned commit; empty for crates.io releases.
+    /// Short hash of the pinned commit; empty for a crates.io release.
     pub commit: &'static str,
     /// Patches the build scripts apply on top of `commit`.
     pub patches: u32,
@@ -83,9 +83,14 @@ pub fn engines() -> Vec<Engine> {
                     count(env!("BENCH_PATCHES_WASMZ")),
                     cfg!(have_wasmz),
                 ),
-                Runtime::Tinywasm => {
-                    ("tinywasm", "", env!("BENCH_VERSION_TINYWASM"), "", 0, true)
-                }
+                Runtime::Tinywasm => (
+                    "tinywasm",
+                    "",
+                    env!("BENCH_VERSION_TINYWASM"),
+                    env!("BENCH_COMMIT_TINYWASM"),
+                    0,
+                    true,
+                ),
             };
             Engine { runtime, token, prefix, name, upstream, version, commit, patches, linked }
         })
