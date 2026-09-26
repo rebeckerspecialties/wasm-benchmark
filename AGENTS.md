@@ -48,7 +48,7 @@ Pick this up cold without re-deriving state:
   | WasmEdge | 0.17.2-rc.3 `16ea4c45` | `patches/wasmedge/` (27) |
   | zwasm | v2.7.0 `d09d9248` | `patches/zwasm/0001-0002` |
   | wasmz | v0.1.4 `0796998b` | `patches/wasmz/0002` |
-  | tinywasm | `next` `2e469af5` (2026-09-25; git dependency) | none |
+  | tinywasm | `next` `693d590c` (2026-09-26; git dependency) | none |
   | femtovg (E2E guest + host) | fork branch `wire-renderer` `074050a` on upstream master 0.27.0 | fork commits |
 
 - **WAMR on `main`, not the release**: WAMR-2.4.5 sits on
@@ -90,7 +90,7 @@ Pick this up cold without re-deriving state:
   binop / compare helpers, `7af50cc9`) and
   [#59](https://github.com/explodingcamera/tinywasm/pull/59) (per-function
   operand-stack reservation, `c0be6478`). The harness pins `next`
-  (`2e469af5`), which has them; the 0.11.0 release on crates.io predates
+  (`693d590c`), which has them; the 0.11.0 release on crates.io predates
   them. `next` is upstream's default branch (`main` is stale at
   `b45a98a`).
   - It was a manual stack (GitHub's native stacked PRs don't work across
@@ -781,7 +781,7 @@ All seven are built interpreter-only; exact flags:
 6. **wasmz** v0.1.4 (`libwasmz.a`) — Zig 0.16.0, `-Doptimize=ReleaseFast`,
    `zig build static-lib`. No JIT/AOT tier exists. 8 MiB-stack thread,
    same dyld stub.
-7. **tinywasm** `next` `2e469af5` — git, `default-features = false`,
+7. **tinywasm** `next` `693d590c` — git, `default-features = false`,
    features `std`, `parser`, `validate` (its `archive` serializer off),
    `nightly-tail-calls` via `nightly-dispatch`. No native codegen at all
    (`#![forbid(unsafe_code)]` outside opt-in x86 intrinsics).

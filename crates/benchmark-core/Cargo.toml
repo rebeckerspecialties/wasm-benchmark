@@ -26,7 +26,7 @@ anyhow = "1"
 # comes in through this crate's `nightly-dispatch` feature below.
 # explodingcamera/tinywasm `next`, its default branch: the 0.11.0 release on
 # crates.io predates the dispatch and operand-stack work merged there since.
-tinywasm = { git = "https://github.com/explodingcamera/tinywasm", rev = "2e469af5a15e70cecfefa69ca0fa6c04bdb774c9", default-features = false, features = ["std", "parser", "validate"] }
+tinywasm = { git = "https://github.com/explodingcamera/tinywasm", rev = "693d590ca812bb0f301dd3acaf9235251ffa10de", default-features = false, features = ["std", "parser", "validate"] }
 # femtovg E2E host (feature `femtovg-e2e`): femtovg's wgpu renderer behind
 # its wire replayer, on a headless Metal device.
 femtovg = { path = "../../femtovg", default-features = false, features = ["wgpu", "wire"], optional = true }
