@@ -149,7 +149,7 @@ use ffi::*;
 // safe stub returning NULL — used only on a panic path we don't
 // expect to hit, and matching dyld's documented "address not in any
 // loaded image" return value.
-#[cfg(all(target_vendor = "apple", any(target_os = "ios", target_os = "tvos", target_os = "watchos")))]
+#[cfg(all(target_vendor = "apple", any(target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))]
 mod ios_dyld_stub {
     use std::os::raw::c_void;
     #[unsafe(no_mangle)]

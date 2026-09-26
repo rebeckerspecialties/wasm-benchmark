@@ -11,7 +11,7 @@
 #
 # Output: wasmz/build-<triple>/libwasmz.a
 #
-# Usage: scripts/build-wasmz.sh {macos|ios|ios-sim|watchos|watchos-sim|tvos|tvos-sim|all}
+# Usage: scripts/build-wasmz.sh {macos|ios|ios-sim|watchos|watchos-arm64|watchos-sim|tvos|tvos-sim|visionos|visionos-sim|all}
 
 set -euo pipefail
 
@@ -81,15 +81,22 @@ build_watchos()     { build_target "build-arm64_32-apple-watchos"     aarch64-wa
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim"  aarch64-watchos-simulator; }
 build_tvos()        { build_target "build-aarch64-apple-tvos"         aarch64-tvos; }
 build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     aarch64-tvos-simulator; }
+# arm64 slice for Apple Watch Series 9 and later (next to arm64_32 above).
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"    aarch64-watchos; }
+build_visionos()    { build_target "build-aarch64-apple-visionos"     aarch64-visionos; }
+build_visionos_sim() { build_target "build-aarch64-apple-visionos-sim" aarch64-visionos-simulator; }
 
 case "${WHICH}" in
   macos)        build_macos ;;
   ios)          build_ios ;;
   ios-sim)      build_ios_sim ;;
   watchos)      build_watchos ;;
+  watchos-arm64) build_watchos_arm64 ;;
   watchos-sim)  build_watchos_sim ;;
   tvos)         build_tvos ;;
   tvos-sim)     build_tvos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim && build_tvos && build_tvos_sim ;;
+  visionos)     build_visionos ;;
+  visionos-sim) build_visionos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_arm64 && build_watchos_sim && build_tvos && build_tvos_sim && build_visionos && build_visionos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

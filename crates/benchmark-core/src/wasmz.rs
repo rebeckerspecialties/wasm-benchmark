@@ -83,7 +83,7 @@ impl WasmzVal {
 // already covers wasmz too.
 #[cfg(all(
     target_vendor = "apple",
-    any(target_os = "ios", target_os = "tvos", target_os = "watchos"),
+    any(target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"),
     not(have_zwasm)
 ))]
 mod ios_dyld_stub {
