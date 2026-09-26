@@ -246,6 +246,18 @@ BenchReport bench_run_case(uint32_t runtime, const char *case_id);
 // process-global state, kept symmetrical with the other inits.
 uint8_t bench_init_tinywasm(void);
 
+// The app's catalog as one JSON document: every engine with the version,
+// short commit and patch count it was built from and whether this build
+// links it, every case with its score reference (nanoseconds per call on
+// the reference device) and whether the app / the watch app leaves it out,
+// and the (engine, case) rows the app skips. Free with bench_free_cstring.
+char *bench_catalog_json(void);
+
+// getenv through Rust's std::env::var; NULL when unset. On watchOS
+// `devicectl --environment-variables` reaches this but not Swift's
+// ProcessInfo. Free with bench_free_cstring.
+char *bench_getenv(const char *name);
+
 // femtovg E2E (docs/femtovg-e2e-abi.md): the femtovg guest does all of its
 // CPU work per frame in runtime `runtime` (bench_run_case ids) and the host
 // renders the result with femtovg's wgpu renderer on Metal, offscreen.
@@ -255,6 +267,8 @@ uint8_t bench_init_tinywasm(void);
 // bench_free_cstring. Only in libraries built with the `femtovg-e2e`
 // feature (the iOS and macOS builds; watchOS has no Metal).
 char *bench_femtovg_e2e(uint32_t runtime, uint32_t scene, uint32_t frames, uint32_t passes);
+// Frees a string returned by bench_femtovg_e2e, bench_catalog_json or
+// bench_getenv (every build has it).
 void bench_free_cstring(char *s);
 
 // Diagnostics.

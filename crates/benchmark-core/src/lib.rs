@@ -12,9 +12,11 @@ use anyhow::{Context, Result};
 use wasmtime::{Engine, Instance, Module, Store};
 
 pub mod cases;
+pub mod catalog;
 pub mod graphql_validation;
 pub mod pac_probe;
 pub mod residency;
+mod score_reference;
 #[cfg(feature = "femtovg-e2e")]
 pub mod femtovg_e2e;
 pub mod sqlite3;
@@ -2218,8 +2220,8 @@ pub extern "C" fn bench_femtovg_e2e(runtime: u32, scene: u32, frames: u32, passe
     std::ffi::CString::new(line).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
-/// Frees a string returned by `bench_femtovg_e2e`.
-#[cfg(feature = "femtovg-e2e")]
+/// Frees a string returned by `bench_femtovg_e2e`, `bench_catalog_json` or
+/// `bench_getenv`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bench_free_cstring(s: *mut std::os::raw::c_char) {
     if !s.is_null() {
@@ -2250,6 +2252,32 @@ pub unsafe extern "C" fn bench_run_case(
         cases::run_case(rt, case)
     })();
     report_from(r)
+}
+
+/// The engine and case catalog as JSON (see catalog.rs); the caller frees
+/// it with `bench_free_cstring`.
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_catalog_json() -> *mut std::os::raw::c_char {
+    std::ffi::CString::new(catalog::json()).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+/// `std::env::var(name)`, or NULL when it is unset or not UTF-8; the caller
+/// frees it with `bench_free_cstring`. On watchOS, `devicectl
+/// --environment-variables` reaches the environment Rust reads but not
+/// Swift's `ProcessInfo`, so the app reads its settings through this.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bench_getenv(
+    name: *const std::os::raw::c_char,
+) -> *mut std::os::raw::c_char {
+    if name.is_null() {
+        return std::ptr::null_mut();
+    }
+    let name = unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy();
+    std::env::var(name.as_ref())
+        .ok()
+        .and_then(|v| std::ffi::CString::new(v).ok())
+        .map(|c| c.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 #[unsafe(no_mangle)]

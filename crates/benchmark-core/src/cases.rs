@@ -205,6 +205,56 @@ pub fn known_crash(rt: Runtime, case_id: &str) -> Option<&'static str> {
     KNOWN_CRASHES.iter().find(|k| k.0 == rt && k.1 == case_id).map(|k| k.2)
 }
 
+/// (case id, reason) cases the app's leaderboard does not run.
+pub const APP_EXCLUDED_CASES: &[(&str, &str)] = &[(
+    "sqlite3",
+    "only Pulley has the WASI import shim, and one call takes 86 s on an iPhone XS",
+)];
+
+/// (case id, reason) cases the watch app also leaves out, on top of
+/// `APP_EXCLUDED_CASES`: one call takes minutes on an S8, or the row's
+/// footprint does not fit the watch's memory limit.
+pub const WATCH_EXCLUDED_CASES: &[(&str, &str)] = &[
+    ("audio_dsp", "one call takes up to 30 s on an Apple Watch S8"),
+    ("gc_trees", "WasmEdge and wasmz never collect GC structs"),
+    ("mem64_chase", "touches a 64 MiB linear memory"),
+    ("mem64_chase.mem32", "touches a 64 MiB linear memory"),
+    ("graphql_porf", "peaks at 586 MB on zwasm and 1 GB on tinywasm (macOS)"),
+    ("graphql_porf_trycatch", "same program as graphql_porf"),
+];
+
+/// (runtime, case id, reason) rows the app leaves out because the runtime
+/// keeps the row's memory for as long as the process lives. The app runs
+/// every engine in one process, so the footprint would carry into every
+/// later row or get the app killed by jetsam. The device pass runs these
+/// rows in launches of their own instead (HEAVY_ROWS in
+/// scripts/run-device-pass.sh).
+pub const APP_SKIPS: &[(Runtime, &str, &str)] = &[
+    (Runtime::Zwasm, "xmrsplayer",
+     "zwasm v2.7.0 keeps memory per call; the footprint reached 1.2 GB on an iPhone XS"),
+    (Runtime::Zwasm, "graphql_porf",
+     "zwasm v2.7.0 keeps memory per call; the iPhone XS killed the app (jetsam) in this row"),
+    (Runtime::Zwasm, "tailcall_fsm",
+     "zwasm v2.7.0's return_call is not constant-space (~50 B per call)"),
+    (Runtime::Zwasm, "mem64_chase",
+     "zwasm v2.7.0 keeps an instance's 64 MiB memory after the instance is deleted"),
+    (Runtime::Zwasm, "mem64_chase.mem32",
+     "zwasm v2.7.0 keeps an instance's 64 MiB memory after the instance is deleted"),
+    (Runtime::Zwasm, "extconst_init",
+     "zwasm v2.7.0 keeps each instance's memory; this row reached 2.6 GB on the M4"),
+    (Runtime::Zwasm, "extconst_init.mvp",
+     "zwasm v2.7.0 keeps each instance's memory; this row reached 2.0 GB on the M4"),
+];
+
+/// Score reference for a case: nanoseconds per call on the reference
+/// device (see `score_reference`).
+pub fn score_reference_ns(case_id: &str) -> Option<u64> {
+    crate::score_reference::SCORE_REFERENCE_NS
+        .iter()
+        .find(|r| r.0 == case_id)
+        .map(|r| r.1)
+}
+
 /// Run one case on one runtime. A result that disagrees with the
 /// consensus reference is an error: a fast wrong answer is not a result.
 pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
