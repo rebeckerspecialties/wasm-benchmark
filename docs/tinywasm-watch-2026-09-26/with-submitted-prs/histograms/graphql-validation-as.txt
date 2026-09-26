@@ -1,0 +1,34 @@
+validate_once(0) = 5; per call: 3.974 ms, 88269462 instructions, 15505855 cycles, IPC 5.69
+dispatches per call: 1730045; instructions per dispatch: 51.0
+
+ share    cum  op
+ 13.9%  13.9%  LocalGet32
+  8.7%  22.6%  GlobalGet32
+  7.3%  29.9%  I32Store
+  4.6%  34.5%  Const32
+  3.8%  38.3%  BinOpStackConst32
+  3.2%  41.5%  JumpIfZero32
+  2.9%  44.4%  LoadLocal32
+  2.8%  47.2%  LocalTee32
+  2.8%  50.0%  BinOpGlobalConst32
+  2.6%  52.6%  I32Load
+  2.4%  55.0%  LocalSet32
+  2.3%  57.3%  AndConst32
+  2.2%  59.4%  Call
+  2.2%  61.6%  JumpCmpStackConst32
+
+ share  pair
+  4.3%  LocalGet32 -> I32Store
+  3.9%  GlobalGet32 -> LocalGet32
+  2.4%  I32Store -> GlobalGet32
+  2.2%  LocalGet32 -> LocalGet32
+  1.8%  I32Store -> LocalGet32
+  1.5%  LocalGet32 -> LoadLocal32
+  1.5%  JumpCmpStackConst32 -> GlobalGet32
+  1.5%  BinOpStackConst32 -> I32Add
+  1.4%  LocalGet32 -> Const32
+  1.4%  BinOpGlobalConst32 -> GlobalSet32
+  1.4%  BinOpGlobalConst32 -> GlobalTee32
+  1.3%  GlobalTee32 -> JumpCmpStackConst32
+  1.3%  LocalGet32 -> Call
+  1.2%  <entry> -> BinOpGlobalConst32

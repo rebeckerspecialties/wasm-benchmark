@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Summarize a tinywasm A/B from scripts/tinywasm-ab-iphone.sh.
 
-Usage: tinywasm_ab_summary.py <ab-dir> <variant>... [--steps new:old,...] [--csv out.csv]
+Usage: tinywasm_ab_summary.py <ab-dir> <variant>... [--steps new:old,...] [--metric cycles|wall]
+                              [--csv out.csv]
 
 The first variant is the baseline. Per case: the median over reps of cycles
-per call, as a ratio to the baseline for every other variant, then the
-geomean. Per step `new:old` (default: each variant against the one before
+per call (`--metric wall`: of each launch's median wall time per call), as a
+ratio to the baseline for every other variant, then the geomean. Per step `new:old` (default: each variant against the one before
 it, then the last against the baseline): the geomean change in cycles and
 instructions per call and how many cases got faster. Every variant must
 return the same result on every case; a mismatch is reported.
@@ -19,8 +20,8 @@ import re
 import statistics
 from collections import defaultdict
 
-LINE = re.compile(r"^\[\[tinywm\] (.*?)\] result=(-?\d+)\s+iter=(\d+).*?cpu\(u/s\)=([\d.]+)/[\d.]+ ms.*?"
-                  r"e_share=([\d.]+)\s+ipc=([\d.]+)\s+insns=(\d+)\s+cycles=(\d+)")
+LINE = re.compile(r"^\[\[tinywm\] (.*?)\] result=(-?\d+)\s+iter=(\d+).*?median=([\d.]+).*?"
+                  r"cpu\(u/s\)=([\d.]+)/[\d.]+ ms.*?e_share=([\d.]+)\s+ipc=([\d.]+)\s+insns=(\d+)\s+cycles=(\d+)")
 
 
 def geo(xs):
@@ -32,6 +33,8 @@ def main():
     ap.add_argument("dir")
     ap.add_argument("variants", nargs="+")
     ap.add_argument("--steps", help="comma-separated new:old pairs")
+    ap.add_argument("--metric", choices=("cycles", "wall"), default="cycles",
+                    help="per-case table: cycles per call or median wall time per call")
     ap.add_argument("--csv", help="write every sample here")
     args = ap.parse_args()
     variants = args.variants
@@ -55,8 +58,9 @@ def main():
                     continue
                 it = int(m.group(3))
                 s = dict(rep=rep, variant=v, case=m.group(1), result=int(m.group(2)), iterations=it,
-                         cycles_per_call=int(m.group(8)) / it, instructions_per_call=int(m.group(7)) / it,
-                         cpu_ms_per_call=float(m.group(4)) / it, e_share=float(m.group(5)))
+                         cycles_per_call=int(m.group(9)) / it, instructions_per_call=int(m.group(8)) / it,
+                         wall_ms_median=float(m.group(4)), cpu_ms_per_call=float(m.group(5)) / it,
+                         e_share=float(m.group(6)))
                 data[s["case"]][v].append(s)
                 rows.append(s)
     if not rows:
@@ -87,24 +91,27 @@ def main():
         bad = {n: sorted(r) for n, r in by_calls.items() if len(r) > 1}
         if bad:
             print(f"RESULT MISMATCH on {c} (per call count): {bad}")
+    key, unit, scale = {"cycles": ("cycles_per_call", "Mcycles/call", 1e-6),
+                        "wall": ("wall_ms_median", "ms/call", 1.0)}[args.metric]
     print()
-    print(f"| case | {base} Mcycles/call | " + " | ".join(f"{v} ÷ {base}" for v in variants[1:]) + " |")
+    print(f"| case | {base} {unit} | " + " | ".join(f"{v} ÷ {base}" for v in variants[1:]) + " |")
     print("|---|---:|" + "---:|" * (len(variants) - 1))
     for c in cases:
-        b = med(c, base, "cycles_per_call")
-        print(f"| {c} | {b / 1e6:.3f} | "
-              + " | ".join(f"{med(c, v, 'cycles_per_call') / b:.3f}" for v in variants[1:]) + " |")
+        b = med(c, base, key)
+        print(f"| {c} | {b * scale:.3f} | "
+              + " | ".join(f"{med(c, v, key) / b:.3f}" for v in variants[1:]) + " |")
     print(f"| **geomean** | | " + " | ".join(
-        f"**{geo([med(c, v, 'cycles_per_call') / med(c, base, 'cycles_per_call') for c in cases]):.3f}**"
+        f"**{geo([med(c, v, key) / med(c, base, key) for c in cases]):.3f}**"
         for v in variants[1:]) + " |")
     print()
-    print("| step | cycles | instructions | cases faster |")
-    print("|---|---:|---:|---:|")
+    print("| step | cycles | instructions | wall | cases faster (cycles) |")
+    print("|---|---:|---:|---:|---:|")
     for new, old in steps:
         rc = [med(c, new, "cycles_per_call") / med(c, old, "cycles_per_call") for c in cases]
         ri = [med(c, new, "instructions_per_call") / med(c, old, "instructions_per_call") for c in cases]
+        rw = [med(c, new, "wall_ms_median") / med(c, old, "wall_ms_median") for c in cases]
         print(f"| {new} vs {old} | {100 * (geo(rc) - 1):+.1f} % | {100 * (geo(ri) - 1):+.1f} % | "
-              f"{sum(1 for r in rc if r < 1)}/{len(rc)} |")
+              f"{100 * (geo(rw) - 1):+.1f} % | {sum(1 for r in rc if r < 1)}/{len(rc)} |")
     print()
     for v in variants:
         spread = [(max(s["cycles_per_call"] for s in data[c][v]) - min(s["cycles_per_call"] for s in data[c][v]))

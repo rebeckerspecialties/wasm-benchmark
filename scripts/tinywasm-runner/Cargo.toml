@@ -1,0 +1,22 @@
+# Standalone tinywasm runner: per-call counters and dispatch histograms on
+# the Mac (see src/main.rs). Not part of the harness workspace.
+[package]
+name = "twrun"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+tinywasm = { git = "https://github.com/explodingcamera/tinywasm", rev = "693d590ca812bb0f301dd3acaf9235251ffa10de", default-features = false, features = ["std", "parser", "validate", "nightly-tail-calls"] }
+
+[features]
+# Needs a tinywasm checkout with #64 and op-histogram.patch applied; build with
+# `--features hist,tinywasm/op-histogram` and a path patch (src/main.rs).
+hist = []
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"

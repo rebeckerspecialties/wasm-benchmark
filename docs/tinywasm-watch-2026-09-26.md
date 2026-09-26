@@ -18,6 +18,10 @@ Watch Series 10. This report measures why, and what to change.
   shared-memory lock path inline. On the watch this cuts retired
   instructions by 4–6% and cycles by 5–9% on memory-heavy rows, with no
   change on rows without memory traffic.
+- **With the two PRs in review** (#64 and #72), tinywasm needs 8.8% fewer
+  cycles on the iPhone 12's efficiency cores. What remains on xmrsplayer is
+  fixed cost per op and per call; the [updated plan](#action-plan) ranks
+  the next changes.
 
 ![WasmBench on the Apple Watch Series 10: tinywasm, multi-memory twin](tinywasm-watch-2026-09-26/watch-upstream-next.png)
 
@@ -36,8 +40,10 @@ timed window.
 | crc32(64KB) | 2.44× | 3.41× | 3.43 | 2.45 |
 | geomean, 28 rows | 1.90× | 2.37× | 3.22 | 2.58 |
 
-The two relaxed-SIMD rows have a separate cause: tinywasm's v128 ops are
-portable Rust on aarch64. The analysis below uses the worst scalar row,
+The two relaxed-SIMD rows are not a separate cause: LLVM compiles
+tinywasm's portable v128 lane code to NEON, so they pay the same per-op
+overhead ([below](#the-five-proposed-ideas-against-this-data)). The
+analysis below uses the worst scalar row,
 "multi-memory twin: one memory", a byte-hash loop in which every op is
 cheap.
 
@@ -214,17 +220,146 @@ at 97% or more E-core residency; `factorial(20)` is again left out
 On the A14 the plain shared-memory path is faster too; only the M4's
 performance cores showed the +1.6%.
 
+## With the submitted PRs in place
+
+Upstream `next` (`693d590c`) plus the two performance PRs in review:
+[#64](https://github.com/explodingcamera/tinywasm/pull/64) borrows the
+instruction stream across tail dispatch, and
+[#72](https://github.com/explodingcamera/tinywasm/pull/72) is the
+shared-memory change above. Raw data:
+[`with-submitted-prs/`](tinywasm-watch-2026-09-26/with-submitted-prs/).
+
+### #64 against current `next`
+
+Five interleaved launches per build on the efficiency cores of three
+phones (`scripts/tinywasm-ab-iphone.sh`, 2 s windows). Each cell is the
+change in cycles per call, median over the launches. The PR carries the
+same table.
+
+| row | A14 (iPhone 12) | A12 (iPhone XS Max) | A13 (iPhone SE) |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −6.0% | −11.4% | −9.0% |
+| audio DSP (1000 frames × 512) | −8.9% | −15.1% | −13.7% |
+| graphql-validation (AS) | −7.3% | −9.9% | −8.0% |
+| multi-memory twin: one memory | −7.0% | −11.4% | −11.3% |
+| crc32 (64 KB) [scalar] | −13.5% | −20.9% | −15.6% |
+| convolution 256×256 [scalar] | −12.6% | −14.0% | −12.3% |
+| sieve (10000) [scalar] | −11.9% | −14.2% | −12.8% |
+| bulk_memory [scalar] | −8.6% | −13.5% | −13.4% |
+| matmul relaxed-simd FMA | −5.9% | −13.1% | −11.6% |
+| GC binary trees | −2.5% | −1.8% | −2.8% |
+| fib(30) | −6.1% | −12.1% | −11.6% |
+| tail-call FSM | −3.2% | −1.4% | −5.6% |
+| call_indirect (200K) | −2.5% | +3.8% | −1.3% |
+| call_ref (200K) | +0.4% | +6.2% | −1.4% |
+| vtable_poly4 (200K) | +1.1% | +5.2% | −1.0% |
+| EH parser, exnref | +4.4% | +12.5% | +2.9% |
+| **geomean, cycles** | **−5.7%** | **−7.4%** | **−8.2%** |
+| geomean, instructions | −1.9% | −2.2% | −2.0% |
+| geomean, wall time | −5.9% | −9.9% | −8.3% |
+
+The rows that regress call a different function on every call, or unwind
+across frames. With #64, every switch to another function leaves the
+borrowed dispatch chain for the outer loop, which clones the function
+`Rc` again.
+
+Both PRs together on the iPhone 12: −8.8% cycles and −4.7% instructions
+(geomean of 12 rows, 11 faster). xmrsplayer −8.9%, graphql-validation
+−10.7%, audio DSP −7.6%.
+
+### Where xmrsplayer's time goes now
+
+xmrsplayer is the benchmark closest to the production audio guest. It
+imports nothing and uses no v128 ops, and neither does any other scored
+row: only sqlite3, which the app does not run, has imports.
+
+| xmrsplayer, `next` + #64 + #72 | value |
+|---|---|
+| iPhone 12 E-core pipeline slots: useful / discarded / front-end / back-end | 73.2% / 13.7% / 7.3% / 5.8% |
+| indirect branches per dispatched op (A14) | 1.1 |
+| dispatched ops per buffer | 2.50 M |
+| instructions per dispatched op (M4 E-core) | 41.7 |
+| WAMR's instructions for the same buffer, per tinywasm op | 19.5 (48.7 M on the watch) |
+
+Unlike the byte-hash row (0.15% on the A18), xmrsplayer loses 14% of the
+A14's slots to mispredicted branches. Fewer dispatches help there as well.
+
+Time Profiler, iPhone 12 E-cores (7,869 samples):
+
+| group | samples |
+|---|---:|
+| loads through a local address (`LoadLocal*` and the out-of-line `exec_load_local` helper each one calls) | 19.5% |
+| pure stack moves (`LocalGet32`, `SetLocalConst32`, `Const32`, `LocalTee32`, `LocalSet32`) | 18.5% |
+| calls and returns (`exec_call_direct`, returns, the outer dispatch loop, zeroing locals) | 14.0% |
+| branches | 10.3% |
+
+About 15 of the 42 instructions per op are fixed cost (M4 build,
+disassembly weighted by the dispatch histogram, 93% of dispatches
+covered). The frame record that cold panic paths force costs 4.1,
+re-checking the opcode the table already chose 2.2, fetching the next
+instruction with its bounds check 4, and the table dispatch 5.
+
+A call costs far more than an op. On the M4 E-cores
+([`hostcall.wat`](tinywasm-watch-2026-09-26/with-submitted-prs/hostcall.wat)),
+one loop iteration costs:
+
+| loop body | instructions | cycles |
+|---|---:|---:|
+| add 1 inline | 67 | 17 |
+| call a wasm function that adds 1 | 427 | 135 |
+| call a typed host function that adds 1 | 602 | 160 |
+
+With the loops' other ops subtracted (per the dispatch histogram), a
+wasm call and return cost about 300 instructions and a host call about
+500.
+
+### The five proposed ideas against this data
+
+| idea | finding | verdict |
+|---|---|---|
+| 1. per-signature host-call trampolines | tinywasm already monomorphizes typed host functions per signature: `HostFunction::from` builds a `call_stack` that reads the arguments straight off the value stack. A host call costs about 500 instructions | helps only guests that call the host often (per sample); no scored row calls the host |
+| 2. intrinsic opcodes for known imports | puts embedder-specific meaning into an IR that is parsed before imports are known, and archived | no WasmBench effect; grows the IR |
+| 3. parse-time `FastCall(NativeFnPtr)` for imports | imports bind at instantiation, and one parsed or archived module serves many instances, so a native pointer cannot live in the IR. Host calls already push no call frame | not possible as proposed. The section-order idea does apply to wasm-to-wasm calls (plan item 2) |
+| 4. native SIMD for v128 | already NEON: LLVM vectorizes the portable lane code. `f32x4.relaxed_madd` is an `fmul.4s` and an `fadd.4s` in a 29-instruction handler. Only `i8x16.shuffle` and `swizzle` stay scalar (150–200 instructions; NEON `tbl` is one) | lane ops: nothing to gain. Shuffle and swizzle: SIMD rows only |
+| 5. no-yield contract | the default (unbudgeted) dispatch has no per-op yield or fuel check; a call tests one flag | already the case |
+
+### Upstream's `exp/acc`
+
+The maintainer's accumulator branch (`c8cf1ff`, 2026-09-11, "a bunch of
+experiments") is the structural fix in principle: it lowers stack
+traffic into accumulator ops at parse time. At that commit it is slower
+than its own base `c67ce64` on the M4 E-cores (median of three runs of
+`scripts/tinywasm-runner`):
+
+| row | instructions | cycles |
+|---|---:|---:|
+| xmrsplayer | +23.7% | +6.0% |
+| graphql-validation (AS) | +25.8% | +9.8% |
+| audio DSP | +24.0% | +6.0% |
+| multi-memory twin | +23.7% | +10.9% |
+| crc32 [scalar] | +38.8% | +25.9% |
+| fib(30) | +1.1% | −8.7% |
+| call_indirect | +17.5% | +1.8% |
+| vtable_poly4 | +8.8% | +4.2% |
+
 ## Action plan
 
-| # | change | owner | evidence | status |
-|---|---|---|---|---|
-| 1 | Shared-memory locking out of line, atomics kept inline | us, within the maintainer's rules (safe; cold path out of line, like #57–#59) | −4.6% instructions, −8.6% cycles on the worst row; shared memory: faster except plain accesses on P-cores (+1.6%) | upstream [#72](https://github.com/explodingcamera/tinywasm/pull/72) (fork #10) |
-| 2 | Borrow the instruction stream across tail dispatch (saves the function `Arc` reload, 7 of 31 instructions in `LocalSet32`) | us | −7.2% cycles on A14, −6.8% on A12 | upstream draft #64 (fork #8); not yet measured on the watch |
-| 3 | Keep the value-stack pointer and length in registers across handlers (51% of samples) | maintainer (`exp/acc` accumulator work) | profile above | discussion draft: ask whether `exp/acc` carries the stack pointer; offer watch measurements of `exp/acc` |
-| 4 | Memory operand offsets in the instruction (side-pool `resolve`) | maintainer (planned u16 memory index; our #63 was closed) | ~2.3% of samples | wait for the maintainer |
-| 5 | Specialized const ops for the hot operators (`Shl`, `Rotl`, `Mul`), avoiding the second indirect branch | maintainer's call (more variants versus the generic `BinOp*` ops) | 0.45 M extra indirect branches per call on the worst row | discussion draft |
-| 6 | Handler overhead: opcode re-check and the frame record forced by cold panics | maintainer (instruction representation) | 6 of 31 instructions in `LocalSet32` | discussion draft |
-| 7 | aarch64 SIMD for v128 ops (the relaxed-SIMD rows, 2.6–2.8×) | maintainer's call (would need an opt-in like `simd-x86`) | table above | later |
+Ranked by expected effect on xmrsplayer-like guests. The estimates are
+from the shares above, not measurements.
+
+| # | change | evidence | estimate | owner | status |
+|---|---|---|---|---|---|
+| 1 | Land #64 and #72 | −8.8% cycles together on A14 E-cores; #64 alone −5.7 / −7.4 / −8.2% on A14 / A12 / A13 | measured | us | upstream review |
+| 2 | Cheaper wasm calls and returns: a same-module direct-call path (callee index ≥ import count: no host test, no module switch), no `Rc` clone and drop per switch, and #64's borrowed chain kept across same-module calls | 14% of xmrsplayer samples; ~300 instructions per call and return; #64's call-heavy regressions | −5 to −10% on xmrsplayer; more on fib, call_indirect, vtable | us: safe, no IR change | next to prototype |
+| 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | −8 to −12% instructions on every row | us: safe, no IR change, but touches the handler macro | ask in the discussion first |
+| 4 | Specialize the hottest generic ops (`BinOpStackConst32` by operator; `LocalGet32` → `LocalGet32`) | 1.7–15.8% of dispatches take a second indirect branch; 13.7% of A14 slots discarded | −3 to −6% on the rows that use them | maintainer's call (IR size) | discussion |
+| 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
+| 6 | Memory operand offsets in the instruction (side-pool `resolve`) | ~2.3% of samples on the byte-hash row | small | maintainer (planned u16 memory index; our #63 was closed) | wait |
+| 7 | NEON `tbl` for `i8x16.shuffle` and `swizzle` | 150–200 scalar instructions each | SIMD rows and femtovg only | opt-in like `simd-x86` | later |
+| 8 | Host-call fast path (ideas 1 and 3) | ~500 instructions per host call | only for guests that call the host per sample | us | if production needs it |
+
+Matching WAMR on xmrsplayer takes about 55% fewer instructions. Items 2–4
+reach perhaps a third of that; the rest needs register operands (item 5).
 
 The discussion draft and the reduced example
 ([`reduced.wat`](tinywasm-watch-2026-09-26/reduced.wat)) are for Matt to
@@ -250,3 +385,10 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
     loops and their per-rep counters.
   - `iphone12-ab.csv`: the iPhone 12 A/B, every sample (`tmp` rows are the
     shared-memory loops).
+  - `with-submitted-prs/`: the #64 A/B on three phones (`pr64-*.csv`) and
+    the #64 + #72 A/B on the iPhone 12 (`submitted-a14.csv`), every
+    sample; xmrsplayer's iPhone 12 counter summaries and Time Profiler
+    histogram; dispatch histograms and the M4 runs of
+    [`scripts/tinywasm-runner`](../scripts/tinywasm-runner/) (a standalone
+    runner; `op-histogram.patch` adds the histogram to a tinywasm
+    checkout); `hostcall.wat`, the call-cost loops.

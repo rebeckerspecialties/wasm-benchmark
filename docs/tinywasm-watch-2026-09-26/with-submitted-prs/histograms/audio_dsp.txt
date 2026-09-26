@@ -1,0 +1,34 @@
+audio_dsp(1479) = 761667740; per call: 375.832 ms, 10366569131 instructions, 1504986700 cycles, IPC 6.89
+dispatches per call: 224768744; instructions per dispatch: 46.1
+
+ share    cum  op
+ 13.0%  13.0%  BinOpStackConst32
+  7.3%  20.3%  AddLocalConst32
+  7.3%  27.6%  I32Add
+  7.3%  34.9%  I32Load16S
+  6.8%  41.7%  LocalGet32
+  6.2%  47.8%  BinOpLocalConstTee32
+  5.5%  53.3%  AndConst32
+  5.5%  58.8%  I32Load
+  5.5%  64.2%  Const32
+  4.3%  68.6%  LocalTee32
+  3.6%  72.2%  AddConst32
+  3.6%  75.8%  LocalSet32
+  2.5%  78.4%  I32GtS
+  2.1%  80.4%  BinOpLocalLocal32
+
+ share  pair
+  7.3%  BinOpStackConst32 -> I32Load16S
+  5.5%  AndConst32 -> BinOpStackConst32
+  3.6%  AddLocalConst32 -> AndConst32
+  3.6%  BinOpLocalConstTee32 -> I32Load
+  3.6%  LocalSet32 -> BinOpLocalConstTee32
+  3.6%  I32Load16S -> I32Add
+  2.7%  LocalGet32 -> Const32
+  2.5%  Const32 -> I32GtS
+  2.1%  BinOpLocalLocal32 -> BinOpStackConst32
+  1.8%  AddConst32 -> AndConst32
+  1.8%  AddConst32 -> LocalGet32
+  1.8%  AddLocalConst32 -> I32Load
+  1.8%  AddLocalConst32 -> I32Load16U
+  1.8%  AndLocalConst32 -> BinOpStackConst32

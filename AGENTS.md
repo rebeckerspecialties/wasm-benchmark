@@ -116,13 +116,24 @@ Pick this up cold without re-deriving state:
       the watch report.
     - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
       closed by the maintainer, who plans his own memory operand
-      encoding) and #64 (borrow the instruction stream; upstream draft).
+      encoding) and [#64](https://github.com/explodingcamera/tinywasm/pull/64)
+      (borrow the instruction stream). #64 was remeasured on 2026-09-26
+      against `next`: −5.7 / −7.4 / −8.2 % cycles on the A14 / A12 / A13
+      E-cores. Rows that switch functions on every call are up to +6 % on
+      the A12, and the exnref parser +3–13 %. The PR carries the table.
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
     mispredicts or cache misses. About 47 instructions per op, half of
     them value-stack plumbing, which is the maintainer's `exp/acc` area.
     The upstream discussion draft is Matt's to post.
+    - With #64 + #72: −8.8 % cycles on the iPhone 12 E-cores. The report's
+      *Action plan* ranks what comes next for xmrsplayer-like guests:
+      cheaper wasm calls and returns (14 % of samples), then frameless
+      handlers (4 of 42 instructions per op). None of the scored rows
+      imports anything or passes v128 to the host, so host-call fast
+      paths cannot move WasmBench. `exp/acc` at `c8cf1ff` measured +24 %
+      instructions on xmrsplayer against its base.
   - Local checkout `~/src/tinywasm`: `origin` is upstream, `fork` is
     ours; worktrees in `~/src/tinywasm-worktrees/`. A/B tooling:
     `scripts/tinywasm-ab-build-ios.sh`, `scripts/tinywasm-ab-iphone.sh`,
@@ -158,7 +169,7 @@ Pick this up cold without re-deriving state:
 - **Open fork PRs** (state checked 2026-09-26):
   - [`rebeckerspecialties/wasmtime#2`](https://github.com/rebeckerspecialties/wasmtime/pull/2) — table-mutability tracking (open; `#4`, the phase 1–4 fusion PR, is closed)
   - [`rebeckerspecialties/wasm-micro-runtime#3`–`#4`](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls) — relaxed SIMD, PROT_NONE linear memory (open; relaxed SIMD also upstream as [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950), open). #1 and #2 (fast-interp legacy EH) were closed on 2026-09-26: exnref supersedes legacy EH.
-  - Closed on 2026-09-26 because the same branches merged upstream: tinywasm #1–#3 (explodingcamera/tinywasm#57–#59), wasmtime #1 ([bytecodealliance/wasmtime#13259](https://github.com/bytecodealliance/wasmtime/pull/13259)), wasm3 #1 ([wasm3/wasm3#559](https://github.com/wasm3/wasm3/pull/559), in v0.9.0) and target-lexicon #1 ([bytecodealliance/target-lexicon#131](https://github.com/bytecodealliance/target-lexicon/pull/131)). The target-lexicon submodule could now move to an upstream release that includes #131.
+  - Closed on 2026-09-26 because the same branches merged upstream: tinywasm #1–#3 (explodingcamera/tinywasm#57–#59), wasmtime #1 ([bytecodealliance/wasmtime#13259](https://github.com/bytecodealliance/wasmtime/pull/13259)), wasm3 #1 ([wasm3/wasm3#559](https://github.com/wasm3/wasm3/pull/559), in v0.9.0) and target-lexicon #1 ([bytecodealliance/target-lexicon#131](https://github.com/bytecodealliance/target-lexicon/pull/131)). The target-lexicon submodule now tracks upstream `main`; the `[patch]` stays until a release includes #131.
   - Upstream wasmtime [#13445](https://github.com/bytecodealliance/wasmtime/pull/13445) / [#13447](https://github.com/bytecodealliance/wasmtime/pull/13447) and the July split [#13909](https://github.com/bytecodealliance/wasmtime/pull/13909) / [#13910](https://github.com/bytecodealliance/wasmtime/pull/13910) are closed; [#13259](https://github.com/bytecodealliance/wasmtime/pull/13259) (arm64_32 unwinder) is merged.
 - **Hot tools**:
   - `./scripts/run-m4-pass.sh <out>` — M4 E-core N=10 (matrix + femtovg E2E + CM async)
@@ -167,7 +178,8 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
-  - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...>` — interleaved A/B of tinywasm revisions on the iPhone
+  - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...> [--metric wall]` — interleaved A/B of tinywasm revisions on the iPhone (`UDID=` / `DEVICE_NAME=` pick the phone; one run per phone can go in parallel)
+  - `scripts/tinywasm-runner/` — standalone tinywasm runner on the Mac: per-call instructions and cycles for any `(i32) -> i32` export; with `op-histogram.patch` on a tinywasm checkout, the dispatched opcode-pair histogram
   - `./scripts/summarize-pass.py <pass-root> <data-dir>` — per-rep CSVs into the report's data dir, median/range tables into `<pass-root>/report-tables/`; `./scripts/build-report.py <report.md> <pass-root>/report-tables` fills the report
   - `./scripts/feature-matrix.sh [out]` — runtime × feature smoke matrix
   - `target/release/run_matrix` (`RUNTIMES=`, `WORKLOADS=`, `--case`, `--file`) — any case on any runtime

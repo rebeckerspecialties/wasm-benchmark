@@ -1,0 +1,86 @@
+diff --git a/crates/tinywasm/Cargo.toml b/crates/tinywasm/Cargo.toml
+index 7788770..cd89c0b 100644
+--- a/crates/tinywasm/Cargo.toml
++++ b/crates/tinywasm/Cargo.toml
+@@ -95,6 +95,9 @@ full = ["archive", "debug", "parallel-parser", "parser", "state", "validate"]
+ log = ["dep:log", "tinywasm-parser?/log"]
+ std = ["tinywasm-parser?/std", "tinywasm-types/std"]
+ 
++# local profiling aid (not for upstream)
++op-histogram = []
++
+ # make stores, instances, references, and host callbacks movable across threads
+ send = []
+ 
+diff --git a/crates/tinywasm/src/interpreter/executor/dispatch_become.rs b/crates/tinywasm/src/interpreter/executor/dispatch_become.rs
+index a07b1c6..e0e06b3 100644
+--- a/crates/tinywasm/src/interpreter/executor/dispatch_become.rs
++++ b/crates/tinywasm/src/interpreter/executor/dispatch_become.rs
+@@ -39,6 +39,8 @@ macro_rules! define_unbudgeted_tail_dispatch {
+                     ($next_instr_ptr:expr) => {{
+                         let next_instr_ptr = $next_instr_ptr;
+                         let instruction = instructions[next_instr_ptr];
++                        #[cfg(feature = "op-histogram")]
++                        crate::op_histogram::record(InstructionOpcode::$variant as usize, instruction.opcode() as usize);
+                         let handler = Self::handler_for(instruction.opcode());
+                         become handler($executor, instructions, func_addr, next_instr_ptr, instruction);
+                     }};
+@@ -157,6 +159,8 @@ impl<'store> Executor<'store> {
+             let func_addr = self.cf.func_addr;
+             let instr_ptr = self.cf.instr_ptr;
+             let instruction = instructions[instr_ptr];
++            #[cfg(feature = "op-histogram")]
++            crate::op_histogram::record(InstructionOpcode::COUNT, instruction.opcode() as usize);
+             let handler = Unbudgeted::handler_for(instruction.opcode());
+             handler(&mut self, instructions, func_addr, instr_ptr, instruction)?;
+             if self.completed {
+diff --git a/crates/tinywasm/src/lib.rs b/crates/tinywasm/src/lib.rs
+index 47da470..d6a1c21 100644
+--- a/crates/tinywasm/src/lib.rs
++++ b/crates/tinywasm/src/lib.rs
+@@ -135,6 +135,32 @@ mod reference;
+ mod shared;
+ mod store;
+ 
++#[cfg(feature = "op-histogram")]
++#[doc(hidden)]
++pub mod op_histogram {
++    //! Local profiling aid: counts dispatched (previous, next) opcode pairs.
++    use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
++    use tinywasm_types::InstructionOpcode;
++    const N: usize = InstructionOpcode::COUNT + 1;
++    static PAIRS: [[AtomicU64; N]; N] = [const { [const { AtomicU64::new(0) }; N] }; N];
++    #[inline(always)]
++    pub(crate) fn record(prev: usize, next: usize) {
++        PAIRS[prev][next].fetch_add(1, Relaxed);
++    }
++    /// (previous, next, count) for every nonzero pair; previous == "<entry>" when dispatch
++    /// re-entered from the run loop.
++    pub fn take() -> alloc::vec::Vec<(&'static str, &'static str, u64)> {
++        let name = |i: usize| if i == InstructionOpcode::COUNT { "<entry>" } else { InstructionOpcode::NAMES[i] };
++        let mut out = alloc::vec::Vec::new();
++        for (p, row) in PAIRS.iter().enumerate() {
++            for (n, c) in row.iter().enumerate() {
++                let c = c.swap(0, Relaxed);
++                if c != 0 { out.push((name(p), name(n), c)); }
++            }
++        }
++        out
++    }
++}
+ mod interpreter;
+ use interpreter::InterpreterRuntime;
+ 
+diff --git a/crates/types/src/instructions.rs b/crates/types/src/instructions.rs
+index fb2960b..4d9592b 100644
+--- a/crates/types/src/instructions.rs
++++ b/crates/types/src/instructions.rs
+@@ -622,6 +622,8 @@ macro_rules! define_instructions {
+         impl InstructionOpcode {
+             #[doc(hidden)]
+             pub const COUNT: usize = [$(Self::$variant),*].len();
++            #[doc(hidden)]
++            pub const NAMES: [&'static str; Self::COUNT] = [$(stringify!($variant)),*];
+         }
+ 
+         impl Instruction {

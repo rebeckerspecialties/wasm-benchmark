@@ -1,0 +1,34 @@
+vtable_poly4(49578) = -126115384; per call: 13.188 ms, 345445542 instructions, 51525068 cycles, IPC 6.70
+dispatches per call: 5150069; instructions per dispatch: 67.1
+
+ share    cum  op
+ 19.4%  19.4%  LocalGet32
+  7.8%  27.2%  LocalSet32
+  7.8%  35.0%  Return32
+  7.8%  42.7%  CallIndirect
+  7.8%  50.5%  LoadLocal32
+  6.8%  57.3%  BinOpStackConst32
+  6.8%  64.1%  BinOpStackLocal32
+  3.9%  68.0%  LocalTee32
+  3.9%  71.8%  I32Load
+  3.9%  75.7%  AndLocalConst32
+  3.9%  79.6%  BinOpLocalConstTee32
+  3.9%  83.5%  I32Add
+  3.9%  87.4%  IncLocal32
+  3.9%  91.3%  JumpCmpLocalConst32
+
+ share  pair
+  7.8%  LoadLocal32 -> CallIndirect
+  7.8%  LocalGet32 -> LoadLocal32
+  7.8%  LocalGet32 -> LocalGet32
+  5.8%  BinOpStackLocal32 -> Return32
+  3.9%  <entry> -> LocalSet32
+  3.9%  IncLocal32 -> BinOpLocalConstTee32
+  3.9%  AndLocalConst32 -> BinOpStackConst32
+  3.9%  BinOpLocalConstTee32 -> LocalSet32
+  3.9%  BinOpStackConst32 -> I32Add
+  3.9%  LocalGet32 -> AndLocalConst32
+  3.9%  LocalSet32 -> IncLocal32
+  3.9%  LocalSet32 -> JumpCmpLocalConst32
+  3.9%  LocalTee32 -> LocalGet32
+  3.9%  I32Load -> LocalTee32
