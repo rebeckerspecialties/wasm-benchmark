@@ -6,7 +6,7 @@
 #
 # Usage: scripts/tinywasm-ab-iphone.sh <out-dir> <variant>...
 #   REPS=5  UDID=00008101-000A044A3C28801E (iPhone 12)  DEVICE_NAME=iphone12
-#   WORKLOADS=<the 16 tinywasm rows below>  BENCH_TARGET_MS=2000
+#   WORKLOADS=<the 15 tinywasm rows below>  BENCH_TARGET_MS=2000
 # Logs: <out-dir>/<variant>/<device>-r<rep>-tinywasm-r1.log; summarize with
 # scripts/tinywasm_ab_summary.py <out-dir> <variant>...
 set -uo pipefail
@@ -19,7 +19,7 @@ VARIANTS=("$@")
 REPS="${REPS:-5}"
 UDID="${UDID:-00008101-000A044A3C28801E}"
 DEVICE_NAME="${DEVICE_NAME:-iphone12}"
-W="${WORKLOADS:-fib(30),call_indirect (200k,xmrsplayer,graphql-validation (as),crc32(64kb) [scalar,convolution 256×256 [scalar,audio dsp,vtable_poly4,sieve(10000) [scalar,bulk_memory (memory.copy/fill) [scalar,tail-call fsm,exnref (4096,gc binary trees,matmul relaxed-simd fma,graphql-validation (porffor)}"
+W="${WORKLOADS:-fib(30),call_indirect (200k,xmrsplayer,graphql-validation (as),crc32(64kb) [scalar,convolution 256×256 [scalar,audio dsp,vtable_poly4,sieve(10000) [scalar,bulk_memory (memory.copy/fill) [scalar,tail-call fsm,exnref (4096,gc binary trees,matmul relaxed-simd fma}"
 for v in "${VARIANTS[@]}"; do
   app="apps/build/DerivedData-tw-${v}/Build/Products/Release-iphoneos/WasmBenchmarkIOS.app"
   [ -d "${app}" ] || { echo "missing ${app}: build it with scripts/tinywasm-ab-build-ios.sh" >&2; exit 1; }

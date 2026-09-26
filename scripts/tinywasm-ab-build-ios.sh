@@ -9,6 +9,10 @@
 #   apps/build/DerivedData-tw-<name>. The default iOS lib and Cargo.lock are
 #   restored afterwards, and the worktree is left clean at <ref>.
 #
+#   TW_AB_TARGET_DIR=target/tw-exp  cargo target dir. `target` reuses the
+#   default build's dependencies (about 2 GB less disk); the default iOS
+#   build then recompiles tinywasm and benchmark-core once.
+#
 # Use a dedicated worktree (git worktree add --detach <dir> next): the script
 # discards uncommitted changes in it.
 set -euo pipefail
@@ -35,6 +39,7 @@ NIGHTLY_TC="$(grep -m1 '^NIGHTLY_TC=' scripts/build-lib.sh | cut -d'"' -f2)"
 export PATH="${HOME}/.rustup/toolchains/${NIGHTLY_TC}-aarch64-apple-darwin/bin:${PATH}"
 export RUSTFLAGS="-C target-cpu=apple-a12 --cfg=pulley_tail_calls"
 export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+TARGET_DIR="${TW_AB_TARGET_DIR:-target/tw-exp}"
 LIB=target/aarch64-apple-ios/release/libbenchmark_core.a
 SAVED=target/tw-exp/libbenchmark_core.default.a
 mkdir -p target/tw-exp
@@ -48,16 +53,17 @@ trap restore EXIT
 
 start=$(date +%s)
 cargo build --release -p benchmark-core --lib --features nightly-dispatch --features femtovg-e2e \
-  --target aarch64-apple-ios --target-dir target/tw-exp \
-  --config "patch.crates-io.tinywasm.path=\"${wt}/crates/tinywasm\"" 2>&1 \
+  --target aarch64-apple-ios --target-dir "${TARGET_DIR}" \
+  --config "patch.\"https://github.com/explodingcamera/tinywasm\".tinywasm.path=\"${wt}/crates/tinywasm\"" 2>&1 \
   | grep -E '^error|Compiling tinywasm|Finished' || true
 # The patch must have taken: the lock file then points tinywasm at the checkout.
 if grep -A2 '^name = "tinywasm"$' Cargo.lock | grep -q '^source'; then
-  echo "[${name}] tinywasm still resolves to crates.io: is the checkout's version the one Cargo.toml pins?" >&2
+  echo "[${name}] tinywasm still resolves to its pinned source: is the checkout's version the one Cargo.toml pins?" >&2
   exit 1
 fi
 mkdir -p "$(dirname "${LIB}")"
-cp target/tw-exp/aarch64-apple-ios/release/libbenchmark_core.a "${LIB}"
+built="${TARGET_DIR}/aarch64-apple-ios/release/libbenchmark_core.a"
+[ "${built}" -ef "${LIB}" ] || cp "${built}" "${LIB}"
 if ( cd apps && xcodebuild -project WasmBenchmark.xcodeproj -scheme WasmBenchmarkIOS -configuration Release \
       -destination "generic/platform=iOS" -derivedDataPath "build/DerivedData-tw-${name}" \
       -allowProvisioningUpdates build ) > "target/tw-exp/xcodebuild-${name}.log" 2>&1; then
