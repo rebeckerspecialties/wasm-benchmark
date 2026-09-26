@@ -121,6 +121,23 @@ Pick this up cold without re-deriving state:
       against `next`: −5.7 / −7.4 / −8.2 % cycles on the A14 / A12 / A13
       E-cores. Rows that switch functions on every call are up to +6 % on
       the A12, and the exnref parser +3–13 %. The PR carries the table.
+    - [#11](https://github.com/rebeckerspecialties/tinywasm/pull/11)
+      (`perf/cheaper-calls`, on `next`): the executor borrows the
+      executing function and module from the instance, which
+      `InterpreterRuntime` holds for the run, so calls and returns inside
+      an instance make no refcount updates; leaving the instance (import,
+      table, reference, return or exception into another instance) ends
+      the run and resumes with an executor for that instance, budgets
+      carried over. Also skips unused value-stack lanes on entry. −5.3 /
+      −5.3 / −4.5 % cycles on the A14 / A12 / A13 E-cores; call-heavy
+      rows −7 to −20 %. Adds `tests/cross_instance_calls.rs`.
+    - [#12](https://github.com/rebeckerspecialties/tinywasm/pull/12)
+      (`perf/borrow-chain-across-calls`, on the fork branch
+      `base/next-pr64-pr72` = `next` + #64 + #72): #11 rebased onto #64,
+      plus a commit that keeps #64's borrowed chain across calls within an
+      instance. −6.4 / −9.4 / −6.4 % against that base, and the whole stack
+      −13.8 / −16.5 / −16.0 % against `next` with every row faster
+      (xmrsplayer −16 to −20 %). Upstreaming waits on #64.
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
@@ -129,7 +146,7 @@ Pick this up cold without re-deriving state:
     The upstream discussion draft is Matt's to post.
     - With #64 + #72: −8.8 % cycles on the iPhone 12 E-cores. The report's
       *Action plan* ranks what comes next for xmrsplayer-like guests:
-      cheaper wasm calls and returns (14 % of samples), then frameless
+      cheaper wasm calls and returns (done: fork #11 / #12), then frameless
       handlers (4 of 42 instructions per op). None of the scored rows
       imports anything or passes v128 to the host, so host-call fast
       paths cannot move WasmBench. `exp/acc` at `c8cf1ff` measured +24 %
@@ -179,7 +196,7 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
   - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...> [--metric wall]` — interleaved A/B of tinywasm revisions on the iPhone (`UDID=` / `DEVICE_NAME=` pick the phone; one run per phone can go in parallel)
-  - `scripts/tinywasm-runner/` — standalone tinywasm runner on the Mac: per-call instructions and cycles for any `(i32) -> i32` export; with `op-histogram.patch` on a tinywasm checkout, the dispatched opcode-pair histogram
+  - `scripts/tinywasm-runner/` — standalone tinywasm runner on the Mac: per-call instructions and cycles for any `(i32) -> i32` export; with `op-histogram.patch` on a tinywasm checkout, the dispatched opcode-pair histogram; for an exact per-instruction trace of a handler path, single-step it under lldb (`SBThread.StepInstruction`) from a breakpoint on the handler symbol and map each PC to its inlined function
   - `./scripts/summarize-pass.py <pass-root> <data-dir>` — per-rep CSVs into the report's data dir, median/range tables into `<pass-root>/report-tables/`; `./scripts/build-report.py <report.md> <pass-root>/report-tables` fills the report
   - `./scripts/feature-matrix.sh [out]` — runtime × feature smoke matrix
   - `target/release/run_matrix` (`RUNTIMES=`, `WORKLOADS=`, `--case`, `--file`) — any case on any runtime

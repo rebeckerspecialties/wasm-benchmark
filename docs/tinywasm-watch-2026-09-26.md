@@ -22,6 +22,9 @@ Watch Series 10. This report measures why, and what to change.
   cycles on the iPhone 12's efficiency cores. What remains on xmrsplayer is
   fixed cost per op and per call; the [updated plan](#action-plan) ranks
   the next changes.
+- **Cheaper calls** (plan item 2, fork #11 and #12) take the total to
+  −14 to −17% cycles against `next` on three iPhones, every row faster;
+  xmrsplayer −16 to −20%.
 
 ![WasmBench on the Apple Watch Series 10: tinywasm, multi-memory twin](tinywasm-watch-2026-09-26/watch-upstream-next.png)
 
@@ -342,6 +345,144 @@ than its own base `c67ce64` on the M4 E-cores (median of three runs of
 | call_indirect | +17.5% | +1.8% |
 | vtable_poly4 | +8.8% | +4.2% |
 
+## Cheaper calls and returns (plan item 2)
+
+Staged in the fork as
+[rebeckerspecialties/tinywasm#11](https://github.com/rebeckerspecialties/tinywasm/pull/11)
+(on `next`) and
+[#12](https://github.com/rebeckerspecialties/tinywasm/pull/12) (on `next`
+with #64 and #72).
+
+An instruction trace of one iteration of a loop that calls a one-line
+function showed where a call went on `next`. The `Call` handler took 153
+instructions and `Return32` 95:
+
+- 16 to save and restore 12 registers;
+- about 38 to reserve and zero three value-stack lanes, two of which the
+  callee never used;
+- about 18 to clone the callee's `Shared<WasmFunction>` and drop the
+  caller's, again on return: two atomic refcount updates each way;
+- two table lookups with bounds checks, plus the host and owner checks.
+
+With #64 each call and each return also went back to #64's run loop,
+which cloned the handle again: 423 instructions per iteration and eight
+refcount updates.
+
+#11 has the executor borrow the executing function and module from the
+instance, which `InterpreterRuntime` holds for the whole run. A call or
+return inside the instance switches a reference. A call through an import,
+table or reference into another instance, or a return or unwinding
+exception into one, ends the run, and `InterpreterRuntime` resumes that
+frame with an executor for the other instance. Fuel and time budgets carry
+over, so budgeted runs suspend at the same points; the suspension counts
+of a cross-instance loop match `next`'s for every fuel size tried. Entering
+a function also skips unused lanes, and a single-result return moves its
+result once. #12 lets #64's chain re-borrow the new function's
+instructions instead of returning to its loop.
+
+| one call and return, M4 build | instructions per iteration | refcount updates |
+|---|---:|---:|
+| `next` | 391 | 4 |
+| `next` + #11 | 310 | 0 |
+| `next` + #64 + #72 | 423 | 8 |
+| `next` + #64 + #72 + #12 | 311 | 0 |
+
+Both branches pass tinywasm's test suite (unit, doc and spec tests) with
+the tail-call dispatch, with the default dispatch, and without default
+features, and a new `tests/cross_instance_calls.rs` covers calls, tail
+calls, table calls, callbacks and exceptions across an instance boundary
+in both directions, with and without budgets.
+
+### #11 against `next`
+
+Efficiency cores, change in cycles per call, median of five interleaved
+launches per build
+([raw](tinywasm-watch-2026-09-26/cheaper-calls/)):
+
+| benchmark | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −3.6% | −5.7% | −3.3% |
+| audio DSP (1000 frames × 512) | −0.2% | +0.3% | +0.2% |
+| graphql-validation (AS) | −3.3% | −4.9% | −2.9% |
+| multi-memory twin: one memory | −0.3% | −0.1% | +0.3% |
+| crc32 (64 KB) | +0.1% | −4.9% | −0.2% |
+| convolution 256×256 | −0.3% | +0.6% | +0.3% |
+| sieve (10000) | −0.9% | −0.1% | −0.1% |
+| bulk_memory (memory.copy/fill) | +0.2% | +0.8% | +0.0% |
+| matmul relaxed-simd FMA | −0.1% | +0.0% | −0.3% |
+| GC binary trees (~130K struct.new) | −1.4% | −0.5% | −1.4% |
+| fib(30) | −6.0% | −4.5% | −5.7% |
+| tail-call FSM (65536 return_call) | −12.6% | −9.7% | −10.4% |
+| call_indirect (200K) | −10.9% | −9.7% | −10.9% |
+| call_ref (200K) | −12.2% | −14.9% | −9.0% |
+| vtable_poly4 (200K) | −12.2% | −7.3% | −8.6% |
+| EH parser, exnref (4096 stmts, 25% throw) | −18.2% | −20.4% | −17.0% |
+| **geomean, cycles** | **−5.3%** | **−5.3%** | **−4.5%** |
+| geomean, instructions | −4.2% | −4.2% | −4.1% |
+| geomean, wall time | −5.3% | −5.3% | −4.4% |
+| rows faster (cycles) | 14/16 | 12/16 | 12/16 |
+
+### #12 against its base (`next` + #64 + #72)
+
+Two separate interleaved A/Bs (the second only the base and #12) agree within a percent on every geomean; this is the second:
+
+| benchmark | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −5.9% | −4.7% | −4.9% |
+| audio DSP (1000 frames × 512) | +0.2% | +1.8% | −0.1% |
+| graphql-validation (AS) | −5.1% | −7.6% | −6.4% |
+| multi-memory twin: one memory | +1.1% | +0.5% | +0.2% |
+| crc32 (64 KB) | +3.9% | +1.0% | +2.1% |
+| convolution 256×256 | +1.4% | +0.1% | +0.6% |
+| sieve (10000) | −0.0% | +0.6% | −0.1% |
+| bulk_memory (memory.copy/fill) | +1.6% | +0.4% | +0.9% |
+| matmul relaxed-simd FMA | +2.9% | −4.7% | −0.9% |
+| GC binary trees (~130K struct.new) | −0.7% | −1.4% | −1.1% |
+| fib(30) | −7.1% | −4.4% | −6.2% |
+| tail-call FSM (65536 return_call) | −14.6% | −18.4% | −13.5% |
+| call_indirect (200K) | −15.6% | −20.6% | −16.5% |
+| call_ref (200K) | −17.9% | −27.1% | −15.4% |
+| vtable_poly4 (200K) | −13.5% | −21.1% | −13.4% |
+| EH parser, exnref (4096 stmts, 25% throw) | −26.4% | −32.9% | −23.1% |
+| **geomean, cycles** | **−6.4%** | **−9.4%** | **−6.4%** |
+| geomean, instructions | −5.4% | −5.9% | −5.6% |
+| geomean, wall time | −6.5% | −9.2% | −6.3% |
+| rows faster (cycles) | 10/16 | 10/16 | 12/16 |
+
+The loop rows (crc32, convolution, bulk_memory, the multi-memory twin) retire the same instructions on both builds and their handlers are unchanged; only their code addresses differ.
+
+### Everything submitted against `next`
+
+`next` + #64 + #72 + #12, from the three-way run (`next`, the base and the
+stack in one interleaved A/B):
+
+| benchmark | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −15.8% | −20.3% | −17.2% |
+| audio DSP (1000 frames × 512) | −7.6% | −15.5% | −15.7% |
+| graphql-validation (AS) | −15.1% | −18.1% | −16.8% |
+| multi-memory twin: one memory | −11.1% | −15.4% | −14.8% |
+| crc32 (64 KB) | −13.5% | −21.6% | −16.8% |
+| convolution 256×256 | −14.7% | −15.0% | −15.4% |
+| sieve (10000) | −18.5% | −16.8% | −18.1% |
+| bulk_memory (memory.copy/fill) | −9.2% | −13.1% | −14.1% |
+| matmul relaxed-simd FMA | −8.8% | −6.4% | −13.2% |
+| GC binary trees (~130K struct.new) | −2.1% | −2.9% | −3.8% |
+| fib(30) | −12.4% | −15.9% | −17.0% |
+| tail-call FSM (65536 return_call) | −19.2% | −20.0% | −20.2% |
+| call_indirect (200K) | −16.5% | −17.8% | −18.1% |
+| call_ref (200K) | −17.5% | −22.2% | −16.7% |
+| vtable_poly4 (200K) | −13.3% | −16.6% | −15.1% |
+| EH parser, exnref (4096 stmts, 25% throw) | −22.8% | −23.8% | −21.5% |
+| **geomean, cycles** | **−13.8%** | **−16.5%** | **−16.0%** |
+| geomean, instructions | −9.6% | −9.0% | −9.5% |
+| geomean, wall time | −13.8% | −16.8% | −16.0% |
+| rows faster (cycles) | 16/16 | 16/16 | 16/16 |
+
+On the M4's efficiency cores the same builds give −7.0% cycles for #11
+and −16.9% for the stack
+([runner data](tinywasm-watch-2026-09-26/cheaper-calls/m4-e-core-runs.csv)).
+
 ## Action plan
 
 Ranked by expected effect on xmrsplayer-like guests. The estimates are
@@ -350,7 +491,7 @@ from the shares above, not measurements.
 | # | change | evidence | estimate | owner | status |
 |---|---|---|---|---|---|
 | 1 | Land #64 and #72 | −8.8% cycles together on A14 E-cores; #64 alone −5.7 / −7.4 / −8.2% on A14 / A12 / A13 | measured | us | upstream review |
-| 2 | Cheaper wasm calls and returns: a same-module direct-call path (callee index ≥ import count: no host test, no module switch), no `Rc` clone and drop per switch, and #64's borrowed chain kept across same-module calls | 14% of xmrsplayer samples; ~300 instructions per call and return; #64's call-heavy regressions | −5 to −10% on xmrsplayer; more on fib, call_indirect, vtable | us: safe, no IR change | next to prototype |
+| 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | fork [#11](https://github.com/rebeckerspecialties/tinywasm/pull/11) (on `next`) and [#12](https://github.com/rebeckerspecialties/tinywasm/pull/12) (on #64 + #72) |
 | 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | −8 to −12% instructions on every row | us: safe, no IR change, but touches the handler macro | ask in the discussion first |
 | 4 | Specialize the hottest generic ops (`BinOpStackConst32` by operator; `LocalGet32` → `LocalGet32`) | 1.7–15.8% of dispatches take a second indirect branch; 13.7% of A14 slots discarded | −3 to −6% on the rows that use them | maintainer's call (IR size) | discussion |
 | 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
@@ -358,8 +499,12 @@ from the shares above, not measurements.
 | 7 | NEON `tbl` for `i8x16.shuffle` and `swizzle` | 150–200 scalar instructions each | SIMD rows and femtovg only | opt-in like `simd-x86` | later |
 | 8 | Host-call fast path (ideas 1 and 3) | ~500 instructions per host call | only for guests that call the host per sample | us | if production needs it |
 
-Matching WAMR on xmrsplayer takes about 55% fewer instructions. Items 2–4
-reach perhaps a third of that; the rest needs register operands (item 5).
+Matching WAMR on xmrsplayer takes about 55% fewer instructions than
+`next`. Items 1 and 2 remove 9% of them and 16–20% of the cycles; on the
+iPhone XS Max a buffer drops from 51.2 to 40.8 ms (WAMR took 24.8 ms of
+CPU per buffer on the same phone in the 2026-09-22 pass). Items 3 and 4
+reach perhaps a third of the rest; the remainder needs register operands
+(item 5).
 
 The discussion draft and the reduced example
 ([`reduced.wat`](tinywasm-watch-2026-09-26/reduced.wat)) are for Matt to
@@ -392,3 +537,7 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
     [`scripts/tinywasm-runner`](../scripts/tinywasm-runner/) (a standalone
     runner; `op-histogram.patch` adds the histogram to a tinywasm
     checkout); `hostcall.wat`, the call-cost loops.
+  - `cheaper-calls/`: the A/Bs of plan item 2 on three phones, every
+    sample: `isolation-*.csv` (`next` against #11), `stack-*.csv` (`next`,
+    `next` + #64 + #72 and #12 in one run), `stack-rerun-*.csv` (the base
+    against #12 again), and the M4 runner runs.
