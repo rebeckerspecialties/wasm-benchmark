@@ -14,8 +14,8 @@ interpreter against six other pure-interpreter runtimes:
 [wasmz](https://github.com/Ray-D-Song/wasmz) and
 [tinywasm](https://github.com/explodingcamera/tinywasm) — on
 dispatch-heavy workloads (synthetic `call_indirect` and vtable dispatch,
-the xmrsplayer tracker player, sqlite3 speedtest1, graphql-validation in
-two ports — Porffor and AssemblyScript), Wasm 3.0 feature benchmarks
+the xmrsplayer tracker player, sqlite3 speedtest1, an AssemblyScript
+port of graphql-js validation), Wasm 3.0 feature benchmarks
 (tail calls, exceptions, GC, typed function references, relaxed SIMD,
 memory64, multi-memory, extended-const), a WASI 0.3 component-model
 async benchmark, and an end-to-end femtovg-to-wasm vector renderer
@@ -41,7 +41,7 @@ have no native tier at all).
 
 ```sh
 # Clone with submodules (wasmtime, WAMR, wasm3, WasmEdge, wasmz, zwasm,
-# femtovg, target-lexicon, mach2, porffor, sightglass — all pinned)
+# femtovg, target-lexicon, mach2, sightglass — all pinned)
 git clone --recurse-submodules https://github.com/rebeckerspecialties/wasm-benchmark.git
 cd wasm-benchmark
 
@@ -55,7 +55,7 @@ cd wasm-benchmark
 # under patches/<runtime>/ idempotently before each build).
 ./scripts/build-wamr.sh macos       # WAMR libiwasm.a
 ./scripts/build-wasm3.sh macos      # wasm3 libm3.a
-./scripts/build-wasmedge.sh macos   # WasmEdge libwasmedge.a (26 patches)
+./scripts/build-wasmedge.sh macos   # WasmEdge libwasmedge.a (27 patches)
 ./scripts/build-wasmz.sh macos      # wasmz libwasmz.a
 ./scripts/build-zwasm.sh macos      # zwasm libzwasm.a (-Dengine=interp)
 
@@ -119,7 +119,7 @@ wasm-micro-runtime/      upstream main b70d708d; patches/wasm-micro-runtime/
                          0001-0029 applied at build time (legacy EH,
                          relaxed SIMD, PROT_NONE linear memory).
 wasm3/                   v0.9.0, no patches.
-WasmEdge/                0.17.2-rc.3; patches/wasmedge/ (26, Apple-mobile
+WasmEdge/                0.17.2-rc.3; patches/wasmedge/ (27, Apple-mobile
                          enablement stack) applied at build time.
 wasmz/                   v0.1.4; patches/wasmz/0002 (arm64_32 watchOS)
                          applied at build time.
@@ -130,7 +130,6 @@ femtovg/                 rebeckerspecialties/femtovg, branch wire-renderer
                          (the E2E's Renderer wire stream).
 mach2/                   pinned to fork's arm64_32-apple-watchos branch.
 target-lexicon/          pinned to fork's arm64_32-apple-watchos branch.
-porffor/                 pinned to upstream main (JS→wasm AOT compiler).
 sightglass/              pinned to upstream main (sqlite3.wasm source).
 ```
 

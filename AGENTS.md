@@ -26,7 +26,9 @@ Pick this up cold without re-deriving state:
   each an expandable row with the release and short commit it was built
   from and an aggregate score (higher is better; 100 is the typical
   engine on an iPhone XS), ranked best first and re-sorted after every
-  result; inside, each benchmark's score. SwiftUI for iOS 17+ / iPadOS,
+  result; inside, each benchmark's score, or a red −5 for a benchmark
+  the engine cannot run. The aggregate is the arithmetic mean of those,
+  so every missing feature costs. SwiftUI for iOS 17+ / iPadOS,
   watchOS 11+, tvOS 18+ and visionOS 26+ (plus the macOS dev host),
   packaged for the App Store (*App Store packaging* below). It reads the
   engines, cases and score references from benchmark-core
@@ -43,10 +45,10 @@ Pick this up cold without re-deriving state:
   | Pulley | wasmtime v49.0.0 + 9 commits, fork branch `pulley-bench-stack-v49` (`0d9aebd66d`) | fork commits (no patch files) |
   | WAMR | upstream `main` `b70d708d` (2026-09-21, WAMR-2.4.1-364) | `patches/wasm-micro-runtime/0001-0029` |
   | wasm3 | v0.9.0 `0cd38327` | none |
-  | WasmEdge | 0.17.2-rc.3 `16ea4c45` | `patches/wasmedge/` (26) |
+  | WasmEdge | 0.17.2-rc.3 `16ea4c45` | `patches/wasmedge/` (27) |
   | zwasm | v2.7.0 `d09d9248` | `patches/zwasm/0001-0002` |
   | wasmz | v0.1.4 `0796998b` | `patches/wasmz/0002` |
-  | tinywasm | 0.11.0 (crates.io) | none |
+  | tinywasm | `next` `2e469af5` (2026-09-25; git dependency) | none |
   | femtovg (E2E guest + host) | fork branch `wire-renderer` `074050a` on upstream master 0.27.0 | fork commits |
 
 - **WAMR on `main`, not the release**: WAMR-2.4.5 sits on
@@ -87,8 +89,10 @@ Pick this up cold without re-deriving state:
   [#58](https://github.com/explodingcamera/tinywasm/pull/58) (inlined fused
   binop / compare helpers, `7af50cc9`) and
   [#59](https://github.com/explodingcamera/tinywasm/pull/59) (per-function
-  operand-stack reservation, `c0be6478`). The harness still pins the
-  0.11.0 release from crates.io, which predates them.
+  operand-stack reservation, `c0be6478`). The harness pins `next`
+  (`2e469af5`), which has them; the 0.11.0 release on crates.io predates
+  them. `next` is upstream's default branch (`main` is stale at
+  `b45a98a`).
   - It was a manual stack (GitHub's native stacked PRs don't work across
     forks): #58 and #59 contained the commits below them. The branches
     live in the fork `rebeckerspecialties/tinywasm` (fork PRs #1-#3).
@@ -124,12 +128,7 @@ Pick this up cold without re-deriving state:
     trampoline allocates callee locals from the per-instance
     `ArenaAllocator`, `src/api/instance.zig`, whose `free` only reclaims
     the latest allocation); and the interpreter has no SIMD-128. On the
-    iPhone its xmrsplayer footprint reaches ~1.2 GB and
-    graphql-validation (Porffor) gets the app jetsam-killed even in a
-    launch of its own.
-  - tinywasm's Porffor row holds 1.03 GB after 103 samples on macOS
-    (each sample drops its `Store`) but peaks at 52 MB RSS on the
-    iPhone. Undiagnosed: a macOS allocator effect or a macOS-only leak.
+    iPhone its xmrsplayer footprint reaches ~1.2 GB.
   - WasmEdge 0.17.2-rc.3 and wasmz never collect GC structs either (the
     gc_trees heap grows ~15 MB / ~4.8 MB per call); Pulley (DRC) and
     tinywasm stay flat.
@@ -288,10 +287,16 @@ femtovg/                 rebeckerspecialties/femtovg, branch wire-renderer
                          guest — must be initialized even though the
                          `femtovg-e2e` feature is optional)
 target-lexicon/, mach2/  forks with arm64_32-apple-watchos support
-porffor/, sightglass/    workload sources
+sightglass/              workload source (sqlite3)
 ```
 
-tinywasm is a crates.io dependency (`=0.11.0`), not a submodule.
+tinywasm is a git dependency on its `next` branch (a pinned `rev` in
+`crates/benchmark-core/Cargo.toml`), not a submodule; `build.rs` reads
+its version and commit from Cargo.lock for the app's engine list.
+
+The Porffor port of graphql-validation (JS try/catch compiled to legacy
+EH) was retired on 2026-09-26 with its submodule, runners and C entry
+points; the 2026-09 report still has its rows.
 
 ## Building
 
@@ -398,7 +403,10 @@ One App Store record, universal purchase:
   the visionOS layout on the only installed runtime, 2.5 (built with
   `XROS_DEPLOYMENT_TARGET=2.5`, generic destination, `simctl install`).
   Unsigned `xcodebuild archive` of the iOS (with the watch app), tvOS
-  and visionOS apps; not yet run on hardware.
+  and visionOS apps. Development builds ran on an iPhone 16 Pro Max, an
+  Apple Watch Series 10 and an Apple TV 4K (3rd generation) from
+  2026-09-25; the watch app found the WasmEdge signal-handler crash
+  (patch 0029).
 
 ## Workload registration pattern
 
@@ -407,7 +415,7 @@ Workloads are rows of the runtime-independent case table in
 arg, expected, shape }`. `expected` is the cross-runtime consensus
 result (a runtime that returns anything else fails the row), and
 `shape` says how the case is driven: `I32ToI32` (`export(i32) -> i32`,
-no imports), `PorfforMain`, `Sqlite3` (Pulley only), or
+no imports), `Sqlite3` (Pulley only), or
 `InstantiateEach` (a fresh instance per sample, for features whose hot
 path runs at instantiation). `run_case` dispatches a case to any
 runtime; `KNOWN_CRASHES` lists (runtime, case) pairs that would take
@@ -432,7 +440,8 @@ To add a workload:
    the next iPhone pass (`tests/catalog.rs` fails for a case without
    one). Add it to `WATCH_EXCLUDED_CASES` in `cases.rs` if a call takes
    seconds on an S8 or it needs a lot of memory, and to `APP_SKIPS` for
-   a runtime that keeps the row's memory for the life of the process.
+   a runtime that keeps the row's memory for the life of the process
+   (the app scores that engine −5 there without running it).
 
 The older per-workload `bench_run_<name>` FFI functions still exist for
 the original rows; new rows don't need them.
@@ -453,11 +462,15 @@ Teardown of instantiate-per-sample cases runs outside the clock.
 - **By hand**: the app waits for Run, then goes benchmark by benchmark
   across the engines (so the leaderboard always compares engines on the
   same benchmarks), in `.utility` QoS with the default 200 ms window. It
-  runs the device's suite (every case but sqlite3; the watch also leaves
-  out `WATCH_EXCLUDED_CASES`), skips `APP_SKIPS`, pauses while the app is
-  not in the foreground and measures an interrupted benchmark again, and
-  skips a row when `os_proc_available_memory()` is under 192 MB (48 MB on
-  the watch).
+  runs the device's suite: every case but `APP_EXCLUDED_CASES` (sqlite3;
+  the legacy-EH parser; and the canonical builds of factorial, sieve,
+  crc32, convolution and bulk_memory, which LLVM auto-vectorizes into
+  SIMD, so the app runs their `.scalar` builds, which every engine can
+  run). The watch also leaves out `WATCH_EXCLUDED_CASES`. A failed row
+  scores −5, and so do the `APP_SKIPS` rows, which it does not attempt.
+  It pauses while the app is not in the foreground and measures an
+  interrupted benchmark again, and skips a row without penalty when
+  `os_proc_available_memory()` is under 192 MB (48 MB on the watch).
 - **Harness**: any of WORKLOADS, RUNTIMES, WORKLOADS_EXCLUDE,
   BENCH_TARGET_MS, FEMTOVG_E2E or `BENCH_AUTORUN=1` in the environment
   starts a run at launch over every selected case, engine by engine, with
@@ -658,9 +671,10 @@ phase-4 fusion:
 
 Gates on v49: disas 2590/2590, wasmtime-environ table_mutability 16/16
 under two feature sets, wast 1382/1382 (CraneliftNative + Winch) and
-691/691 with CraneliftPulley. Pulley still cannot compile legacy EH
-(`try`: "Unsupported feature: operator Try"), so the legacy-EH rows are
-N/A on Pulley; exnref (`try_table`) works. The older branches
+691/691 with CraneliftPulley. Pulley cannot compile legacy EH (`try`:
+"Unsupported feature: operator Try"), and the harness engine leaves
+legacy exceptions off, so the legacy-EH row is N/A on Pulley; exnref
+(`try_table`) works. The older branches
 (`table-mutability-tracking`, `claude/pulley-fusion-xband-brif`,
 `accurate-graphql-needs-legacy-exceptions`) remain on the fork as
 history; `patches/pulley-fusion-*` are their format-patch exports.
@@ -689,12 +703,16 @@ Current series (2026-09):
     0001-0017 legacy EH for fast-interp (fork PR #2), 0018-0027 relaxed
     SIMD (fork PR #3 = upstream #4950), 0028-0029 opt-in PROT_NONE
     linear-memory reservation (fork PR #4). All cherry-pick cleanly.
-  * `wasmedge/` (26: 0001-0003, 0006-0028) on 0.17.2-rc.3 — Apple-mobile
+  * `wasmedge/` (27: 0001-0003, 0006-0029) on 0.17.2-rc.3 — Apple-mobile
     guarded-memory fallbacks, interpreter super-instructions, arm64_32
     fixes. 0005 retired (upstream). 0006, 0009, 0011, 0012, 0014-0016,
     0023, 0024 were rebased; each patch's message records its conflict
     resolution (0023's cached-default-locals fast path now only covers
-    functions whose locals are all numeric).
+    functions whose locals are all numeric). 0029 compiles out
+    `WasmEdge::Fault`'s fatal-signal handlers on watchOS, which kills
+    any app that installs one ("sigaction on fatal signals is not
+    supported"): the Apple Watch Series 10 app crashed at WasmEdge's
+    first row without it.
   * `zwasm/0001` compiles the JIT out of the C API when
     `-Dengine=interp` (upstream v2.7.0 only reads the flag for the CLI's
     `--version`, so libzwasm.a otherwise carries the JIT and imports
@@ -761,7 +779,7 @@ All seven are built interpreter-only; exact flags:
 6. **wasmz** v0.1.4 (`libwasmz.a`) — Zig 0.16.0, `-Doptimize=ReleaseFast`,
    `zig build static-lib`. No JIT/AOT tier exists. 8 MiB-stack thread,
    same dyld stub.
-7. **tinywasm** 0.11.0 — crates.io, `default-features = false`,
+7. **tinywasm** `next` `2e469af5` — git, `default-features = false`,
    features `std`, `parser`, `validate` (its `archive` serializer off),
    `nightly-tail-calls` via `nightly-dispatch`. No native codegen at all
    (`#![forbid(unsafe_code)]` outside opt-in x86 intrinsics).
@@ -808,8 +826,9 @@ The 2026-09 builds link all seven runtimes into the watch app
 **Status**: complete and carried as `patches/wasm-micro-runtime/0001-0017`
 (fork PR #2, full legacy EH: try / catch / catch_all / rethrow /
 delegate, tag payloads, result-typed try regions, plus the 2026-08-16
-correctness fixes). Porffor's graphql-validation and the legacy-EH
-parser benchmark run on WAMR. Remaining limits, both trapping cleanly:
+correctness fixes). The legacy-EH parser benchmark runs on WAMR (the
+app leaves it out: legacy EH is superseded by exnref, and no engine is
+scored on it). Remaining limits, both trapping cleanly:
 exception payloads crossing a function boundary (patch 0014 traps —
 the benchmark's legacy EH parser passes its error position through a
 global for this reason) and `br` to a loop entry from inside a try
