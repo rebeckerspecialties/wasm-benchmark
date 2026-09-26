@@ -43,7 +43,7 @@ Pick this up cold without re-deriving state:
   | runtime | pin | carried patches |
   |---|---|---|
   | Pulley | wasmtime v49.0.0 + 9 commits, fork branch `pulley-bench-stack-v49` (`0d9aebd66d`) | fork commits (no patch files) |
-  | WAMR | upstream `main` `b70d708d` (2026-09-21, WAMR-2.4.1-364) | `patches/wasm-micro-runtime/0001-0029` |
+  | WAMR | upstream `main` `b70d708d` (2026-09-21, WAMR-2.4.1-364) | `patches/wasm-micro-runtime/0001-0012` |
   | wasm3 | v0.9.0 `0cd38327` | none |
   | WasmEdge | 0.17.2-rc.3 `16ea4c45` | `patches/wasmedge/` (27) |
   | zwasm | v2.7.0 `d09d9248` | `patches/zwasm/0001-0002` |
@@ -54,8 +54,8 @@ Pick this up cold without re-deriving state:
 - **WAMR on `main`, not the release**: WAMR-2.4.5 sits on
   `release/2.4.x` (cut from 2.4.1, 2025-07), lacks 364 main-line commits,
   and none of our patches apply to it. The WAMR fork branches remain the
-  authoritative copies of the patch series (PR #2 legacy EH, PR #3
-  relaxed SIMD = upstream #4950, PR #4 PROT_NONE linear memory).
+  authoritative copies of the patch series (PR #3 relaxed SIMD =
+  upstream #4950, PR #4 PROT_NONE linear memory).
 - **WASIp2 / component-model WAMR work (2026-06-14)** — a SEPARATE
   airbus-`cm_wasip2`-based lineage, NOT the EH/relaxed-SIMD branches
   above. Fork PRs (all branch from airbus `dev/cm_wasip2_complete @
@@ -136,7 +136,7 @@ Pick this up cold without re-deriving state:
     dispatch modes in `pulley/src/interp.rs`), so it stays.
 - **Open fork PRs** (state checked 2026-09-22):
   - [`rebeckerspecialties/wasmtime#2`](https://github.com/rebeckerspecialties/wasmtime/pull/2) — table-mutability tracking (open; `#4`, the phase 1–4 fusion PR, is closed)
-  - [`rebeckerspecialties/wasm-micro-runtime#1`–`#4`](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls) — throw-only EH, full legacy EH, relaxed SIMD, PROT_NONE linear memory (open; relaxed SIMD also upstream as [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950), open)
+  - [`rebeckerspecialties/wasm-micro-runtime#3`–`#4`](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls) — relaxed SIMD, PROT_NONE linear memory (open; relaxed SIMD also upstream as [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950), open). #1 and #2 (fast-interp legacy EH) were closed on 2026-09-26: exnref supersedes legacy EH.
   - [`rebeckerspecialties/wasm3#1`](https://github.com/rebeckerspecialties/wasm3/pull/1) — v128 opaque slot; superseded by upstream [wasm3#559](https://github.com/wasm3/wasm3/pull/559) (merged, in v0.9.0)
   - Upstream wasmtime [#13445](https://github.com/bytecodealliance/wasmtime/pull/13445) / [#13447](https://github.com/bytecodealliance/wasmtime/pull/13447) and the July split [#13909](https://github.com/bytecodealliance/wasmtime/pull/13909) / [#13910](https://github.com/bytecodealliance/wasmtime/pull/13910) are closed; [#13259](https://github.com/bytecodealliance/wasmtime/pull/13259) (arm64_32 unwinder) is merged.
 - **Hot tools**:
@@ -699,10 +699,11 @@ retired in a commit that says where it landed.
 
 Current series (2026-09):
 
-  * `wasm-micro-runtime/0001-0029` on upstream main `b70d708d`:
-    0001-0017 legacy EH for fast-interp (fork PR #2), 0018-0027 relaxed
-    SIMD (fork PR #3 = upstream #4950), 0028-0029 opt-in PROT_NONE
-    linear-memory reservation (fork PR #4). All cherry-pick cleanly.
+  * `wasm-micro-runtime/0001-0012` on upstream main `b70d708d`:
+    0001-0010 relaxed SIMD (fork PR #3 = upstream #4950), 0011-0012
+    opt-in PROT_NONE linear-memory reservation (fork PR #4), generated
+    from the fork branches. The legacy-EH series that used to come
+    first (0001-0017, fork PRs #1 and #2) was retired on 2026-09-26.
   * `wasmedge/` (27: 0001-0003, 0006-0029) on 0.17.2-rc.3 — Apple-mobile
     guarded-memory fallbacks, interpreter super-instructions, arm64_32
     fixes. 0005 retired (upstream). 0006, 0009, 0011, 0012, 0014-0016,
@@ -740,7 +741,8 @@ All seven are built interpreter-only; exact flags:
 2. **WAMR** fast-interp (`wasm-micro-runtime/`, `libiwasm.a`) — cmake
    Release, `-O3 -mcpu=apple-a12`; `WAMR_BUILD_INTERP=1 FAST_INTERP=1
    AOT=0 JIT=0 FAST_JIT=0`, `SIMD=1 RELAXED_SIMD=1 BULK_MEMORY=1
-   EXTENDED_CONST_EXPR=1 TAIL_CALL=1 REF_TYPES=1 EXCE_HANDLING=1`,
+   EXTENDED_CONST_EXPR=1 TAIL_CALL=1 REF_TYPES=1` (no exception
+   handling: upstream fast-interp has neither legacy EH nor exnref),
    `LIBC_WASI=0 LIBC_BUILTIN=0 MULTI_MODULE=0 LIB_PTHREAD=0
    MINI_LOADER=0`, `WAMR_DISABLE_HW_BOUND_CHECK=1`,
    `-DWASM_LINMEM_RESERVATION_CAP` 64 MB (16 MB on arm64_32). GC /
@@ -791,7 +793,7 @@ seven; extended-const on all but wasmz (wrong result); relaxed SIMD on
 Pulley, WAMR, WasmEdge, wasmz, tinywasm; memory64, GC and typed function
 references on Pulley, WasmEdge, zwasm, wasmz, tinywasm; multi-memory on
 Pulley, WasmEdge, zwasm, tinywasm; exnref on Pulley, WasmEdge, zwasm,
-tinywasm (wasmz: basic `try_table` only); legacy EH on WAMR and wasmz;
+tinywasm (wasmz: basic `try_table` only); legacy EH on wasmz;
 component model / WASI 0.3 async on wasmtime-Pulley and zwasm only (both
 through their CLIs; the WAMR cm_wasip2 lineage is WASIp2-only).
 
@@ -821,23 +823,13 @@ the 2026-09 builds; their last status (2026-05-16/17, six runtimes):
 The 2026-09 builds link all seven runtimes into the watch app
 (arm64_32), but that app was not run on a watch in this refresh.
 
-### WAMR fast-interp legacy exception handling
+### WAMR gotchas
 
-**Status**: complete and carried as `patches/wasm-micro-runtime/0001-0017`
-(fork PR #2, full legacy EH: try / catch / catch_all / rethrow /
-delegate, tag payloads, result-typed try regions, plus the 2026-08-16
-correctness fixes). The legacy-EH parser benchmark runs on WAMR (the
-app leaves it out: legacy EH is superseded by exnref, and no engine is
-scored on it). Remaining limits, both trapping cleanly:
-exception payloads crossing a function boundary (patch 0014 traps —
-the benchmark's legacy EH parser passes its error position through a
-global for this reason) and `br` to a loop entry from inside a try
-region (0015 rejects at load). `try_table` / `throw_ref` (exnref) are
-not implemented anywhere in WAMR (`b70d708d` has no `TRY_TABLE` /
-`THROW_REF` in `core/`).
-
-Land-mines from that work (keep them in mind when touching the loader
-or the fast-interp EH paths):
+The fast-interp legacy exception-handling series (fork PRs #1 and #2,
+formerly patches 0001-0017) was retired on 2026-09-26: exnref
+supersedes legacy EH, so no engine is scored on it. Its fork branches
+remain as history. Upstream WAMR implements exnref nowhere (`b70d708d`
+has no `TRY_TABLE` / `THROW_REF` in `core/`).
 
   1. **Loader pass-1 / pass-2 size accounting must match.** Any
      `emit_*` must run in both traverses or pass 2 overruns the
@@ -851,16 +843,8 @@ or the fast-interp EH paths):
      gitlink before applying the series, wiping uncommitted WAMR
      changes. Commit on a fork branch, or run cmake/make directly in
      the build dir while iterating.
-  4. **`frame->exception_raised` is not zero-initialized by
-     `ALLOC_FRAME`** in fast-interp; the return-path hook reads it.
-  5. **`wasm_runtime_load` does not copy the wasm bytes** — keep the
+  4. **`wasm_runtime_load` does not copy the wasm bytes** — keep the
      buffer alive for the module's lifetime.
-
-Tests: `cargo test -p benchmark-core --test eh_correctness` (60+ cases),
-`src/bin/probe_eh_void.rs` as a smoke check, and WAMR's own spec runner
-with `--eh` (the legacy-EH `.wast` files run on fast-interp since patch
-0012). Cost-model rule upstream reviewers will apply: EH must not tax
-`CALL` / `LOAD` / `STORE` handlers on the success path.
 
 ### Skipped runtimes (App Store / Apple-platform feasibility)
 

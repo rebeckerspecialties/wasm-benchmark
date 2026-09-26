@@ -1,4 +1,4 @@
-From 08cbf85a340de447d52bfa956f0adff44b39bc17 Mon Sep 17 00:00:00 2001
+From 6b6d0164eda31993eb6e562c50caba6a1394b328 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Tue, 19 May 2026 15:14:09 -0700
 Subject: wasm_memory: opt-in PROT_NONE linear-memory reservation
@@ -51,8 +51,6 @@ address-space budget for a 4-slot per-process cache.
 Empirical: iPhone 12 Porffor `graphql-validation` median
 63.6 ms → 9.7 ms (6.6×), 43 → 300 iters/3s, 517 K → 258 K page
 faults. WAMR now beats Pulley by 1.6× on this workload.
-
-(cherry picked from commit c9cde0d5c3021f7a3bb7a13a502da7bcf988766a)
 ---
  core/iwasm/common/wasm_memory.c | 90 +++++++++++++++++++++++++++++++++
  1 file changed, 90 insertions(+)

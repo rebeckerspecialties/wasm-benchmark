@@ -1,4 +1,4 @@
-From e65093648562c2cec49fa90aa21187c8ac1575d9 Mon Sep 17 00:00:00 2001
+From bc0a52696bef99d15a3350400fe83f6e32ec1998 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Tue, 19 May 2026 01:14:35 -0700
 Subject: =?UTF-8?q?fast-interp:=20relaxed-SIMD=20audit=20fixes=20=E2=80=94?=
@@ -84,8 +84,6 @@ CONTRIBUTING.md; `@lum1n0us`'s PR #4837 review pattern on
 fast-interp EH ("follow `tests/unit/interpreter`") shapes the
 new `tests/unit/relaxed-simd/` layout. CODEOWNERS will route
 review to `@loganek @lum1n0us @no1wudi @TianlongLiang @yamt`.
-
-(cherry picked from commit 5d7c1f99ae51f34a4e3cedb4789d45754dc59bcb)
 ---
  build-scripts/config_common.cmake            |  29 ++++
  core/config.h                                |  11 ++
@@ -160,10 +158,10 @@ index 31404deb..d44bc013 100644
  #ifndef WASM_ENABLE_GC_PERF_PROFILING
  #define WASM_ENABLE_GC_PERF_PROFILING 0
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 8ca856d2..d41217a2 100644
+index 5c42c879..10d559d1 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
-@@ -6430,7 +6430,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -5934,7 +5934,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                   * When `WAMR_BUILD_RELAXED_SIMD=1` the loader widens
                   * the SIMD sub-opcode in the IR from one byte to a
                   * 2-byte little-endian uint16 (see the
@@ -172,7 +170,7 @@ index 8ca856d2..d41217a2 100644
                   * `wasm_loader_prepare_bytecode`'s SIMD case), and
                   * the runtime reads two bytes here to match. When
                   * the flag is off the legacy `GET_OPCODE()` 1-byte
-@@ -8104,30 +8104,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7608,30 +7608,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                      }
                      case SIMD_i16x8_relaxed_q15mulr_s:
                      {

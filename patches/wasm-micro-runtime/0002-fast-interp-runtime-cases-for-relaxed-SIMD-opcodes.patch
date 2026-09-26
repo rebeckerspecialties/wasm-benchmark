@@ -1,4 +1,4 @@
-From 13e9c73e49cda9a8ff90593663ccb8084baf8350 Mon Sep 17 00:00:00 2001
+From de4f0a7e9f438cf3415c083bce504c6ea722d1a4 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 23:08:51 -0700
 Subject: fast-interp: runtime cases for relaxed-SIMD opcodes
@@ -68,15 +68,13 @@ relaxed-SIMD wasm validates through the loader and then reaches
 the new dispatch cases here. The cmake flag that exposes the
 feature (`WAMR_BUILD_RELAXED_SIMD`) is the next commit; this one
 adds the runtime side gated on the eventual macro.
-
-(cherry picked from commit b56b40e6e012e7356d6361498b3596baf10e9982)
 ---
  core/iwasm/interpreter/wasm_interp_fast.c | 232 +++++++++++++++++++++-
  core/iwasm/interpreter/wasm_loader.c      |  19 ++
  2 files changed, 250 insertions(+), 1 deletion(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index bda039eb..ad15616d 100644
+index 626b4f32..03566e66 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
 @@ -23,6 +23,16 @@
@@ -95,8 +93,8 @@ index bda039eb..ad15616d 100644
 +#endif
  #endif
  
- /* MSVC has no `__builtin_expect`; the cold-path hints below are
-@@ -6382,9 +6392,31 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+ typedef int32 CellType_I32;
+@@ -5886,9 +5896,31 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
  
              HANDLE_OP(WASM_OP_SIMD_PREFIX)
              {
@@ -129,7 +127,7 @@ index bda039eb..ad15616d 100644
                      /* Memory */
                      case SIMD_v128_load:
                      {
-@@ -7925,6 +7957,204 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7429,6 +7461,204 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                          break;
                      }
  
@@ -335,10 +333,10 @@ index bda039eb..ad15616d 100644
                          wasm_set_exception(module, "unsupported SIMD opcode");
                  }
 diff --git a/core/iwasm/interpreter/wasm_loader.c b/core/iwasm/interpreter/wasm_loader.c
-index ef314a04..35995895 100644
+index 0aae7109..516cccca 100644
 --- a/core/iwasm/interpreter/wasm_loader.c
 +++ b/core/iwasm/interpreter/wasm_loader.c
-@@ -17063,7 +17063,26 @@ re_scan:
+@@ -16222,7 +16222,26 @@ re_scan:
                  pb_read_leb_uint32(p, p_end, opcode1);
  
  #if WASM_ENABLE_FAST_INTERP != 0

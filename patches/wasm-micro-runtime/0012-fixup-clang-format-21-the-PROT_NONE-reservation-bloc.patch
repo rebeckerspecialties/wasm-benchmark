@@ -1,9 +1,8 @@
-From b9b3457a10c2d1a9e92e4778aea58126f8a65d2f Mon Sep 17 00:00:00 2001
+From 04bf0c2611e11cc702c94478f91b60fe9c825828 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Sun, 16 Aug 2026 13:14:08 -0400
 Subject: fixup: clang-format-21 the PROT_NONE reservation block
 
-(cherry picked from commit 2ffe128f66aa7769ecbeb6157f5098bc7d3f2d5c)
 ---
  core/iwasm/common/wasm_memory.c | 9 ++++-----
  1 file changed, 4 insertions(+), 5 deletions(-)

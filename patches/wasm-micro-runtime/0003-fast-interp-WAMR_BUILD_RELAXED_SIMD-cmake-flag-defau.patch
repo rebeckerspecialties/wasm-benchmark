@@ -1,4 +1,4 @@
-From 86e5e14fa557c5603e20317da9bacdba413af9ae Mon Sep 17 00:00:00 2001
+From b7a51d48b09d0b48ae657633dadf29502f27d3bc Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 18 May 2026 23:11:40 -0700
 Subject: fast-interp: WAMR_BUILD_RELAXED_SIMD cmake flag (default off)
@@ -41,8 +41,6 @@ Verified locally on macOS-15 / aarch64:
   flag=1 simd=0:
     cmake -> "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_SIMD=1"
     (configure aborts)
-
-(cherry picked from commit 0db40469bb554a69d70f8c5fe3f2a3324edd22cc)
 ---
  build-scripts/config_common.cmake | 24 ++++++++++++++++++++++++
  1 file changed, 24 insertions(+)

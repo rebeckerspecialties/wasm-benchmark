@@ -13,7 +13,7 @@
 #   WAMR_BUILD_INTERP=1 + FAST_INTERP=1   (the apples-to-apples vs Pulley path)
 #   WAMR_BUILD_AOT=0 + JIT=0 + FAST_JIT=0  (no native codegen — App-Store-safe)
 #   SIMD=1 + RELAXED_SIMD=1 + BULK_MEMORY=1 + EXTENDED_CONST_EXPR=1
-#   + TAIL_CALL=1 + REF_TYPES=1 + EXCE_HANDLING=1 (legacy EH)
+#   + TAIL_CALL=1 + REF_TYPES=1
 #   WAMR_DISABLE_HW_BOUND_CHECK=1          (workaround for the macOS
 #                                          touch_pages stack-walk bug —
 #                                          we don't need stack guards on
@@ -34,14 +34,13 @@ WHICH="${1:-macos}"
 # Same pattern as build-wasm3.sh / build-wasmz.sh / build-zwasm.sh.
 #
 # Currently applies (on upstream main b70d708d):
-#   0001-0017  legacy exception handling for fast-interp: try / catch /
-#              catch_all / rethrow / delegate, tag payloads, result-typed
-#              try regions (fork PRs #1 + #2)
-#   0018-0027  relaxed SIMD for fast-interp (fork PR #3, upstream #4950)
-#   0028-0029  opt-in PROT_NONE linear-memory reservation (fork PR #4)
+#   0001-0010  relaxed SIMD for fast-interp (fork PR #3, upstream #4950)
+#   0011-0012  opt-in PROT_NONE linear-memory reservation (fork PR #4)
+# (The legacy exception-handling series, fork PRs #1 and #2, was retired
+# on 2026-09-26: exnref supersedes legacy EH.)
 # Pinned submodule gitlink is the upstream WAMR base; check it out
 # (detached HEAD) before applying the patch series so that:
-#   (a) patches 0001-0029 always forward-apply cleanly. HEAD may have
+#   (a) patches 0001-0012 always forward-apply cleanly. HEAD may have
 #       feat-branch commits whose content overlaps the patch series,
 #       breaking apply_patch_series.sh's reverse-check.
 #   (b) `git reset --hard <pin>` while on a feature branch would move
@@ -71,7 +70,7 @@ COMMON_DEFS=(
   # Relaxed-SIMD (wasm 2.0 extension) — same `0xfd` prefix as the
   # legacy SIMD opcodes, plus 20 spec-assigned sub-opcodes at
   # 0x100..0x113. Not implemented in upstream WAMR's fast-interp; our
-  # `patches/wasm-micro-runtime/0018-0027` add the dispatch cases and
+  # `patches/wasm-micro-runtime/0001-0010` add the dispatch cases and
   # the cmake gate (default off), and we set the flag here so the
   # relaxed-SIMD workloads run on WAMR. Upstreaming tracked at
   # rebeckerspecialties/wasm-micro-runtime#3 / upstream #4950.
@@ -86,15 +85,8 @@ COMMON_DEFS=(
   -DWAMR_BUILD_EXTENDED_CONST_EXPR=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
-  # Legacy wasm exceptions — needed for Porffor-compiled wasm, which
-  # lowers JS try/catch/throw to legacy EH. WAMR upstream forbids
-  # `WAMR_BUILD_EXCE_HANDLING=1` together with `FAST_INTERP=1`
-  # (build-scripts/unsupported_combination.cmake); patches 0001-0017
-  # implement legacy EH in fast-interp and lift the ban. Limits: an
-  # exception payload cannot cross a function boundary (traps, 0014), a
-  # br to a loop entry from inside a try region is rejected at load
-  # (0015), and exnref (try_table / throw_ref) is not implemented.
-  -DWAMR_BUILD_EXCE_HANDLING=1
+  # No exception handling: upstream fast-interp implements neither legacy
+  # EH nor exnref (it rejects WAMR_BUILD_EXCE_HANDLING=1 with FAST_INTERP=1).
   -DWAMR_BUILD_MULTI_MODULE=0
   -DWAMR_BUILD_LIB_PTHREAD=0
   -DWAMR_BUILD_MINI_LOADER=0

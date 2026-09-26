@@ -1,4 +1,4 @@
-From beaa8753aeda736ac5e30cc596f759c3147ffcd7 Mon Sep 17 00:00:00 2001
+From d88799ff2fd1b7f7a667d87ed50af4c3cdfbb778 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Wed, 20 May 2026 23:11:27 -0700
 Subject: fast-interp: regression tests for dot-product i16-intermediate
@@ -31,8 +31,6 @@ Bytecode for both modules was generated via
 `wat2wasm --enable-relaxed-simd` on minimal known-good WAT
 (documented inline in the static-array comments) and inlined to
 avoid a wabt/wat-runtime dependency at test time.
-
-(cherry picked from commit d675b63d3e440eb46652d9fe882327b60f686e2f)
 ---
  tests/unit/relaxed-simd/relaxed_simd_test.cc | 145 +++++++++++++++++++
  1 file changed, 145 insertions(+)

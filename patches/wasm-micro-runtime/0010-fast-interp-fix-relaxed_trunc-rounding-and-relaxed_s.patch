@@ -1,4 +1,4 @@
-From 2afcb8d3edb726d8edd43196ff656af0fac178e4 Mon Sep 17 00:00:00 2001
+From 97b3b79a6042d0dd56b960c166636eba3fd9d615 Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Mon, 15 Jun 2026 14:29:37 +0200
 Subject: fast-interp: fix relaxed_trunc rounding and relaxed_swizzle high-bit
@@ -29,18 +29,16 @@ high bit and wraps otherwise; the fixup is a no-op on NEON/SSE.
 Add regression coverage in tests/unit/relaxed-simd: in-range fractional
 relaxed_trunc (1.9, -1.9, 2.5, -2.5 -> 1, -1, 2, -2) and a high-bit
 swizzle index (0x80 -> 0).
-
-(cherry picked from commit a169d8cd89663b0f647b4597285ea25e8f5dc74f)
 ---
  core/iwasm/interpreter/wasm_interp_fast.c    |  37 +++-
  tests/unit/relaxed-simd/relaxed_simd_test.cc | 171 +++++++++++++++++++
  2 files changed, 206 insertions(+), 2 deletions(-)
 
 diff --git a/core/iwasm/interpreter/wasm_interp_fast.c b/core/iwasm/interpreter/wasm_interp_fast.c
-index 5ac216b2..ec99b189 100644
+index bbc82e44..e31f430e 100644
 --- a/core/iwasm/interpreter/wasm_interp_fast.c
 +++ b/core/iwasm/interpreter/wasm_interp_fast.c
-@@ -8017,12 +8017,45 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
+@@ -7521,12 +7521,45 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
  
                      case SIMD_i8x16_relaxed_swizzle:
                      {

@@ -1,4 +1,4 @@
-From 400839fc10d20b73a796c6601d7582c9a50e564a Mon Sep 17 00:00:00 2001
+From 74d6340561086614e0c8d23352e2869ddda7a15b Mon Sep 17 00:00:00 2001
 From: Matt Hargett <plaztiksyke@gmail.com>
 Date: Thu, 21 May 2026 02:18:10 -0700
 Subject: fast-interp: spec-allowed-set tests for q15mulr overflow and madd
@@ -36,8 +36,6 @@ Locally exercised via `iwasm -f`:
 Both fit the spec-allowed sets the tests describe; the membership
 assertions confirm without overfitting to the specific bit
 pattern.
-
-(cherry picked from commit 7cd155b6f6bc20d51128ecf985c5f4b67f3336f3)
 ---
  tests/unit/relaxed-simd/relaxed_simd_test.cc | 187 +++++++++++++++++++
  1 file changed, 187 insertions(+)

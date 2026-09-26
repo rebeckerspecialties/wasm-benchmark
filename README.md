@@ -116,8 +116,8 @@ wasmtime/                rebeckerspecialties/wasmtime, branch
                          `pulley-bench-stack-v49` (v49.0.0 + 9 commits).
                          Only wasmtime/target/ is gitignored.
 wasm-micro-runtime/      upstream main b70d708d; patches/wasm-micro-runtime/
-                         0001-0029 applied at build time (legacy EH,
-                         relaxed SIMD, PROT_NONE linear memory).
+                         0001-0012 applied at build time (relaxed
+                         SIMD, PROT_NONE linear memory).
 wasm3/                   v0.9.0, no patches.
 WasmEdge/                0.17.2-rc.3; patches/wasmedge/ (27, Apple-mobile
                          enablement stack) applied at build time.
@@ -259,8 +259,8 @@ than mmap-fallback on iPhone 12; not part of either upstream PR.
   suite.
 - All builds are run through ASan + UBSan locally; integration
   tests linked at https://github.com/rebeckerspecialties/wasm-benchmark/tree/main/crates/benchmark-core/tests
-  (`eh_correctness.rs`, `relaxed_simd_abuse.rs`,
-  `relaxed_simd_diff_fuzz.rs`, `relaxed_simd_spec_testsuite.rs`).
+  (`relaxed_simd_abuse.rs`, `relaxed_simd_diff_fuzz.rs`,
+  `relaxed_simd_spec_testsuite.rs`).
 
 ## Current upstream-PR state (checked 2026-09-22)
 
@@ -277,9 +277,10 @@ Wasmtime:
 
 Runtime PRs:
 
-- **[rebeckerspecialties/wasm-micro-runtime#1–#4](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls)** —
-  fast-interp legacy EH (throw-only and full), relaxed SIMD, PROT_NONE
-  linear memory; carried as `patches/wasm-micro-runtime/0001-0029`.
+- **[rebeckerspecialties/wasm-micro-runtime#3–#4](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls)** —
+  relaxed SIMD and PROT_NONE linear memory for fast-interp; carried as
+  `patches/wasm-micro-runtime/0001-0012`. The legacy-EH PRs #1 and #2
+  are closed: exnref supersedes legacy EH.
   Relaxed SIMD is also upstream as
   [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950) (open).
 - **[wasm3/wasm3#559](https://github.com/wasm3/wasm3/pull/559)** — v128
