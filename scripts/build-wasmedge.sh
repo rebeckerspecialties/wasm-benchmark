@@ -14,7 +14,7 @@
 #
 # Output: WasmEdge/build-<triple>/libwasmedge.a
 #
-# Usage: scripts/build-wasmedge.sh {macos|ios|ios-sim|watchos|watchos-sim|tvos|tvos-sim|all}
+# Usage: scripts/build-wasmedge.sh {macos|ios|ios-sim|watchos|watchos-arm64|watchos-sim|tvos|tvos-sim|visionos|visionos-sim|all}
 
 set -euo pipefail
 
@@ -46,7 +46,10 @@ COMMON_DEFS=(
   -DWASMEDGE_STATIC_LIB_ENABLE_LTO=ON
 )
 
-COMMON_CFLAGS="-Os -DNDEBUG -mcpu=apple-a12 -flto=full -fembed-bitcode"
+COMMON_CFLAGS="-Os -DNDEBUG -flto=full -fembed-bitcode"
+# apple-a12 like the Rust side; tvOS keeps the Apple TV HD's (A8) baseline.
+CPU_A12="-mcpu=apple-a12"
+CPU_TVOS="-mcpu=apple-a7"
 
 # Debug-build flags for diagnosing the arm64_32 instantiate trap.
 # Triggered by the `watchos-debug` target; identical to COMMON_CFLAGS
@@ -54,7 +57,7 @@ COMMON_CFLAGS="-Os -DNDEBUG -mcpu=apple-a12 -flto=full -fembed-bitcode"
 # Leaves `assuming(R)` as `assert(expr)` so the first failing predicate
 # in `lib/executor/instantiate/*.cpp` prints a useful message to stderr
 # instead of dropping straight into `brk #1`.
-DEBUG_CFLAGS="-Os -mcpu=apple-a12 -fembed-bitcode"
+DEBUG_CFLAGS="-Os -fembed-bitcode"
 # WasmEdge requires C++17 (its CMakeLists adds it conditionally for
 # Apple). Optional: bump to C++20 once upstream's spdlog version is
 # happy with it; the proven recipe sticks with C++17.
@@ -78,15 +81,17 @@ apply_patches_once() {
 # $4 = CMAKE_OSX_DEPLOYMENT_TARGET (e.g. 18.0)
 # $5 = extra c/cxx flag string (e.g. "-target arm64-apple-ios18.0-simulator")
 # $6 = CMAKE_OSX_ARCHITECTURES override (e.g. arm64 / arm64_32)
+# $7 = compile flags replacing COMMON_CFLAGS (a Debug build), or ""
+# $8 = -mcpu flag (default ${CPU_A12})
 build_target() {
   local OUTDIR="$1" SYSNAME="$2" SDK="$3" DEPMIN="$4" EXTRA="$5" ARCH="$6"
-  local FLAGS_OVERRIDE="${7:-}"
+  local FLAGS_OVERRIDE="${7:-}" CPU="${8:-${CPU_A12}}"
   apply_patches_once
   local DIR="${WE_SRC}/${OUTDIR}"
   local SYSROOT
   SYSROOT="$(xcrun --sdk "${SDK}" --show-sdk-path)"
   rm -rf "${DIR}"
-  local CFLAGS_USE="${FLAGS_OVERRIDE:-${COMMON_CFLAGS}}"
+  local CFLAGS_USE="${FLAGS_OVERRIDE:-${COMMON_CFLAGS}} ${CPU}"
   # Debug builds use BUILD_TYPE=Debug so cmake picks Debug compile
   # flags (no -DNDEBUG inserted automatically), and skip the LTO
   # interproc opt that defeats inlined assertion messages.
@@ -123,8 +128,8 @@ build_target() {
 # convention (host = "build", cross = "build-<triple>") shared with
 # WAMR and wasm3.
 build_macos()       { build_target "build"                            Darwin   macosx            13.4 ""                                               arm64; }
-build_ios()         { build_target "build-aarch64-apple-ios"         iOS      iphoneos          18.0 ""                                               arm64; }
-build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"     iOS      iphonesimulator   18.0 "-target arm64-apple-ios18.0-simulator"          arm64; }
+build_ios()         { build_target "build-aarch64-apple-ios"         iOS      iphoneos          17.0 ""                                               arm64; }
+build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"     iOS      iphonesimulator   17.0 "-target arm64-apple-ios17.0-simulator"          arm64; }
 # watchOS arm64_32 is gnarly for WasmEdge (its allocator does
 # pointer-tagged 64-bit math); when the build hits an arm64_32-specific
 # wall, we punt to "wasmedge unavailable on this target" rather than
@@ -135,9 +140,12 @@ build_watchos()     { build_target "build-arm64_32-apple-watchos"    watchOS  wa
 # the first failing predicate via `assert()` instead of falling into
 # `__builtin_unreachable() → brk #1`. Larger / slower / no LTO.
 build_watchos_debug() { build_target "build-arm64_32-apple-watchos-debug" watchOS watchos 11.0 "" arm64_32 "${DEBUG_CFLAGS}"; }
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"   watchOS  watchos           11.0 ""                                               arm64; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim" watchOS  watchsimulator    11.0 "-target arm64-apple-watchos11.0-simulator"      arm64; }
-build_tvos()        { build_target "build-aarch64-apple-tvos"        tvOS     appletvos         26.0 ""                                               arm64; }
-build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"    tvOS     appletvsimulator  26.0 "-target arm64-apple-tvos26.0-simulator"         arm64; }
+build_tvos()        { build_target "build-aarch64-apple-tvos"        tvOS     appletvos         18.0 ""                                               arm64 "" "${CPU_TVOS}"; }
+build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"    tvOS     appletvsimulator  18.0 "-target arm64-apple-tvos18.0-simulator"         arm64 "" "${CPU_TVOS}"; }
+build_visionos()    { build_target "build-aarch64-apple-visionos"    visionOS xros              26.0 ""                                               arm64; }
+build_visionos_sim() { build_target "build-aarch64-apple-visionos-sim" visionOS xrsimulator     26.0 "-target arm64-apple-xros26.0-simulator"         arm64; }
 
 case "${WHICH}" in
   macos)        build_macos ;;
@@ -145,9 +153,12 @@ case "${WHICH}" in
   ios-sim)      build_ios_sim ;;
   watchos)        build_watchos ;;
   watchos-debug)  build_watchos_debug ;;
+  watchos-arm64) build_watchos_arm64 ;;
   watchos-sim)  build_watchos_sim ;;
   tvos)         build_tvos ;;
   tvos-sim)     build_tvos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos_sim && build_tvos && build_tvos_sim ;;
+  visionos)     build_visionos ;;
+  visionos-sim) build_visionos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos_arm64 && build_watchos_sim && build_tvos && build_tvos_sim && build_visionos && build_visionos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

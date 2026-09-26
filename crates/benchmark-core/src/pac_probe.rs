@@ -20,11 +20,17 @@
 //! Hardware support:
 //!   - A12 (iPhone XS, iPad Mini 5, etc.) — first Apple SoC with PAC (v8.3-A)
 //!   - A13 / S6+ (Apple Watch SE2's S8 = A13-derived) — has PAC
-//!   - Older (A11 / S5 / pre-2018) — no PAC, probe will fail check #1
+//!   - Older (A11 / S5 / pre-2018, the A8 and A10X Apple TVs tvOS 18 still
+//!     supports) — no PAC. PACGA is not a hint-space instruction, so there it
+//!     would be undefined: the probe runs it only when the CPU reports the
+//!     feature and otherwise returns an all-zero result.
 
+/// PACGA, assembled for PAuth whatever the build's baseline CPU; call it
+/// only where PAuth (`paca` and `pacg`, which Rust enables together) is present.
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
-fn pacga(addr: u64, modifier: u64) -> u64 {
+#[target_feature(enable = "paca,pacg")]
+unsafe fn pacga(addr: u64, modifier: u64) -> u64 {
     let result: u64;
     unsafe {
         core::arch::asm!(
@@ -40,6 +46,7 @@ fn pacga(addr: u64, modifier: u64) -> u64 {
 
 /// Result of the PAC probe. All counts are 0 or 1 booleans.
 #[repr(C)]
+#[derive(Default)]
 pub struct PacProbeResult {
     /// `pacga(0xDEADBEEF_DEADBEEF, 0x0123456789ABCDEF)`. On a working
     /// implementation, upper 32 bits are nonzero and lower 32 bits are zero.
@@ -62,17 +69,20 @@ pub struct PacProbeResult {
 }
 
 /// Run the PAC probe. Safe to call on any target — returns an all-zero
-/// result on non-aarch64.
+/// result without PAuth and on non-aarch64.
 #[no_mangle]
 pub extern "C" fn bench_pac_probe() -> PacProbeResult {
     #[cfg(target_arch = "aarch64")]
+    if std::arch::is_aarch64_feature_detected!("paca")
+        && std::arch::is_aarch64_feature_detected!("pacg")
     {
         let addr = 0xDEAD_BEEF_DEAD_BEEFu64;
         let modifier = 0x0123_4567_89AB_CDEFu64;
 
-        let code1 = pacga(addr, modifier);
-        let code2 = pacga(addr, modifier);
-        let code3 = pacga(addr ^ 1, modifier);
+        // SAFETY: the CPU reports PAuth's generic authentication.
+        let (code1, code2, code3) = unsafe {
+            (pacga(addr, modifier), pacga(addr, modifier), pacga(addr ^ 1, modifier))
+        };
 
         let nonzero = (code1 != 0) as u8;
         let deterministic = (code1 == code2) as u8;
@@ -81,7 +91,7 @@ pub extern "C" fn bench_pac_probe() -> PacProbeResult {
         let supported =
             (nonzero == 1 && deterministic == 1 && input_dep == 1 && low_zero == 1) as u8;
 
-        PacProbeResult {
+        return PacProbeResult {
             code1,
             code2,
             code3,
@@ -90,19 +100,7 @@ pub extern "C" fn bench_pac_probe() -> PacProbeResult {
             input_dep,
             low_zero,
             supported,
-        }
+        };
     }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        PacProbeResult {
-            code1: 0,
-            code2: 0,
-            code3: 0,
-            nonzero: 0,
-            deterministic: 0,
-            input_dep: 0,
-            low_zero: 0,
-            supported: 0,
-        }
-    }
+    PacProbeResult::default()
 }

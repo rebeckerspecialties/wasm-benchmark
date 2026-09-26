@@ -10,7 +10,7 @@ skipped). Current series (2026-09-22):
 
 | series | base | patches | what |
 |---|---|---|---|
-| `wasm-micro-runtime/` | upstream `main` `b70d708d` | 0001-0029 | 0001-0017 fast-interp legacy EH (fork PR #2), 0018-0027 relaxed SIMD (fork PR #3, upstream #4950), 0028-0029 opt-in PROT_NONE linear-memory reservation (fork PR #4). The fork branches are the authoritative copies. |
+| `wasm-micro-runtime/` | upstream `main` `b70d708d` | 0001-0012 | 0001-0010 relaxed SIMD (fork PR #3, upstream #4950), 0011-0012 opt-in PROT_NONE linear-memory reservation (fork PR #4). The fork branches are the authoritative copies. The fast-interp legacy-EH series (fork PRs #1 and #2) was retired on 2026-09-26: exnref supersedes legacy EH. |
 | `wasmedge/` | 0.17.2-rc.3 | 0001-0003, 0006-0028 (26) | Apple-mobile guarded-memory fallbacks, interpreter super-instructions, arm64_32 fixes. 0004 retired earlier; 0005 retired in the 0.17.2-rc.3 rebase (upstream). Each rebased patch records its conflict resolution in its message. |
 | `zwasm/` | v2.7.0 | 0001-0002 | 0001 compiles the JIT out of the C API when `-Dengine=interp`; 0002 restores the arm64_32-apple-watchos ILP32 static-lib build. The earlier arm64_32 patch landed as zwasm#98. |
 | `wasmz/` | v0.1.4 | 0002 | arm64_32-apple-watchos support, reworked for v0.1.4. The Zig 0.16 port (0001) landed as wasmz#3. |

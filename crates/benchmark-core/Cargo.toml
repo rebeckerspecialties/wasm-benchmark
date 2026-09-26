@@ -24,7 +24,9 @@ anyhow = "1"
 # tinywasm: pure-Rust interpreter (no JIT/AOT tier exists; `archive` —
 # tinywasm's own bytecode serializer — stays off). `nightly-tail-calls`
 # comes in through this crate's `nightly-dispatch` feature below.
-tinywasm = { version = "=0.11.0", default-features = false, features = ["std", "parser", "validate"] }
+# explodingcamera/tinywasm `next`, its default branch: the 0.11.0 release on
+# crates.io predates the dispatch and operand-stack work merged there since.
+tinywasm = { git = "https://github.com/explodingcamera/tinywasm", rev = "693d590ca812bb0f301dd3acaf9235251ffa10de", default-features = false, features = ["std", "parser", "validate"] }
 # femtovg E2E host (feature `femtovg-e2e`): femtovg's wgpu renderer behind
 # its wire replayer, on a headless Metal device.
 femtovg = { path = "../../femtovg", default-features = false, features = ["wgpu", "wire"], optional = true }
@@ -63,9 +65,9 @@ name = "runwasm-compare"
 path = "src/bin/runwasm-compare.rs"
 
 [dev-dependencies]
-# In-process wat → wasm compilation for the EH correctness integration
-# tests in `tests/eh_correctness.rs`. Pulled only for `cargo test`; not
-# linked into the staticlib that ships on-device.
+# In-process wat → wasm compilation for the relaxed-SIMD integration
+# tests. Pulled only for `cargo test`; not linked into the staticlib that
+# ships on-device.
 wat = "1"
 # JSON parsing for the relaxed-SIMD spec-testsuite runner
 # (`tests/relaxed_simd_spec_testsuite.rs`). wast2json converts each

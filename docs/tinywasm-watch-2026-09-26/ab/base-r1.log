@@ -1,0 +1,24 @@
+wamr init: ok
+wasm3 init: ok
+wasmedge init: ok
+zwasm init: ok
+wasmz init: ok
+tinywasm init: ok
+pac probe: supported=1 code1=0xe480fe4200000000 code2=0xe480fe4200000000 code3=0xa2a0e71100000000 | nonzero=1 deterministic=1 input_dep=1 low_zero=1
+WORKLOADS filter: multi-memory twin, [scalar build], xmrsplayer, graphql-validation (as), call_indirect (200k, fib(30); RUNTIMES filter: tinywasm
+[[tinywm] fib(30)] result=832040  iter=3  load=55.481ms  min=270.586 median=308.578 p99=329.506 ms  cpu(u/s)=619.23/14.24 ms  rss=38656KB  faults=0  e_share=1.000  ipc=3.50  insns=2663845309  cycles=761340181
+[[tinywm] call_indirect (200K dispatches)] result=-9175573  iter=19  load=8.172ms  min=45.446 median=54.963 p99=393.819 ms  cpu(u/s)=949.50/59.39 ms  rss=39984KB  faults=302  e_share=1.000  ipc=2.24  insns=3292739507  cycles=1466814726
+[[tinywm] factorial(20) [scalar build]] result=-2102132736  iter=16384  load=0.422ms  min=0.000 median=0.001 p99=0.001 ms  cpu(u/s)=17.86/1.44 ms  rss=41088KB  faults=12  e_share=1.000  ipc=2.25  insns=65997401  cycles=29267158
+[[tinywm] sieve(10000) [scalar build]] result=1229  iter=928  load=2.570ms  min=1.064 median=1.546 p99=4.142 ms  cpu(u/s)=1286.56/26.84 ms  rss=41264KB  faults=17  e_share=1.000  ipc=3.50  insns=5837508782  cycles=1669458852
+[[tinywm] crc32(64KB) [scalar build]] result=-1910355869  iter=102  load=0.397ms  min=9.002 median=11.922 p99=152.021 ms  cpu(u/s)=1077.35/15.02 ms  rss=41264KB  faults=0  e_share=1.000  ipc=3.45  insns=4689129025  cycles=1357459866
+[[tinywm] convolution 256×256 [scalar build]] result=8190685  iter=35  load=0.466ms  min=26.422 median=34.367 p99=40.919 ms  cpu(u/s)=1069.62/18.26 ms  rss=41264KB  faults=0  e_share=1.000  ipc=3.31  insns=4376221721  cycles=1321329466
+[[tinywm] bulk_memory (memory.copy/fill) [scalar build]] result=8698902  iter=41  load=1.484ms  min=21.414 median=22.881 p99=43.840 ms  cpu(u/s)=878.11/11.59 ms  rss=41264KB  faults=0  e_share=1.000  ipc=3.73  insns=3977860839  cycles=1067552088
+[[tinywm] xmrsplayer (1024-frame buffer)] result=236697416  iter=34  load=37.992ms  min=29.571 median=31.260 p99=39.939 ms  cpu(u/s)=996.57/17.70 ms  rss=56400KB  faults=0  e_share=1.000  ipc=3.29  insns=3988279127  cycles=1212886867
+[[tinywm] graphql-validation (AS)] result=5  iter=47  load=11.073ms  min=20.100 median=25.530 p99=38.134 ms  cpu(u/s)=1136.95/25.85 ms  rss=56400KB  faults=9  e_share=1.000  ipc=2.70  insns=3965966040  cycles=1466911707
+[[tinywm] call_ref twin: call_indirect (200K)] result=-750120562  iter=28  load=0.134ms  min=33.382 median=37.171 p99=71.781 ms  cpu(u/s)=1033.71/35.67 ms  rss=56400KB  faults=0  e_share=1.000  ipc=2.52  insns=3929051106  cycles=1560723446
+[[tinywm] multi-memory twin: one memory] result=902712413  iter=88  load=0.238ms  min=9.713 median=12.786 p99=20.710 ms  cpu(u/s)=1063.71/26.22 ms  rss=56400KB  faults=3  e_share=1.000  ipc=3.57  insns=5241031336  cycles=1468852810
+No comparable workloads yet (need at least one workload completed on ≥2 runtimes).
+BENCH_DONE
+Launched application with com.rebeckerspecialties.wasmbench.watchkitapp bundle identifier.
+Waiting for the application to terminate...
+App terminated due to signal 15.

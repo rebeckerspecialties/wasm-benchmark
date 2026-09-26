@@ -13,14 +13,14 @@
 #   WAMR_BUILD_INTERP=1 + FAST_INTERP=1   (the apples-to-apples vs Pulley path)
 #   WAMR_BUILD_AOT=0 + JIT=0 + FAST_JIT=0  (no native codegen — App-Store-safe)
 #   SIMD=1 + RELAXED_SIMD=1 + BULK_MEMORY=1 + EXTENDED_CONST_EXPR=1
-#   + TAIL_CALL=1 + REF_TYPES=1 + EXCE_HANDLING=1 (legacy EH)
+#   + TAIL_CALL=1 + REF_TYPES=1
 #   WAMR_DISABLE_HW_BOUND_CHECK=1          (workaround for the macOS
 #                                          touch_pages stack-walk bug —
 #                                          we don't need stack guards on
 #                                          trusted benchmark workloads)
 #   LIBC_BUILTIN/WASI=0                    (we provide no host syscalls)
 #
-# Usage: scripts/build-wamr.sh {macos|ios|ios-sim|watchos|watchos-sim|all}
+# Usage: scripts/build-wamr.sh {macos|ios|ios-sim|watchos|watchos-arm64|watchos-sim|tvos|tvos-sim|visionos|visionos-sim|all}
 
 set -euo pipefail
 
@@ -34,14 +34,13 @@ WHICH="${1:-macos}"
 # Same pattern as build-wasm3.sh / build-wasmz.sh / build-zwasm.sh.
 #
 # Currently applies (on upstream main b70d708d):
-#   0001-0017  legacy exception handling for fast-interp: try / catch /
-#              catch_all / rethrow / delegate, tag payloads, result-typed
-#              try regions (fork PRs #1 + #2)
-#   0018-0027  relaxed SIMD for fast-interp (fork PR #3, upstream #4950)
-#   0028-0029  opt-in PROT_NONE linear-memory reservation (fork PR #4)
+#   0001-0010  relaxed SIMD for fast-interp (fork PR #3, upstream #4950)
+#   0011-0012  opt-in PROT_NONE linear-memory reservation (fork PR #4)
+# (The legacy exception-handling series, fork PRs #1 and #2, was retired
+# on 2026-09-26: exnref supersedes legacy EH.)
 # Pinned submodule gitlink is the upstream WAMR base; check it out
 # (detached HEAD) before applying the patch series so that:
-#   (a) patches 0001-0029 always forward-apply cleanly. HEAD may have
+#   (a) patches 0001-0012 always forward-apply cleanly. HEAD may have
 #       feat-branch commits whose content overlaps the patch series,
 #       breaking apply_patch_series.sh's reverse-check.
 #   (b) `git reset --hard <pin>` while on a feature branch would move
@@ -71,7 +70,7 @@ COMMON_DEFS=(
   # Relaxed-SIMD (wasm 2.0 extension) — same `0xfd` prefix as the
   # legacy SIMD opcodes, plus 20 spec-assigned sub-opcodes at
   # 0x100..0x113. Not implemented in upstream WAMR's fast-interp; our
-  # `patches/wasm-micro-runtime/0018-0027` add the dispatch cases and
+  # `patches/wasm-micro-runtime/0001-0010` add the dispatch cases and
   # the cmake gate (default off), and we set the flag here so the
   # relaxed-SIMD workloads run on WAMR. Upstreaming tracked at
   # rebeckerspecialties/wasm-micro-runtime#3 / upstream #4950.
@@ -86,15 +85,8 @@ COMMON_DEFS=(
   -DWAMR_BUILD_EXTENDED_CONST_EXPR=1
   -DWAMR_BUILD_TAIL_CALL=1
   -DWAMR_BUILD_REF_TYPES=1
-  # Legacy wasm exceptions — needed for Porffor-compiled wasm, which
-  # lowers JS try/catch/throw to legacy EH. WAMR upstream forbids
-  # `WAMR_BUILD_EXCE_HANDLING=1` together with `FAST_INTERP=1`
-  # (build-scripts/unsupported_combination.cmake); patches 0001-0017
-  # implement legacy EH in fast-interp and lift the ban. Limits: an
-  # exception payload cannot cross a function boundary (traps, 0014), a
-  # br to a loop entry from inside a try region is rejected at load
-  # (0015), and exnref (try_table / throw_ref) is not implemented.
-  -DWAMR_BUILD_EXCE_HANDLING=1
+  # No exception handling: upstream fast-interp implements neither legacy
+  # EH nor exnref (it rejects WAMR_BUILD_EXCE_HANDLING=1 with FAST_INTERP=1).
   -DWAMR_BUILD_MULTI_MODULE=0
   -DWAMR_BUILD_LIB_PTHREAD=0
   -DWAMR_BUILD_MINI_LOADER=0
@@ -106,8 +98,11 @@ COMMON_DEFS=(
 # shellcheck disable=SC2206
 COMMON_DEFS+=( ${WAMR_EXTRA_DEFS:-} )
 
-# Target-cpu apple-a12 to match the Rust side's `-C target-cpu=apple-a12`.
-COMMON_CFLAGS="-O3 -mcpu=apple-a12"
+# Target-cpu apple-a12 to match the Rust side's `-C target-cpu=apple-a12`;
+# tvOS keeps the Apple TV HD's (A8) ARMv8.0 baseline, as the Rust side does.
+COMMON_CFLAGS="-O3"
+CPU_A12="-mcpu=apple-a12"
+CPU_TVOS="-mcpu=apple-a7"
 
 # `-DWASM_LINMEM_RESERVATION_CAP=<bytes>` opts into WAMR's PROT_NONE
 # linear-memory reservation path
@@ -164,9 +159,9 @@ build_macos() {
   local DIR="${WAMR}/product-mini/platforms/darwin/build"
   rm -rf "${DIR}" && mkdir -p "${DIR}"
   ( cd "${DIR}" && cmake .. "${COMMON_DEFS[@]}" \
-      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${LINMEM_CAP_64}"
+      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${CPU_A12} ${LINMEM_CAP_64}"
     make -j8 )
-  drop_wasm_c_api "${DIR}/libiwasm.a" "$(xcrun --sdk macosx --find clang)" ${COMMON_CFLAGS}
+  drop_wasm_c_api "${DIR}/libiwasm.a" "$(xcrun --sdk macosx --find clang)" ${COMMON_CFLAGS} ${CPU_A12}
 }
 
 # Cross-compile for an Apple non-host target.
@@ -177,9 +172,11 @@ build_macos() {
 # $4 = SDK (watchos / watchsimulator / iphoneos / iphonesimulator)
 # $5 = WAMR_BUILD_TARGET (AARCH64 / AARCH64_ILP32 / etc)
 # $6 = deployment-target flag (e.g. -mwatchos-version-min=11.0)
+# $7 = -mcpu flag (default ${CPU_A12})
 build_target() {
   local OUTDIR="$1"; local SUBDIR="$2"; local ARCH="$3"
   local SDK="$4"; local WAMR_TARGET="$5"; local DEPMIN="$6"
+  local CPU="${7:-${CPU_A12}}"
 
   local DIR="${WAMR}/product-mini/platforms/${SUBDIR}/${OUTDIR}"
   local SYSROOT
@@ -205,12 +202,13 @@ build_target() {
       -DCMAKE_OSX_SYSROOT="${SYSROOT}" \
       -DCMAKE_OSX_ARCHITECTURES="${ARCH}" \
       -DCMAKE_C_COMPILER="${CC}" \
-      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${LINMEM_CAP} -arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}" \
+      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${CPU} ${LINMEM_CAP} -arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}" \
+      -DCMAKE_ASM_FLAGS="${CPU} -arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}" \
       -DCMAKE_EXE_LINKER_FLAGS="-arch ${ARCH} -isysroot ${SYSROOT} ${DEPMIN}"
     make -j8 iwasm_static 2>/dev/null || make -j8 vmlib 2>/dev/null || make -j8 )
   ls -la "${DIR}/libiwasm.a" 2>/dev/null || \
     (echo "ERROR: ${DIR}/libiwasm.a missing"; ls "${DIR}"; exit 2)
-  drop_wasm_c_api "${DIR}/libiwasm.a" "${CC}" ${COMMON_CFLAGS} -arch "${ARCH}" \
+  drop_wasm_c_api "${DIR}/libiwasm.a" "${CC}" ${COMMON_CFLAGS} ${CPU} -arch "${ARCH}" \
     -isysroot "${SYSROOT}" ${DEPMIN}
 }
 
@@ -220,21 +218,27 @@ build_target() {
 # `darwin/CMakeLists.txt` builds `vmlib` as a respect-BUILD_SHARED_LIBS
 # library and works for every Apple target including iOS / watchOS, so
 # we route both iOS variants through it.
-build_ios()         { build_target "build-aarch64-apple-ios"          darwin  "arm64"    iphoneos        AARCH64 "-miphoneos-version-min=18.0"; }
-build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"      darwin  "arm64"    iphonesimulator AARCH64 "-miphoneos-version-min=18.0 -target arm64-apple-ios18.0-simulator"; }
-build_watchos()     { build_target "build-arm64_32-apple-watchos"     darwin  "arm64_32" watchos         AARCH64 "-mwatchos-version-min=11.0"; }
-build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim"  darwin  "arm64"    watchsimulator  AARCH64 "-mwatchos-version-min=11.0 -target arm64-apple-watchos11.0-simulator"; }
-build_tvos()        { build_target "build-aarch64-apple-tvos"         darwin  "arm64"    appletvos       AARCH64 "-mtvos-version-min=26.0"; }
-build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     darwin  "arm64"    appletvsimulator AARCH64 "-mtvos-version-min=26.0 -target arm64-apple-tvos26.0-simulator"; }
+build_ios()           { build_target "build-aarch64-apple-ios"          darwin  "arm64"    iphoneos         AARCH64 "-miphoneos-version-min=17.0"; }
+build_ios_sim()       { build_target "build-aarch64-apple-ios-sim"      darwin  "arm64"    iphonesimulator  AARCH64 "-miphoneos-version-min=17.0 -target arm64-apple-ios17.0-simulator"; }
+build_watchos()       { build_target "build-arm64_32-apple-watchos"     darwin  "arm64_32" watchos          AARCH64 "-mwatchos-version-min=11.0"; }
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"      darwin  "arm64"    watchos          AARCH64 "-mwatchos-version-min=11.0"; }
+build_watchos_sim()   { build_target "build-aarch64-apple-watchos-sim"  darwin  "arm64"    watchsimulator   AARCH64 "-mwatchos-version-min=11.0 -target arm64-apple-watchos11.0-simulator"; }
+build_tvos()          { build_target "build-aarch64-apple-tvos"         darwin  "arm64"    appletvos        AARCH64 "-mtvos-version-min=18.0" "${CPU_TVOS}"; }
+build_tvos_sim()      { build_target "build-aarch64-apple-tvos-sim"     darwin  "arm64"    appletvsimulator AARCH64 "-mtvos-version-min=18.0 -target arm64-apple-tvos18.0-simulator" "${CPU_TVOS}"; }
+build_visionos()      { build_target "build-aarch64-apple-visionos"     darwin  "arm64"    xros             AARCH64 "-target arm64-apple-xros26.0"; }
+build_visionos_sim()  { build_target "build-aarch64-apple-visionos-sim" darwin  "arm64"    xrsimulator      AARCH64 "-target arm64-apple-xros26.0-simulator"; }
 
 case "${WHICH}" in
   macos)        build_macos ;;
   ios)          build_ios ;;
   ios-sim)      build_ios_sim ;;
   watchos)      build_watchos ;;
+  watchos-arm64) build_watchos_arm64 ;;
   watchos-sim)  build_watchos_sim ;;
   tvos)         build_tvos ;;
   tvos-sim)     build_tvos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_sim && build_tvos && build_tvos_sim ;;
+  visionos)     build_visionos ;;
+  visionos-sim) build_visionos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos && build_watchos_arm64 && build_watchos_sim && build_tvos && build_tvos_sim && build_visionos && build_visionos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

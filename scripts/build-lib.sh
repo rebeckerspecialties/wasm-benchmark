@@ -5,21 +5,32 @@
 #   macos          M-series Macs (aarch64-apple-darwin) — host iteration.
 #   watchos-sim    Apple Watch simulator on Apple Silicon
 #                  (aarch64-apple-watchos-sim) — Tier 3, needs build-std.
-#   watchos        Apple Watch SE2 device (arm64_32-apple-watchos) — Tier 3,
+#   watchos        Apple Watch Series 6-8, SE (arm64_32-apple-watchos) — Tier 3,
 #                  needs build-std.
-#   ios            iPhone XS device (aarch64-apple-ios) — Tier 2, has rust-std.
-#   tvos           Apple TV 4K (aarch64-apple-tvos) — Tier 3, needs build-std.
+#   watchos-arm64  Apple Watch Series 9 and later (aarch64-apple-watchos) —
+#                  Tier 3, needs build-std. App Store Connect requires this
+#                  slice next to arm64_32 since April 2026.
+#   ios            iPhone / iPad device (aarch64-apple-ios) — Tier 2, has rust-std.
+#   ios-sim        iOS simulator on Apple Silicon (aarch64-apple-ios-sim).
+#   tvos           Apple TV (aarch64-apple-tvos) — Tier 3, needs build-std.
 #   tvos-sim       Apple TV simulator on Apple Silicon
 #                  (aarch64-apple-tvos-sim) — Tier 3, needs build-std.
+#   visionos       Apple Vision Pro (aarch64-apple-visionos) — Tier 3, needs
+#                  build-std.
+#   visionos-sim   Apple Vision Pro simulator (aarch64-apple-visionos-sim) —
+#                  Tier 3, needs build-std.
 #
 # Every target builds with the pinned NIGHTLY_TC below: build-std for the
 # Tier-3 targets, and the `become`-based interpreter dispatch
 # (--cfg=pulley_tail_calls for Pulley, the `nightly-dispatch` feature for
 # tinywasm's tail-call loop) everywhere.
 #
-# Per the project brief: minimum CPU is apple-a12 (iPhone XS chip).
-# For consistency the same -mcpu is set on the macOS dev build too, so any
+# Per the project brief: minimum CPU is apple-a12 (iPhone XS chip; the iOS
+# app requires an A12 through UIRequiredDeviceCapabilities). For
+# consistency the same -mcpu is set on the macOS dev build too, so any
 # instruction-set bug surfaces on the M4 without needing a device cycle.
+# tvOS is the exception: tvOS 18 still runs on the Apple TV HD (A8), so the
+# tvOS libraries keep the target's ARMv8.0 baseline (apple-a7).
 #
 # Output: target/<triple>/release/libbenchmark_core.a
 #
@@ -28,6 +39,7 @@
 #   scripts/build-lib.sh watchos-sim
 #   scripts/build-lib.sh watchos
 #   scripts/build-lib.sh ios
+#   scripts/build-lib.sh visionos
 #   scripts/build-lib.sh all      # builds in dependency order
 #
 # RUSTFLAGS notes:
@@ -50,6 +62,14 @@ WHICH="${1:-macos}"
 # We override per-target in the build_* functions: nightly for build-std
 # targets gets the strong variant; stable targets get the LLVM-assumes one.
 LTO_FLAGS="-C target-cpu=apple-a12"
+
+# The apps' deployment targets. rustc and cc-rs (wasmtime's helpers.c) read
+# these; without them cc-rs builds for the SDK's version and the app link
+# warns that the object was built for a newer OS than the app supports.
+export IPHONEOS_DEPLOYMENT_TARGET=17.0
+export WATCHOS_DEPLOYMENT_TARGET=11.0
+export TVOS_DEPLOYMENT_TARGET=18.0
+export XROS_DEPLOYMENT_TARGET=26.0
 export CARGO_PROFILE_RELEASE_LTO=fat
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 PULLEY_DISPATCH_NIGHTLY="--cfg=pulley_tail_calls"
@@ -70,7 +90,8 @@ STABLE_TC="1.98"
 NIGHTLY_TC="nightly-2026-07-05"
 FEATURES="--features nightly-dispatch"
 # The femtovg E2E (wgpu on Metal) goes into the iOS and macOS libraries
-# only: watchOS has no Metal, and the tvOS app does not run the E2E.
+# only: watchOS has no Metal, and the tvOS and visionOS apps do not run
+# the E2E.
 E2E_FEATURES="--features femtovg-e2e"
 
 prepend_toolchain_path() {
@@ -126,6 +147,16 @@ build_watchos() {
   )
 }
 
+build_watchos_arm64() {
+  echo "==> watchOS device, arm64 (aarch64-apple-watchos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
+  ( prepend_toolchain_path "${NIGHTLY_TC}"
+    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
+      -Z build-std=std,panic_abort \
+      --target aarch64-apple-watchos
+  )
+}
+
 build_ios_sim() {
   echo "==> iOS simulator (aarch64-apple-ios-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
@@ -134,10 +165,12 @@ build_ios_sim() {
   )
 }
 
+# tvOS: no -C target-cpu=apple-a12 (see the header): the device target's
+# baseline is apple-a7, which the Apple TV HD's A8 runs.
 build_tvos() {
   echo "==> tvOS device (aarch64-apple-tvos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-tvos
@@ -147,10 +180,30 @@ build_tvos() {
 build_tvos_sim() {
   echo "==> tvOS simulator (aarch64-apple-tvos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-tvos-sim
+  )
+}
+
+build_visionos() {
+  echo "==> visionOS device (aarch64-apple-visionos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
+  ( prepend_toolchain_path "${NIGHTLY_TC}"
+    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
+      -Z build-std=std,panic_abort \
+      --target aarch64-apple-visionos
+  )
+}
+
+build_visionos_sim() {
+  echo "==> visionOS simulator (aarch64-apple-visionos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
+  ( prepend_toolchain_path "${NIGHTLY_TC}"
+    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    cargo build --release -p benchmark-core --lib ${FEATURES} \
+      -Z build-std=std,panic_abort \
+      --target aarch64-apple-visionos-sim
   )
 }
 
@@ -160,8 +213,11 @@ case "${WHICH}" in
   ios-sim)      build_ios_sim ;;
   watchos-sim)  build_watchos_sim ;;
   watchos)      build_watchos ;;
+  watchos-arm64) build_watchos_arm64 ;;
   tvos)         build_tvos ;;
   tvos-sim)     build_tvos_sim ;;
-  all)          build_macos && build_ios && build_ios_sim && build_watchos_sim && build_watchos && build_tvos && build_tvos_sim ;;
+  visionos)     build_visionos ;;
+  visionos-sim) build_visionos_sim ;;
+  all)          build_macos && build_ios && build_ios_sim && build_watchos_sim && build_watchos && build_watchos_arm64 && build_tvos && build_tvos_sim && build_visionos && build_visionos_sim ;;
   *) echo "unknown target: ${WHICH}" >&2; exit 2 ;;
 esac

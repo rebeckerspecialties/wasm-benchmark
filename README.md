@@ -14,8 +14,8 @@ interpreter against six other pure-interpreter runtimes:
 [wasmz](https://github.com/Ray-D-Song/wasmz) and
 [tinywasm](https://github.com/explodingcamera/tinywasm) — on
 dispatch-heavy workloads (synthetic `call_indirect` and vtable dispatch,
-the xmrsplayer tracker player, sqlite3 speedtest1, graphql-validation in
-two ports — Porffor and AssemblyScript), Wasm 3.0 feature benchmarks
+the xmrsplayer tracker player, sqlite3 speedtest1, an AssemblyScript
+port of graphql-js validation), Wasm 3.0 feature benchmarks
 (tail calls, exceptions, GC, typed function references, relaxed SIMD,
 memory64, multi-memory, extended-const), a WASI 0.3 component-model
 async benchmark, and an end-to-end femtovg-to-wasm vector renderer
@@ -41,7 +41,7 @@ have no native tier at all).
 
 ```sh
 # Clone with submodules (wasmtime, WAMR, wasm3, WasmEdge, wasmz, zwasm,
-# femtovg, target-lexicon, mach2, porffor, sightglass — all pinned)
+# femtovg, target-lexicon, mach2, sightglass — all pinned)
 git clone --recurse-submodules https://github.com/rebeckerspecialties/wasm-benchmark.git
 cd wasm-benchmark
 
@@ -55,7 +55,7 @@ cd wasm-benchmark
 # under patches/<runtime>/ idempotently before each build).
 ./scripts/build-wamr.sh macos       # WAMR libiwasm.a
 ./scripts/build-wasm3.sh macos      # wasm3 libm3.a
-./scripts/build-wasmedge.sh macos   # WasmEdge libwasmedge.a (26 patches)
+./scripts/build-wasmedge.sh macos   # WasmEdge libwasmedge.a (27 patches)
 ./scripts/build-wasmz.sh macos      # wasmz libwasmz.a
 ./scripts/build-zwasm.sh macos      # zwasm libzwasm.a (-Dengine=interp)
 
@@ -63,7 +63,9 @@ cd wasm-benchmark
 ./scripts/build-lib.sh macos        # M-series host
 ./scripts/build-lib.sh ios          # iPhone (aarch64-apple-ios)
 ./scripts/build-lib.sh watchos      # arm64_32-apple-watchos
-./scripts/build-lib.sh tvos         # Apple TV 4K (aarch64-apple-tvos)
+./scripts/build-lib.sh watchos-arm64  # aarch64-apple-watchos (Series 9+)
+./scripts/build-lib.sh tvos         # Apple TV (aarch64-apple-tvos)
+./scripts/build-lib.sh visionos     # Apple Vision Pro (aarch64-apple-visionos)
 ./scripts/build-lib.sh all          # everything
 
 # Host CLIs (pinned nightly, --cfg=pulley_tail_calls, fat LTO)
@@ -80,10 +82,12 @@ RUNTIMES_LIST=tinywasm ./scripts/run-m4-pmu-pass.sh out/pmu   # M4 PMU (separate
 ./scripts/summarize-pass.py out docs/<report-data-dir>
 ```
 
-iOS / watchOS / tvOS app builds via `xcodebuild` from `apps/`. See
-[AGENTS.md](AGENTS.md) for full build/deploy/measurement procedures
-(including the `ARCHS=arm64_32 ONLY_ACTIVE_ARCH=NO` watchOS gotcha and
-the xctrace PMU-attach workaround for Xcode 26.5).
+The app (iOS / iPadOS, watchOS, tvOS, visionOS; `apps/`) ranks the
+engines on the device it runs on: each engine is an expandable row with
+its version, short commit and an aggregate score, and its benchmarks'
+scores inside. It builds with `xcodebuild` from `apps/`; see
+[AGENTS.md](AGENTS.md) for build, deploy and measurement procedures and
+the App Store packaging.
 
 CI (`.github/workflows/build.yml`) reproduces the full submodule init +
 patch-series application + per-target build on every PR, so a clean
@@ -92,7 +96,7 @@ checkout from any branch should succeed end-to-end without local state.
 ## Repo layout
 
 ```
-apps/                    SwiftUI app — iOS / watchOS / tvOS / macOS targets
+apps/                    SwiftUI app — iOS / watchOS / tvOS / visionOS / macOS targets
 crates/benchmark-core/   Rust library — Pulley + WAMR + wasm3 + WasmEdge +
                          zwasm + wasmz + tinywasm adapters, the case table
                          (cases.rs), the femtovg E2E host, PMU-aware
@@ -112,10 +116,10 @@ wasmtime/                rebeckerspecialties/wasmtime, branch
                          `pulley-bench-stack-v49` (v49.0.0 + 9 commits).
                          Only wasmtime/target/ is gitignored.
 wasm-micro-runtime/      upstream main b70d708d; patches/wasm-micro-runtime/
-                         0001-0029 applied at build time (legacy EH,
-                         relaxed SIMD, PROT_NONE linear memory).
+                         0001-0012 applied at build time (relaxed
+                         SIMD, PROT_NONE linear memory).
 wasm3/                   v0.9.0, no patches.
-WasmEdge/                0.17.2-rc.3; patches/wasmedge/ (26, Apple-mobile
+WasmEdge/                0.17.2-rc.3; patches/wasmedge/ (27, Apple-mobile
                          enablement stack) applied at build time.
 wasmz/                   v0.1.4; patches/wasmz/0002 (arm64_32 watchOS)
                          applied at build time.
@@ -126,7 +130,6 @@ femtovg/                 rebeckerspecialties/femtovg, branch wire-renderer
                          (the E2E's Renderer wire stream).
 mach2/                   pinned to fork's arm64_32-apple-watchos branch.
 target-lexicon/          pinned to fork's arm64_32-apple-watchos branch.
-porffor/                 pinned to upstream main (JS→wasm AOT compiler).
 sightglass/              pinned to upstream main (sqlite3.wasm source).
 ```
 
@@ -256,8 +259,8 @@ than mmap-fallback on iPhone 12; not part of either upstream PR.
   suite.
 - All builds are run through ASan + UBSan locally; integration
   tests linked at https://github.com/rebeckerspecialties/wasm-benchmark/tree/main/crates/benchmark-core/tests
-  (`eh_correctness.rs`, `relaxed_simd_abuse.rs`,
-  `relaxed_simd_diff_fuzz.rs`, `relaxed_simd_spec_testsuite.rs`).
+  (`relaxed_simd_abuse.rs`, `relaxed_simd_diff_fuzz.rs`,
+  `relaxed_simd_spec_testsuite.rs`).
 
 ## Current upstream-PR state (checked 2026-09-22)
 
@@ -274,9 +277,10 @@ Wasmtime:
 
 Runtime PRs:
 
-- **[rebeckerspecialties/wasm-micro-runtime#1–#4](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls)** —
-  fast-interp legacy EH (throw-only and full), relaxed SIMD, PROT_NONE
-  linear memory; carried as `patches/wasm-micro-runtime/0001-0029`.
+- **[rebeckerspecialties/wasm-micro-runtime#3–#4](https://github.com/rebeckerspecialties/wasm-micro-runtime/pulls)** —
+  relaxed SIMD and PROT_NONE linear memory for fast-interp; carried as
+  `patches/wasm-micro-runtime/0001-0012`. The legacy-EH PRs #1 and #2
+  are closed: exnref supersedes legacy EH.
   Relaxed SIMD is also upstream as
   [bytecodealliance/wasm-micro-runtime#4950](https://github.com/bytecodealliance/wasm-micro-runtime/pull/4950) (open).
 - **[wasm3/wasm3#559](https://github.com/wasm3/wasm3/pull/559)** — v128

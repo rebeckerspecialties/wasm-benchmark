@@ -42,7 +42,6 @@ mod ffi {
     pub type wasm_memory_t = c_void;
 
     pub const WASM_I32: u8 = 0;
-    pub const WASM_F64: u8 = 3;
     pub const ZWASM_ENGINE_INTERP: u8 = 2;
 
     #[repr(C)]
@@ -149,7 +148,7 @@ use ffi::*;
 // safe stub returning NULL — used only on a panic path we don't
 // expect to hit, and matching dyld's documented "address not in any
 // loaded image" return value.
-#[cfg(all(target_vendor = "apple", any(target_os = "ios", target_os = "tvos", target_os = "watchos")))]
+#[cfg(all(target_vendor = "apple", any(target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))]
 mod ios_dyld_stub {
     use std::os::raw::c_void;
     #[unsafe(no_mangle)]
@@ -446,40 +445,6 @@ pub fn run_instantiate_each_zwasm(wasm_bytes: &[u8], fn_name: &str, arg: i32) ->
             let r = call_raw(l.func(&name)?, &[i32_val(arg)], 1)
                 .with_context(|| format!("`{name}({arg})` trapped"))?;
             Ok((t.elapsed(), r[0].of as u32 as i32))
-        })
-    })
-}
-
-unsafe extern "C" fn porf_print_stub(
-    _args: *const wasm_val_vec_t,
-    _results: *mut wasm_val_vec_t,
-) -> *mut wasm_trap_t {
-    std::ptr::null_mut()
-}
-
-/// Dedicated Porffor-graphql runner. The Porffor-compiled wasm exports
-/// `m()` with signature `() → (f64, i32)` (multi-value) and imports
-/// `("", "b") : (f64) → ()` for per-character host print.
-pub fn run_graphql_validation_porf_zwasm(wasm_bytes: &[u8]) -> Result<RunReport> {
-    let bytes = wasm_bytes.to_vec();
-    on_big_stack("zwasm-porf", move || {
-        let load_start = Instant::now();
-        let l = Loaded::new(
-            &bytes,
-            &[HostImport { params: &[WASM_F64], results: &[], callback: porf_print_stub }],
-        )?;
-        let mut l = l;
-        let load_time = load_start.elapsed();
-        // Each sample instantiates a fresh instance and runs m() once:
-        // instantiate + m() is the timed unit on every runtime, because
-        // Porffor never frees and grows memory across calls. The previous
-        // instance is released before the clock starts.
-        crate::measure_samples(load_time, || {
-            l.release();
-            let t = Instant::now();
-            l.instantiate()?;
-            let r = call_raw(l.func("m")?, &[], 2).context("zwasm m() trapped")?;
-            Ok((t.elapsed(), r[1].of as u32 as i32))
         })
     })
 }

@@ -5,7 +5,7 @@
 # Does:
 #   1. Init submodules. All runtime sources live as submodules —
 #      target-lexicon, mach2, wasmtime, wasm-micro-runtime, wasm3,
-#      WasmEdge, wasmz, zwasm, femtovg, porffor, sightglass — each
+#      WasmEdge, wasmz, zwasm, femtovg, sightglass — each
 #      pinned per .gitmodules to a specific SHA. CI runs `git submodule
 #      update --init --recursive` and reproduces the source state
 #      exactly. (tinywasm is a crates.io dependency.)

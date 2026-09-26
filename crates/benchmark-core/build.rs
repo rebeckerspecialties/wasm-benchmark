@@ -5,8 +5,76 @@
 //      library (`libiwasm.a`) and link it.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const WORKLOADS_DIR_REL: &str = "../../workloads";
+
+/// `git` in `dir`, trimmed stdout on success.
+fn git(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Exports `BENCH_VERSION_<KEY>` (the release the runtime's submodule is
+/// checked out at, plus the commits past it: "2.4.1+364"),
+/// `BENCH_COMMIT_<KEY>` (8-hex short hash) and `BENCH_PATCHES_<KEY>` (the
+/// number of patches in `patches/<patch_dir>`, which the build scripts
+/// apply to the work tree only, so HEAD stays at the pinned commit).
+fn submodule_version(repo: &Path, submodule: &str, patch_dir: &str, key: &str) {
+    let dir = repo.join(submodule);
+    if let Some(git_dir) = git(&dir, &["rev-parse", "--absolute-git-dir"]) {
+        println!("cargo:rerun-if-changed={git_dir}/HEAD");
+    }
+    let patches = repo.join("patches").join(patch_dir);
+    println!("cargo:rerun-if-changed={}", patches.display());
+    let n_patches = std::fs::read_dir(&patches)
+        .map(|d| {
+            d.flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "patch"))
+                .count()
+        })
+        .unwrap_or(0);
+    let commit = git(&dir, &["rev-parse", "--short=8", "HEAD"]).unwrap_or_default();
+    // `v49.0.0-9-g0d9aebd66d` -> `49.0.0+9`; shallow clones have no tags.
+    let version = git(&dir, &["describe", "--tags", "--long", "HEAD"])
+        .and_then(|d| {
+            let mut parts = d.rsplitn(3, '-');
+            let (_hash, ahead, tag) = (parts.next()?, parts.next()?, parts.next()?);
+            let tag = tag.trim_start_matches("WAMR-").trim_start_matches('v');
+            Some(if ahead == "0" { tag.to_string() } else { format!("{tag}+{ahead}") })
+        })
+        .unwrap_or_default();
+    println!("cargo:rustc-env=BENCH_VERSION_{key}={version}");
+    println!("cargo:rustc-env=BENCH_COMMIT_{key}={commit}");
+    println!("cargo:rustc-env=BENCH_PATCHES_{key}={n_patches}");
+}
+
+/// tinywasm is a Cargo dependency: its version, and for a git dependency
+/// the 8-hex commit, come from the lockfile.
+fn locked_package(repo: &Path, package: &str) -> (String, String) {
+    let lock = repo.join("Cargo.lock");
+    println!("cargo:rerun-if-changed={}", lock.display());
+    let text = std::fs::read_to_string(lock).unwrap_or_default();
+    let Some(start) = text.find(&format!("name = \"{package}\"\n")) else {
+        return (String::new(), String::new());
+    };
+    let entry = text[start..].split("\n\n").next().unwrap_or_default();
+    let field = |key: &str| {
+        entry
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{key} = \"")))
+            .and_then(|v| v.strip_suffix('"'))
+            .unwrap_or_default()
+            .to_string()
+    };
+    // source = "git+https://...?rev=<sha>#<sha>"
+    let source = field("source");
+    let commit = match source.strip_prefix("git+").and_then(|s| s.rsplit_once('#')) {
+        Some((_, sha)) => sha.chars().take(8).collect(),
+        None => String::new(),
+    };
+    (field("version"), commit)
+}
 
 /// Resolve the per-Apple-target output dir for a runtime that follows
 /// the shared "host = build, cross = build-<triple>" layout that the
@@ -17,9 +85,12 @@ fn apple_target_subdir(target: &str) -> Option<String> {
         "aarch64-apple-ios"
         | "aarch64-apple-ios-sim"
         | "arm64_32-apple-watchos"
+        | "aarch64-apple-watchos"
         | "aarch64-apple-watchos-sim"
         | "aarch64-apple-tvos"
-        | "aarch64-apple-tvos-sim" => Some(format!("build-{}", target)),
+        | "aarch64-apple-tvos-sim"
+        | "aarch64-apple-visionos"
+        | "aarch64-apple-visionos-sim" => Some(format!("build-{}", target)),
         _ => None,
     }
 }
@@ -27,6 +98,23 @@ fn apple_target_subdir(target: &str) -> Option<String> {
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let manifest = Path::new(&manifest_dir);
+
+    // Set below when the runtime's static library exists for the target.
+    for cfg in ["have_wamr", "have_wasmedge", "have_wasmz", "have_zwasm", "have_wasm3"] {
+        println!("cargo::rustc-check-cfg=cfg({cfg})");
+    }
+
+    // -- engine versions (shown by the app) -----------------------------
+    let repo = manifest.join("../..");
+    submodule_version(&repo, "wasmtime", "wasmtime", "PULLEY");
+    submodule_version(&repo, "wasm-micro-runtime", "wasm-micro-runtime", "WAMR");
+    submodule_version(&repo, "wasm3", "wasm3", "WASM3");
+    submodule_version(&repo, "WasmEdge", "wasmedge", "WASMEDGE");
+    submodule_version(&repo, "zwasm", "zwasm", "ZWASM");
+    submodule_version(&repo, "wasmz", "wasmz", "WASMZ");
+    let (version, commit) = locked_package(&repo, "tinywasm");
+    println!("cargo:rustc-env=BENCH_VERSION_TINYWASM={version}");
+    println!("cargo:rustc-env=BENCH_COMMIT_TINYWASM={commit}");
 
     // -- workloads -----------------------------------------------------
     let workloads = manifest.join(WORKLOADS_DIR_REL);
@@ -51,16 +139,8 @@ fn main() {
     // output dir per cargo TARGET triple keeps things simple.
     let target = std::env::var("TARGET").unwrap_or_default();
     let wamr_root = manifest.join("../../wasm-micro-runtime/product-mini/platforms/darwin");
-    let wamr_dir: PathBuf = match target.as_str() {
-        "aarch64-apple-darwin" | "x86_64-apple-darwin" => wamr_root.join("build"),
-        "aarch64-apple-ios"
-        | "aarch64-apple-ios-sim"
-        | "arm64_32-apple-watchos"
-        | "aarch64-apple-watchos-sim"
-        | "aarch64-apple-tvos"
-        | "aarch64-apple-tvos-sim" => wamr_root.join(format!("build-{}", target)),
-        _ => wamr_root.join("build"),
-    };
+    let wamr_dir: PathBuf =
+        wamr_root.join(apple_target_subdir(&target).unwrap_or_else(|| "build".to_string()));
     let iwasm_a = wamr_dir.join("libiwasm.a");
     println!("cargo:rerun-if-changed={}", iwasm_a.display());
     if iwasm_a.exists() {

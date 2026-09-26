@@ -83,7 +83,7 @@ impl WasmzVal {
 // already covers wasmz too.
 #[cfg(all(
     target_vendor = "apple",
-    any(target_os = "ios", target_os = "tvos", target_os = "watchos"),
+    any(target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"),
     not(have_zwasm)
 ))]
 mod ios_dyld_stub {
@@ -130,10 +130,12 @@ extern "C" {
     fn wasmz_error_delete(err: *mut wasmz_error_t);
     fn wasmz_error_message(err: *const wasmz_error_t) -> *const c_char;
 
-    // Host-import linker surface — used to stub the Porffor host
-    // print so graphql-validation-Porffor can load + run.
+    // Host-import linker surface (the femtovg E2E's imports).
+    #[cfg(feature = "femtovg-e2e")]
     fn wasmz_linker_new() -> *mut wasmz_linker_t;
+    #[cfg(feature = "femtovg-e2e")]
     fn wasmz_linker_delete(linker: *mut wasmz_linker_t);
+    #[cfg(feature = "femtovg-e2e")]
     fn wasmz_linker_define_func(
         linker: *mut wasmz_linker_t,
         module_name: *const c_char,
@@ -145,6 +147,7 @@ extern "C" {
         func: WasmzFunc,
         host_data: *mut c_void,
     ) -> *mut wasmz_error_t;
+    #[cfg(feature = "femtovg-e2e")]
     fn wasmz_instance_new_with_linker(
         store: *mut wasmz_store_t,
         module: *mut wasmz_module_t,
@@ -153,14 +156,17 @@ extern "C" {
     ) -> *mut wasmz_error_t;
 }
 
+#[cfg(feature = "femtovg-e2e")]
 #[allow(non_camel_case_types)]
 type wasmz_linker_t = c_void;
+#[cfg(feature = "femtovg-e2e")]
 #[allow(non_camel_case_types)]
 type wasmz_ctx_t = c_void;
 
 // wasmz_func_t per wasmz.h: int(*)(void *host_data, void *ctx,
 // const wasmz_val_t *params, size_t param_count,
 // wasmz_val_t *results, size_t result_count).
+#[cfg(feature = "femtovg-e2e")]
 type WasmzFunc = extern "C" fn(
     host_data: *mut c_void,
     ctx: *mut wasmz_ctx_t,
@@ -169,18 +175,6 @@ type WasmzFunc = extern "C" fn(
     results: *mut WasmzVal,
     result_count: usize,
 ) -> c_int;
-
-// Porffor host-print stub for wasmz. Returns 0 = success.
-extern "C" fn wasmz_porf_b(
-    _host_data: *mut c_void,
-    _ctx: *mut wasmz_ctx_t,
-    _params: *const WasmzVal,
-    _param_count: usize,
-    _results: *mut WasmzVal,
-    _result_count: usize,
-) -> c_int {
-    0
-}
 
 fn err_msg(err: *mut wasmz_error_t) -> String {
     if err.is_null() {
@@ -423,139 +417,6 @@ fn instantiate_each_inner(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<
         let elapsed = t.elapsed();
         drop(inst);
         Ok((elapsed, results[0].as_i32()))
-    })
-}
-
-/// Dedicated Porffor-graphql runner. Wires the `("", "b") : (f64) → ()`
-/// host print stub via wasmz's linker, then calls `m() → (f64, i32)`
-/// (multi-value). Same shape as wamr / wasmedge / zwasm dedicated
-/// runners.
-pub fn run_graphql_validation_porf_wasmz(wasm_bytes: &[u8]) -> Result<RunReport> {
-    let wasm_bytes_owned = wasm_bytes.to_vec();
-    crate::run_on_thread("wasmz-porf", 8 * 1024 * 1024, move || {
-        run_graphql_validation_porf_wasmz_inner(&wasm_bytes_owned)
-    })?
-}
-
-fn run_graphql_validation_porf_wasmz_inner(wasm_bytes: &[u8]) -> Result<RunReport> {
-    init()?;
-
-    let load_start = Instant::now();
-
-    let engine = unsafe { wasmz_engine_new() };
-    if engine.is_null() {
-        return Err(anyhow!("wasmz_engine_new returned NULL"));
-    }
-    struct EngGuard(*mut wasmz_engine_t);
-    impl Drop for EngGuard {
-        fn drop(&mut self) {
-            unsafe { wasmz_engine_delete(self.0) };
-        }
-    }
-    let _eg = EngGuard(engine);
-
-    let store = unsafe { wasmz_store_new(engine) };
-    if store.is_null() {
-        return Err(anyhow!("wasmz_store_new returned NULL"));
-    }
-    struct StoreGuard(*mut wasmz_store_t);
-    impl Drop for StoreGuard {
-        fn drop(&mut self) {
-            unsafe { wasmz_store_delete(self.0) };
-        }
-    }
-    let _sg = StoreGuard(store);
-
-    let linker = unsafe { wasmz_linker_new() };
-    if linker.is_null() {
-        return Err(anyhow!("wasmz_linker_new returned NULL"));
-    }
-    struct LinkGuard(*mut wasmz_linker_t);
-    impl Drop for LinkGuard {
-        fn drop(&mut self) {
-            unsafe { wasmz_linker_delete(self.0) };
-        }
-    }
-    let _lg = LinkGuard(linker);
-
-    // WASMZ_VAL_F64 = 3 per wasmz.h.
-    let param_kinds: [c_int; 1] = [3];
-    let modname = b"\0".as_ptr() as *const c_char;
-    let funcname = b"b\0".as_ptr() as *const c_char;
-    let link_err = unsafe {
-        wasmz_linker_define_func(
-            linker,
-            modname,
-            funcname,
-            param_kinds.as_ptr(),
-            1,
-            std::ptr::null(),
-            0,
-            wasmz_porf_b,
-            std::ptr::null_mut(),
-        )
-    };
-    if !link_err.is_null() {
-        return Err(anyhow!("wasmz_linker_define_func failed: {}", err_msg(link_err)));
-    }
-
-    let mut module: *mut wasmz_module_t = std::ptr::null_mut();
-    let err = unsafe {
-        wasmz_module_new(engine, wasm_bytes.as_ptr(), wasm_bytes.len(), &mut module)
-    };
-    if !err.is_null() {
-        return Err(anyhow!("wasmz_module_new failed: {}", err_msg(err)));
-    }
-    struct ModGuard(*mut wasmz_module_t);
-    impl Drop for ModGuard {
-        fn drop(&mut self) {
-            unsafe { wasmz_module_delete(self.0) };
-        }
-    }
-    let _mg = ModGuard(module);
-
-    let cname = std::ffi::CString::new("m")?;
-
-    let load_time = load_start.elapsed();
-
-    // m() → (f64, i32). 0 params, 2 results. Each sample instantiates a
-    // fresh instance and runs m() once: instantiate + m() is the timed
-    // unit on every runtime, because Porffor never frees and grows memory
-    // across calls. The instance is deleted after the clock stops.
-    crate::measure_samples(load_time, || {
-        let t = Instant::now();
-        let mut instance: *mut wasmz_instance_t = std::ptr::null_mut();
-        let err = unsafe {
-            wasmz_instance_new_with_linker(store, module, linker, &mut instance)
-        };
-        if !err.is_null() {
-            return Err(anyhow!(
-                "wasmz_instance_new_with_linker failed: {}",
-                err_msg(err)
-            ));
-        }
-        let inst = InstGuard(instance);
-        let mut results: [WasmzVal; 2] = [WasmzVal { kind: WASMZ_VAL_I32, _pad: [0; 4], of: [0; 16] }; 2];
-        // Pre-fill result kinds so the underlying call knows how to
-        // marshal them. Per wasmz.h convention.
-        results[0].kind = 3; // F64
-        results[1].kind = WASMZ_VAL_I32;
-        let err = unsafe {
-            wasmz_instance_call(
-                instance,
-                cname.as_ptr(),
-                std::ptr::null(),
-                0,
-                results.as_mut_ptr(),
-                2,
-            )
-        };
-        if !err.is_null() {
-            return Err(anyhow!("wasmz m() trap: {}", err_msg(err)));
-        }
-        let elapsed = t.elapsed();
-        drop(inst);
-        Ok((elapsed, results[1].as_i32()))
     })
 }
 

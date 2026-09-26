@@ -3118,8 +3118,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 [[package]]
 name = "tinywasm"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37a41f21be55cc0355ef8214b7ef0073bfcbb278e167b34c00c8871a3ddb2aab"
+source = "git+https://github.com/explodingcamera/tinywasm?rev=693d590ca812bb0f301dd3acaf9235251ffa10de#693d590ca812bb0f301dd3acaf9235251ffa10de"
 dependencies = [
  "libm",
  "tinywasm-parser",
@@ -3129,8 +3128,7 @@ dependencies = [
 [[package]]
 name = "tinywasm-parser"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d5bc5ee2c23a13719229d44c4d29fc7ab05afbe681e93321706c38cbabe30a6"
+source = "git+https://github.com/explodingcamera/tinywasm?rev=693d590ca812bb0f301dd3acaf9235251ffa10de#693d590ca812bb0f301dd3acaf9235251ffa10de"
 dependencies = [
  "tinywasm-types",
  "wasmparser 0.259.0",
@@ -3139,8 +3137,7 @@ dependencies = [
 [[package]]
 name = "tinywasm-types"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b3d3028b2a4a53ba573d1d10490b5eae5e3db28566d8a154c92d91c1b1e6113"
+source = "git+https://github.com/explodingcamera/tinywasm?rev=693d590ca812bb0f301dd3acaf9235251ffa10de#693d590ca812bb0f301dd3acaf9235251ffa10de"
 dependencies = [
  "serde",
 ]

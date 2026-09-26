@@ -13,9 +13,6 @@ use crate::*;
 pub enum Shape {
     /// `export(arg: i32) -> i32`, no imports.
     I32ToI32,
-    /// Porffor's `m() -> (f64, i32)` with a `("", "b"): (f64) -> ()` host
-    /// print import; each runtime has a dedicated runner.
-    PorfforMain,
     /// Sightglass sqlite3 speedtest1: WASI preview-1 + `bench.*` imports.
     /// Only the Pulley side has the import shim.
     Sqlite3,
@@ -140,27 +137,6 @@ pub const CASES: &[Case] = &[
         shape: Shape::InstantiateEach,
     },
     Case {
-        id: "graphql_porf",
-        label: "graphql-validation (Porffor)",
-        wasm: GRAPHQL_VALIDATION_PORF_WASM,
-        func: "m",
-        arg: 0,
-        expected: None,
-        shape: Shape::PorfforMain,
-    },
-    // The same JS with graphql-js's real `try { visit() } catch (e) { if (e
-    // !== abortObj) throw e; }`: one legacy try/catch around the visit, the
-    // visitor's throws unwinding into it.
-    Case {
-        id: "graphql_porf_trycatch",
-        label: "graphql-validation (Porffor try/catch)",
-        wasm: GRAPHQL_VALIDATION_PORF_ACCURATE_WASM,
-        func: "m",
-        arg: 0,
-        expected: None,
-        shape: Shape::PorfforMain,
-    },
-    Case {
         id: "sqlite3",
         label: "sqlite3 speedtest1 (in-mem)",
         wasm: SQLITE3_WASM,
@@ -205,6 +181,60 @@ pub fn known_crash(rt: Runtime, case_id: &str) -> Option<&'static str> {
     KNOWN_CRASHES.iter().find(|k| k.0 == rt && k.1 == case_id).map(|k| k.2)
 }
 
+/// (case id, reason) cases the app's leaderboard does not run.
+pub const APP_EXCLUDED_CASES: &[(&str, &str)] = &[
+    ("sqlite3", "only Pulley has the WASI import shim, and one call takes 86 s on an iPhone XS"),
+    ("eh_parser_legacy", "legacy exception handling, superseded by exnref (eh_parser_exnref)"),
+    // LLVM auto-vectorizes these scalar programs in the canonical build; the
+    // app runs their `.scalar` builds, which every engine can run, and
+    // leaves SIMD to the benchmarks written for it.
+    ("factorial", "auto-vectorized build of a scalar program; the app runs factorial.scalar"),
+    ("sieve", "auto-vectorized build of a scalar program; the app runs sieve.scalar"),
+    ("crc32", "auto-vectorized build of a scalar program; the app runs crc32.scalar"),
+    ("convolution", "auto-vectorized build of a scalar program; the app runs convolution.scalar"),
+    ("bulk_memory", "auto-vectorized build of a scalar program; the app runs bulk_memory.scalar"),
+];
+
+/// (case id, reason) cases the watch app also leaves out, on top of
+/// `APP_EXCLUDED_CASES`: one call takes minutes on an S8, or the row's
+/// footprint does not fit the watch's memory limit.
+pub const WATCH_EXCLUDED_CASES: &[(&str, &str)] = &[
+    ("audio_dsp", "one call takes up to 30 s on an Apple Watch S8"),
+    ("gc_trees", "WasmEdge and wasmz never collect GC structs"),
+    ("mem64_chase", "touches a 64 MiB linear memory"),
+    ("mem64_chase.mem32", "touches a 64 MiB linear memory"),
+];
+
+/// (runtime, case id, reason) rows the app leaves out because the runtime
+/// keeps the row's memory for as long as the process lives. The app runs
+/// every engine in one process, so the footprint would carry into every
+/// later row or get the app killed by jetsam. The device pass runs these
+/// rows in launches of their own instead (HEAVY_ROWS in
+/// scripts/run-device-pass.sh).
+pub const APP_SKIPS: &[(Runtime, &str, &str)] = &[
+    (Runtime::Zwasm, "xmrsplayer",
+     "zwasm v2.7.0 keeps memory per call; the footprint reached 1.2 GB on an iPhone XS"),
+    (Runtime::Zwasm, "tailcall_fsm",
+     "zwasm v2.7.0's return_call is not constant-space (~50 B per call)"),
+    (Runtime::Zwasm, "mem64_chase",
+     "zwasm v2.7.0 keeps an instance's 64 MiB memory after the instance is deleted"),
+    (Runtime::Zwasm, "mem64_chase.mem32",
+     "zwasm v2.7.0 keeps an instance's 64 MiB memory after the instance is deleted"),
+    (Runtime::Zwasm, "extconst_init",
+     "zwasm v2.7.0 keeps each instance's memory; this row reached 2.6 GB on the M4"),
+    (Runtime::Zwasm, "extconst_init.mvp",
+     "zwasm v2.7.0 keeps each instance's memory; this row reached 2.0 GB on the M4"),
+];
+
+/// Score reference for a case: nanoseconds per call on the reference
+/// device (see `score_reference`).
+pub fn score_reference_ns(case_id: &str) -> Option<u64> {
+    crate::score_reference::SCORE_REFERENCE_NS
+        .iter()
+        .find(|r| r.0 == case_id)
+        .map(|r| r.1)
+}
+
 /// Run one case on one runtime. A result that disagrees with the
 /// consensus reference is an error: a fast wrong answer is not a result.
 pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
@@ -213,16 +243,6 @@ pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
     }
     let r = match case.shape {
         Shape::I32ToI32 => run_workload_with(rt, case.wasm, case.func, case.arg),
-        Shape::PorfforMain => match rt {
-            Runtime::Pulley => graphql_validation::run_graphql_validation_porf(case.wasm),
-            Runtime::Wamr => wamr::run_graphql_validation_porf_wamr(case.wasm),
-            Runtime::WasmEdge => wasmedge::run_graphql_validation_porf_wasmedge(case.wasm),
-            Runtime::Zwasm => zwasm::run_graphql_validation_porf_zwasm(case.wasm),
-            Runtime::Wasmz => wasmz::run_graphql_validation_porf_wasmz(case.wasm),
-            Runtime::Tinywasm => tinywasm::run_graphql_validation_porf_tinywasm(case.wasm),
-            // wasm3 has no exception handling or multi-value host call path.
-            Runtime::Wasm3 => wasm3::run_workload_wasm3(case.wasm, case.func, case.arg),
-        },
         Shape::InstantiateEach => run_instantiate_each_with(rt, case.wasm, case.func, case.arg),
         Shape::Sqlite3 => match rt {
             Runtime::Pulley => sqlite3::run_sqlite3(case.wasm),

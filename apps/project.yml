@@ -2,10 +2,21 @@
 #
 # Generated project goes to apps/WasmBenchmark.xcodeproj.  Regenerate with:
 #   (cd apps && xcodegen generate)
+#
+# App Store layout: the iOS / iPadOS, tvOS and visionOS apps share the
+# bundle ID com.rebeckerspecialties.wasmbench, so they are one App Store
+# record with universal purchase, and the watchOS app ships inside the iOS
+# app as its companion (<iOS bundle ID>.watchkitapp), installable on its own
+# (WKRunsIndependentlyOfCompanionApp). The macOS app is the local M4 dev
+# host.
+#
+# Each app links the benchmark-core static library that
+# scripts/build-lib.sh writes to target/<rust triple>/release/, picked per
+# SDK and architecture below.
 
 name: WasmBenchmark
 options:
-  bundleIdPrefix: com.rebeckerspecialties.wasmbench
+  bundleIdPrefix: com.rebeckerspecialties
   createIntermediateGroups: true
 
 settings:
@@ -17,31 +28,63 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     LLVM_LTO: YES
     OTHER_LDFLAGS: "$(inherited) -lbenchmark_core -lc++"
-    # Apple Silicon simulators pull in both arm64 and x86_64 by default; we
-    # only run on the local M-series host so restrict to arm64. Keeps the
-    # `-mcpu=apple-a12` flag below from being applied to an x86_64 build,
-    # where clang rejects it.
-    ONLY_ACTIVE_ARCH: YES
+    HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
+    # The Rust simulator libraries are arm64 only.
     EXCLUDED_ARCHS: x86_64
-  # Apple Watch SE2 / iPhone XS share the A12-class baseline. Pin the
-  # Apple-side optimizing link to A12 (matches the Rust side's
-  # `-C target-cpu=apple-a12`). Only valid for arm64 / arm64_32, hence
-  # the per-arch conditionals.
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Hardcoded so device/sim builds work out of the box. Override at the
+    # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
+    DEVELOPMENT_TEAM: 4GWK4YU2PW
+    CODE_SIGN_STYLE: Automatic
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
   configs:
     Debug:
-      "OTHER_CFLAGS[arch=arm64]": "$(inherited) -mcpu=apple-a12"
-      "OTHER_CFLAGS[arch=arm64_32]": "$(inherited) -mcpu=apple-a12"
-      "OTHER_SWIFT_FLAGS[arch=arm64]": "$(inherited) -Xcc -mcpu=apple-a12"
-      "OTHER_SWIFT_FLAGS[arch=arm64_32]": "$(inherited) -Xcc -mcpu=apple-a12"
+      ONLY_ACTIVE_ARCH: YES
+    # Release builds every architecture of the destination: the watch app
+    # needs both arm64_32 (Series 6-8, SE) and arm64 (Series 9 and later),
+    # which App Store Connect requires since April 2026.
     Release:
-      "OTHER_CFLAGS[arch=arm64]": "$(inherited) -mcpu=apple-a12"
-      "OTHER_CFLAGS[arch=arm64_32]": "$(inherited) -mcpu=apple-a12"
-      "OTHER_SWIFT_FLAGS[arch=arm64]": "$(inherited) -Xcc -mcpu=apple-a12"
-      "OTHER_SWIFT_FLAGS[arch=arm64_32]": "$(inherited) -Xcc -mcpu=apple-a12"
+      ONLY_ACTIVE_ARCH: NO
 
 targets:
   # --------------------------------------------------------------
-  # watchOS app — Apple Watch SE2 (S8/A13) and Series 6+.
+  # iOS / iPadOS app, iOS 17+. Runs on A12 and later only
+  # (UIRequiredDeviceCapabilities), matching the libraries' -mcpu.
+  # --------------------------------------------------------------
+  WasmBenchmarkIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: WasmBenchmarkIOS
+      - path: Shared
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    dependencies:
+      # The watch app, embedded as the iOS app's companion.
+      - target: WasmBenchmarkWatch
+      # femtovg E2E: the Rust library's wgpu Metal backend (watchOS has no
+      # Metal, so the watch library is built without the E2E).
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench
+        INFOPLIST_FILE: WasmBenchmarkIOS/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Vision Pro gets the native visionOS app below.
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkIOS/BridgingHeader.h
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-ios-sim/release
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-ios/release
+
+  # --------------------------------------------------------------
+  # watchOS app, watchOS 11+: Series 6 and later, SE (2nd gen), Ultra.
+  # Device builds carry arm64_32 and arm64 slices.
   # --------------------------------------------------------------
   WasmBenchmarkWatch:
     type: application
@@ -50,85 +93,70 @@ targets:
     sources:
       - path: WasmBenchmarkWatch
       - path: Shared
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.watch
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.watchkitapp
         INFOPLIST_FILE: WasmBenchmarkWatch/Info.plist
         TARGETED_DEVICE_FAMILY: "4"
+        # Archived inside the iOS app, not on its own.
+        SKIP_INSTALL: YES
         SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkWatch/BridgingHeader.h
         "LIBRARY_SEARCH_PATHS[sdk=watchsimulator*][arch=arm64]":
           - $(SRCROOT)/../target/aarch64-apple-watchos-sim/release
         "LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64_32]":
           - $(SRCROOT)/../target/arm64_32-apple-watchos/release
-        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
-        # Hardcoded so device/sim builds work out of the box. Override at the
-        # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
-        DEVELOPMENT_TEAM: 4GWK4YU2PW
-        CODE_SIGN_STYLE: Automatic
+        "LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-watchos/release
 
   # --------------------------------------------------------------
-  # iOS app — iPhone XS (A12) baseline, iOS 18+.
-  # --------------------------------------------------------------
-  WasmBenchmarkIOS:
-    type: application
-    platform: iOS
-    deploymentTarget: "18.0"
-    sources:
-      - path: WasmBenchmarkIOS
-      - path: Shared
-    dependencies:
-      # femtovg E2E: the Rust library's wgpu Metal backend (watchOS has no
-      # Metal, so the watch library is built without the E2E).
-      - sdk: Metal.framework
-      - sdk: QuartzCore.framework
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.ios
-        INFOPLIST_FILE: WasmBenchmarkIOS/Info.plist
-        TARGETED_DEVICE_FAMILY: "1,2"
-        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkIOS/BridgingHeader.h
-        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]":
-          - $(SRCROOT)/../target/aarch64-apple-ios-sim/release
-        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]":
-          - $(SRCROOT)/../target/aarch64-apple-ios/release
-        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
-        # Automatic device signing. Team is set via the env-derived
-        # ${DEVELOPMENT_TEAM} so devs with a different team override
-        # at the command line: `xcodebuild ... DEVELOPMENT_TEAM=XYZ`.
-        # Hardcoded so device/sim builds work out of the box. Override at the
-        # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
-        DEVELOPMENT_TEAM: 4GWK4YU2PW
-        CODE_SIGN_STYLE: Automatic
-
-  # --------------------------------------------------------------
-  # tvOS app — Apple TV 4K (A12 / A15), tvOS 26+.
-  # Aarch64-apple-tvos is a Rust Tier-3 target, so the Rust lib is
-  # built with nightly + `-Z build-std` (same flow as watchOS). The
-  # Apple TV remote launches the app as a fullscreen scene; we reuse
-  # the iOS/macOS BenchmarkContentView verbatim.
+  # tvOS app, tvOS 18+: every Apple TV from the Apple TV HD (A8) up, so
+  # the tvOS libraries are built for the A8's ARMv8.0 baseline.
   # --------------------------------------------------------------
   WasmBenchmarkTV:
     type: application
     platform: tvOS
-    deploymentTarget: "26.0"
+    deploymentTarget: "18.0"
     sources:
       - path: WasmBenchmarkTV
       - path: Shared
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.tv
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench
         INFOPLIST_FILE: WasmBenchmarkTV/Info.plist
         TARGETED_DEVICE_FAMILY: "3"
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
         SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkTV/BridgingHeader.h
         "LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*][arch=arm64]":
           - $(SRCROOT)/../target/aarch64-apple-tvos-sim/release
         "LIBRARY_SEARCH_PATHS[sdk=appletvos*][arch=arm64]":
           - $(SRCROOT)/../target/aarch64-apple-tvos/release
-        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
-        # Hardcoded so device/sim builds work out of the box. Override at the
-        # CLI for a different team: `xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX`.
-        DEVELOPMENT_TEAM: 4GWK4YU2PW
-        CODE_SIGN_STYLE: Automatic
+
+  # --------------------------------------------------------------
+  # visionOS app, visionOS 26+.
+  # --------------------------------------------------------------
+  WasmBenchmarkVision:
+    type: application
+    platform: visionOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: WasmBenchmarkVision
+      - path: Shared
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench
+        INFOPLIST_FILE: WasmBenchmarkVision/Info.plist
+        TARGETED_DEVICE_FAMILY: "7"
+        SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkVision/BridgingHeader.h
+        "LIBRARY_SEARCH_PATHS[sdk=xrsimulator*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-visionos-sim/release
+        "LIBRARY_SEARCH_PATHS[sdk=xros*][arch=arm64]":
+          - $(SRCROOT)/../target/aarch64-apple-visionos/release
 
   # --------------------------------------------------------------
   # macOS app — local M4 dev host, macOS 26+.
@@ -140,6 +168,8 @@ targets:
     sources:
       - path: WasmBenchmarkMac
       - path: Shared
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       # femtovg E2E: the Rust library's wgpu Metal backend.
       - sdk: Metal.framework
@@ -149,6 +179,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.rebeckerspecialties.wasmbench.mac
         INFOPLIST_FILE: WasmBenchmarkMac/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: WasmBenchmarkMac/BridgingHeader.h
+        # Where scripts/build-lib.sh macos writes (it passes --target).
         LIBRARY_SEARCH_PATHS:
-          - $(SRCROOT)/../target/release
-        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/benchmark-core/include
+          - $(SRCROOT)/../target/aarch64-apple-darwin/release

@@ -272,8 +272,7 @@ SIMD_CASES = {"factorial", "sieve", "crc32", "matmul_simd", "matmul_fma", "convo
               "bulk_memory", "relaxed_dot", "relaxed_madd"}
 FEATURE_OF = {"eh_parser_exnref": "exnref", "eh_parser_legacy": "legacy EH", "gc_trees": "GC",
               "callref_dispatch": "typed func refs", "mem64_chase": "memory64",
-              "multimem_transform": "multi-memory", "graphql_porf": "exceptions",
-              "graphql_porf_trycatch": "legacy try/catch", "relaxed_dot": "relaxed SIMD",
+              "multimem_transform": "multi-memory", "relaxed_dot": "relaxed SIMD",
               "relaxed_madd": "relaxed SIMD", "matmul_fma": "relaxed SIMD"}
 
 

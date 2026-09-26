@@ -7,40 +7,103 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0A3CAE8DE8274BBED8806A0A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		05790D2F27ECE523B6AA2198 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */; };
+		08984F4B68D2294BFD3421BE /* BenchmarkSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */; };
+		152948AB80EB656D7064779A /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */; };
+		167D407281753FA647FB3F0B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 282F36037913264E0B2D2FAD /* Assets.xcassets */; };
 		1F74B844B929E4D35667ED9E /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */; };
 		22BB750E0B42DC0DAFE6226A /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0995B9E18D6C5CBCD5E518D8 /* Metal.framework */; };
+		26E1DCE975A78C6748530601 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */; };
+		2B2F566746322D4AAC3CE201 /* ResultDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */; };
+		2E62BF1E1E924C3BE3AEAAC8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 85499B058A64275388370975 /* Assets.xcassets */; };
+		31FE84781CF7C1838B80FA4B /* BenchmarkSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */; };
+		328D319BEAA715E35AC3D49A /* ResultDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */; };
+		34E39D738193C4C4E397DFFD /* WasmBenchmarkVisionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD9B84C2BFC9F1C0EEFC1CF /* WasmBenchmarkVisionApp.swift */; };
+		416D0F7E9C2D962E3EBFF128 /* WasmBenchmarkWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4ABB1FBD706E3E52411C28F8 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0995B9E18D6C5CBCD5E518D8 /* Metal.framework */; };
-		73AEF8A899C43E13D4749926 /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		5DD5DF6B0C50A133B99C6F9A /* BenchmarkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */; };
+		6F71448E1635A019ACAA068E /* ResultDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */; };
+		6F9E8016743A641FB78D2521 /* BenchmarkSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */; };
 		7FBD1C74EF4AD1C4B9B34897 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */; };
 		841007E9BE0E08A8AC56951E /* WasmBenchmarkTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */; };
+		87D626D049F0D049871DBDAC /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */; };
 		91D868C194B46C7FE2C6B118 /* WasmBenchmarkWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */; };
-		96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		9FC77335C41DD1F9947F6AC2 /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */; };
+		A020319989C1304F6C6297F9 /* ResultDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */; };
+		A21F38CE3C90EC38F225C676 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */; };
+		A31A6C764CA4D16854B55D8E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 72F32B35D01BCCD225A4559D /* Assets.xcassets */; };
 		AA519B5FAF6C2FC0E2DC0B84 /* WasmBenchmarkMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */; };
-		AE1C536EC3FDD970F695253C /* BenchmarkContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */; };
+		ABB871A166BDF1D19064BCAF /* ResultDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */; };
+		B108F0F2F059BE9AAFF5AF10 /* BenchmarkSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */; };
+		B52654D4D2B64399E24065A6 /* BenchmarkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */; };
+		B64ADE93B6BB266C7DDF9B7A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B65D0C10030AF4DE3C7934D8 /* Assets.xcassets */; };
+		B756E2F6AE81019CE3494808 /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */; };
+		BAEA00091C331A225332790A /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */; };
 		BD74BC4B6BBEF76460553E11 /* WasmBenchmarkIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */; };
+		CA13ADE604C9C6CE60628725 /* BenchmarkSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */; };
+		D16835A0F495AE10986E20A0 /* BenchmarkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */; };
+		D8C7296BD8BC29400D7B74E4 /* BenchmarkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */; };
+		F46DA2B1EA5A503EC3468B4D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */; };
+		F5343EF3DF6B3CE03B1EB17B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */; };
+		FCF5FBA6D0B05C94B13AD124 /* BenchmarkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A6AE2F3A3E556750FB5FC7B3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C3EA1E4C4D0003F1E79507E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8CD67C3186118CB6A3934CC0;
+			remoteInfo = WasmBenchmarkWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1C3FD60024C53408C240D4CD /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				416D0F7E9C2D962E3EBFF128 /* WasmBenchmarkWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WasmBenchmarkIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkSession.swift; sourceTree = "<group>"; };
 		0995B9E18D6C5CBCD5E518D8 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkWatchApp.swift; sourceTree = "<group>"; };
 		26571FD0795CE91DF528E4B4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardView.swift; sourceTree = "<group>"; };
+		282F36037913264E0B2D2FAD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3BD9B84C2BFC9F1C0EEFC1CF /* WasmBenchmarkVisionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkVisionApp.swift; sourceTree = "<group>"; };
+		3E33F97EBFCCA8B48B60D412 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		48FCC66879123AE7C5847E70 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WasmBenchmarkWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultDetailView.swift; sourceTree = "<group>"; };
+		72F32B35D01BCCD225A4559D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WasmBenchmarkMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80A2256EBE9E5C827158390A /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		85499B058A64275388370975 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8D809F4231632C31528ED992 /* WasmBenchmarkTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WasmBenchmarkTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkContentView.swift; sourceTree = "<group>"; };
 		A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkTVApp.swift; sourceTree = "<group>"; };
 		A61CE5226A028A476906857E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A67A01AD22E15B5EFCCC00DD /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkIOSApp.swift; sourceTree = "<group>"; };
+		B65D0C10030AF4DE3C7934D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkModel.swift; sourceTree = "<group>"; };
 		D2B02C8D20D56FC3E399BFEB /* WasmBenchmarkMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WasmBenchmarkMacApp.swift; sourceTree = "<group>"; };
+		DB0C51F77BF311191FECF7E5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E24BDDA753B6A0987CC5D659 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E852CA026B32F19F50C3F78D /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		F1EBAC630F2DC423319A70CD /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		FB29EEA25936F3A106630767 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FF33637B54D695013880BEE6 /* WasmBenchmarkVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WasmBenchmarkVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +131,7 @@
 		29DE85AD501C878B38D7EB91 /* WasmBenchmarkIOS */ = {
 			isa = PBXGroup;
 			children = (
+				B65D0C10030AF4DE3C7934D8 /* Assets.xcassets */,
 				F1EBAC630F2DC423319A70CD /* BridgingHeader.h */,
 				FB29EEA25936F3A106630767 /* Info.plist */,
 				A74047ABFD67C05D15EB9F9A /* WasmBenchmarkIOSApp.swift */,
@@ -78,10 +142,12 @@
 		4C5FA73F4CA5328464BA9434 = {
 			isa = PBXGroup;
 			children = (
+				FC88B79B881CCD9D0AA106C1 /* Resources */,
 				DA557852C358E2E3B73D4641 /* Shared */,
 				29DE85AD501C878B38D7EB91 /* WasmBenchmarkIOS */,
 				9945B4BC77502B5E74D0B0EB /* WasmBenchmarkMac */,
 				C010B1176B512BA544F49153 /* WasmBenchmarkTV */,
+				C05B607D4E87728700B58A77 /* WasmBenchmarkVision */,
 				B80AE15C6D6B38D9421B14AE /* WasmBenchmarkWatch */,
 				C7896F0B8FF0F91C2AE20C53 /* Frameworks */,
 				B2EEA60BB9078F8C73B573D1 /* Products */,
@@ -104,6 +170,7 @@
 				03BCE69136C7A67C0C0341AC /* WasmBenchmarkIOS.app */,
 				7C2F396C6ECC2C908715350D /* WasmBenchmarkMac.app */,
 				8D809F4231632C31528ED992 /* WasmBenchmarkTV.app */,
+				FF33637B54D695013880BEE6 /* WasmBenchmarkVision.app */,
 				561C821FC5E835AB253371D7 /* WasmBenchmarkWatch.app */,
 			);
 			name = Products;
@@ -112,6 +179,7 @@
 		B80AE15C6D6B38D9421B14AE /* WasmBenchmarkWatch */ = {
 			isa = PBXGroup;
 			children = (
+				72F32B35D01BCCD225A4559D /* Assets.xcassets */,
 				80A2256EBE9E5C827158390A /* BridgingHeader.h */,
 				A61CE5226A028A476906857E /* Info.plist */,
 				21817406F5B3241849A60E84 /* WasmBenchmarkWatchApp.swift */,
@@ -122,11 +190,23 @@
 		C010B1176B512BA544F49153 /* WasmBenchmarkTV */ = {
 			isa = PBXGroup;
 			children = (
+				85499B058A64275388370975 /* Assets.xcassets */,
 				E852CA026B32F19F50C3F78D /* BridgingHeader.h */,
 				E24BDDA753B6A0987CC5D659 /* Info.plist */,
 				A42F7B6473AE3396BA9D39AA /* WasmBenchmarkTVApp.swift */,
 			);
 			path = WasmBenchmarkTV;
+			sourceTree = "<group>";
+		};
+		C05B607D4E87728700B58A77 /* WasmBenchmarkVision */ = {
+			isa = PBXGroup;
+			children = (
+				282F36037913264E0B2D2FAD /* Assets.xcassets */,
+				3E33F97EBFCCA8B48B60D412 /* BridgingHeader.h */,
+				DB0C51F77BF311191FECF7E5 /* Info.plist */,
+				3BD9B84C2BFC9F1C0EEFC1CF /* WasmBenchmarkVisionApp.swift */,
+			);
+			path = WasmBenchmarkVision;
 			sourceTree = "<group>";
 		};
 		C7896F0B8FF0F91C2AE20C53 /* Frameworks */ = {
@@ -141,19 +221,49 @@
 		DA557852C358E2E3B73D4641 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				91BEB1E4AAC103C48ACE75D5 /* BenchmarkContentView.swift */,
+				D19567B4270D4D05C73C8A74 /* BenchmarkModel.swift */,
+				04C3008D33956DDA178A05D8 /* BenchmarkSession.swift */,
+				27498D4C69C2D5DF797EC5E7 /* LeaderboardView.swift */,
+				69E0C3E67FCAAE379DB27AFC /* ResultDetailView.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		FC88B79B881CCD9D0AA106C1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				00FA4EC978511E7FF1FF1D2B /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		0C7F3887EA98391C1DCA323E /* WasmBenchmarkVision */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E4887A64BF8FB100ECE7EC11 /* Build configuration list for PBXNativeTarget "WasmBenchmarkVision" */;
+			buildPhases = (
+				FA71511B2E7363870C0DFC53 /* Sources */,
+				C923B2791CDC2F03099D6FF9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WasmBenchmarkVision;
+			packageProductDependencies = (
+			);
+			productName = WasmBenchmarkVision;
+			productReference = FF33637B54D695013880BEE6 /* WasmBenchmarkVision.app */;
+			productType = "com.apple.product-type.application";
+		};
 		4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0643BC0476E72284EF455526 /* Build configuration list for PBXNativeTarget "WasmBenchmarkMac" */;
 			buildPhases = (
 				B8FC77E4D0F00FA3071AF9DF /* Sources */,
+				C85B1D5B67F93C752D2C6619 /* Resources */,
 				7D39776881EAF8181EBECA84 /* Frameworks */,
 			);
 			buildRules = (
@@ -172,6 +282,7 @@
 			buildConfigurationList = 28A167FAC51A1FB1D20D6F80 /* Build configuration list for PBXNativeTarget "WasmBenchmarkWatch" */;
 			buildPhases = (
 				4F4CF1CC1DA08BA13CB3F0B8 /* Sources */,
+				068EEAE09D5CB092226E2624 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -189,11 +300,14 @@
 			buildConfigurationList = 2349EC0751230E9688FFFD8C /* Build configuration list for PBXNativeTarget "WasmBenchmarkIOS" */;
 			buildPhases = (
 				31071620C4ECF0A435354163 /* Sources */,
+				9188291969C764CE5F29B817 /* Resources */,
 				46C9B13F47D8AFF35DCB7795 /* Frameworks */,
+				1C3FD60024C53408C240D4CD /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				12E24ED51B93FBB0D94E5A7E /* PBXTargetDependency */,
 			);
 			name = WasmBenchmarkIOS;
 			packageProductDependencies = (
@@ -207,6 +321,7 @@
 			buildConfigurationList = 1B6908360EFCF8A34E36A19B /* Build configuration list for PBXNativeTarget "WasmBenchmarkTV" */;
 			buildPhases = (
 				FFDC0CA636757375B037E250 /* Sources */,
+				7319553E13F4A5AB9084064A /* Resources */,
 			);
 			buildRules = (
 			);
@@ -228,6 +343,14 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					0C7F3887EA98391C1DCA323E = {
+						DevelopmentTeam = 4GWK4YU2PW;
+						ProvisioningStyle = Automatic;
+					};
+					4F356D1B0433157107A93AD1 = {
+						DevelopmentTeam = 4GWK4YU2PW;
+						ProvisioningStyle = Automatic;
+					};
 					8CD67C3186118CB6A3934CC0 = {
 						DevelopmentTeam = 4GWK4YU2PW;
 						ProvisioningStyle = Automatic;
@@ -256,20 +379,71 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */,
 				C165E7DBC883D8F08378864C /* WasmBenchmarkIOS */,
+				8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */,
 				E3EA256856DC2200EB2BD4DD /* WasmBenchmarkTV */,
+				0C7F3887EA98391C1DCA323E /* WasmBenchmarkVision */,
 				4F356D1B0433157107A93AD1 /* WasmBenchmarkMac */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		068EEAE09D5CB092226E2624 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A31A6C764CA4D16854B55D8E /* Assets.xcassets in Resources */,
+				A21F38CE3C90EC38F225C676 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7319553E13F4A5AB9084064A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E62BF1E1E924C3BE3AEAAC8 /* Assets.xcassets in Resources */,
+				05790D2F27ECE523B6AA2198 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9188291969C764CE5F29B817 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B64ADE93B6BB266C7DDF9B7A /* Assets.xcassets in Resources */,
+				F5343EF3DF6B3CE03B1EB17B /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C85B1D5B67F93C752D2C6619 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26E1DCE975A78C6748530601 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C923B2791CDC2F03099D6FF9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				167D407281753FA647FB3F0B /* Assets.xcassets in Resources */,
+				F46DA2B1EA5A503EC3468B4D /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		31071620C4ECF0A435354163 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0A3CAE8DE8274BBED8806A0A /* BenchmarkContentView.swift in Sources */,
+				5DD5DF6B0C50A133B99C6F9A /* BenchmarkModel.swift in Sources */,
+				08984F4B68D2294BFD3421BE /* BenchmarkSession.swift in Sources */,
+				9FC77335C41DD1F9947F6AC2 /* LeaderboardView.swift in Sources */,
+				ABB871A166BDF1D19064BCAF /* ResultDetailView.swift in Sources */,
 				BD74BC4B6BBEF76460553E11 /* WasmBenchmarkIOSApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -278,7 +452,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AE1C536EC3FDD970F695253C /* BenchmarkContentView.swift in Sources */,
+				FCF5FBA6D0B05C94B13AD124 /* BenchmarkModel.swift in Sources */,
+				B108F0F2F059BE9AAFF5AF10 /* BenchmarkSession.swift in Sources */,
+				BAEA00091C331A225332790A /* LeaderboardView.swift in Sources */,
+				2B2F566746322D4AAC3CE201 /* ResultDetailView.swift in Sources */,
 				91D868C194B46C7FE2C6B118 /* WasmBenchmarkWatchApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -287,8 +464,23 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				96188888C28B290D4B64BD6A /* BenchmarkContentView.swift in Sources */,
+				B52654D4D2B64399E24065A6 /* BenchmarkModel.swift in Sources */,
+				31FE84781CF7C1838B80FA4B /* BenchmarkSession.swift in Sources */,
+				B756E2F6AE81019CE3494808 /* LeaderboardView.swift in Sources */,
+				328D319BEAA715E35AC3D49A /* ResultDetailView.swift in Sources */,
 				AA519B5FAF6C2FC0E2DC0B84 /* WasmBenchmarkMacApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FA71511B2E7363870C0DFC53 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D16835A0F495AE10986E20A0 /* BenchmarkModel.swift in Sources */,
+				6F9E8016743A641FB78D2521 /* BenchmarkSession.swift in Sources */,
+				152948AB80EB656D7064779A /* LeaderboardView.swift in Sources */,
+				6F71448E1635A019ACAA068E /* ResultDetailView.swift in Sources */,
+				34E39D738193C4C4E397DFFD /* WasmBenchmarkVisionApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -296,27 +488,60 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				73AEF8A899C43E13D4749926 /* BenchmarkContentView.swift in Sources */,
+				D8C7296BD8BC29400D7B74E4 /* BenchmarkModel.swift in Sources */,
+				CA13ADE604C9C6CE60628725 /* BenchmarkSession.swift in Sources */,
+				87D626D049F0D049871DBDAC /* LeaderboardView.swift in Sources */,
+				A020319989C1304F6C6297F9 /* ResultDetailView.swift in Sources */,
 				841007E9BE0E08A8AC56951E /* WasmBenchmarkTVApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		12E24ED51B93FBB0D94E5A7E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8CD67C3186118CB6A3934CC0 /* WasmBenchmarkWatch */;
+			targetProxy = A6AE2F3A3E556750FB5FC7B3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		0B70C6589D12926ADDC004ED /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_FILE = WasmBenchmarkVision/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=xros*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-visionos/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=xrsimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-visionos-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench;
+				SDKROOT = xros;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkVision/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = 7;
+				XROS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
 		0EA759930420FB6E2CE84A20 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = (
-					"$(SRCROOT)/../target/release",
+					"$(SRCROOT)/../target/aarch64-apple-darwin/release",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.mac;
@@ -330,11 +555,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4GWK4YU2PW;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkIOS/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -345,8 +567,9 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = (
 					"$(SRCROOT)/../target/aarch64-apple-ios-sim/release",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench;
 				SDKROOT = iphoneos;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkIOS/BridgingHeader.h;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -357,11 +580,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4GWK4YU2PW;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkIOS/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -372,8 +592,9 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = (
 					"$(SRCROOT)/../target/aarch64-apple-ios-sim/release",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench;
 				SDKROOT = iphoneos;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkIOS/BridgingHeader.h;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -384,14 +605,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = (
-					"$(SRCROOT)/../target/release",
+					"$(SRCROOT)/../target/aarch64-apple-darwin/release",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.mac;
@@ -404,6 +624,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -433,10 +654,14 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -446,15 +671,13 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				LLVM_LTO = YES;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				ONLY_ACTIVE_ARCH = YES;
-				"OTHER_CFLAGS[arch=arm64]" = "$(inherited) -mcpu=apple-a12";
-				"OTHER_CFLAGS[arch=arm64_32]" = "$(inherited) -mcpu=apple-a12";
+				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = "$(inherited) -lbenchmark_core -lc++";
-				"OTHER_SWIFT_FLAGS[arch=arm64]" = "$(inherited) -Xcc -mcpu=apple-a12";
-				"OTHER_SWIFT_FLAGS[arch=arm64_32]" = "$(inherited) -Xcc -mcpu=apple-a12";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -467,17 +690,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4GWK4YU2PW;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkWatch/Info.plist;
+				"LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-watchos/release",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64_32]" = (
 					"$(SRCROOT)/../target/arm64_32-apple-watchos/release",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=watchsimulator*][arch=arm64]" = (
 					"$(SRCROOT)/../target/aarch64-apple-watchos-sim/release",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.watch;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.watchkitapp;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkWatch/BridgingHeader.h;
@@ -490,6 +713,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -519,10 +743,14 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 4GWK4YU2PW;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -538,15 +766,13 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				LLVM_LTO = YES;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				"OTHER_CFLAGS[arch=arm64]" = "$(inherited) -mcpu=apple-a12";
-				"OTHER_CFLAGS[arch=arm64_32]" = "$(inherited) -mcpu=apple-a12";
 				OTHER_LDFLAGS = "$(inherited) -lbenchmark_core -lc++";
-				"OTHER_SWIFT_FLAGS[arch=arm64]" = "$(inherited) -Xcc -mcpu=apple-a12";
-				"OTHER_SWIFT_FLAGS[arch=arm64_32]" = "$(inherited) -Xcc -mcpu=apple-a12";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -555,14 +781,34 @@
 			};
 			name = Debug;
 		};
+		E0BA37ED1EB44F16C79B3DAD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_FILE = WasmBenchmarkVision/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=xros*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-visionos/release",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=xrsimulator*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-visionos-sim/release",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench;
+				SDKROOT = xros;
+				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkVision/BridgingHeader.h;
+				TARGETED_DEVICE_FAMILY = 7;
+				XROS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
 		EBF912895BF1D69C17A7CE68 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4GWK4YU2PW;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkTV/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -574,11 +820,11 @@
 				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*][arch=arm64]" = (
 					"$(SRCROOT)/../target/aarch64-apple-tvos-sim/release",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench;
 				SDKROOT = appletvos;
 				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkTV/BridgingHeader.h;
 				TARGETED_DEVICE_FAMILY = 3;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
 			};
 			name = Debug;
 		};
@@ -586,17 +832,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4GWK4YU2PW;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkWatch/Info.plist;
+				"LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64]" = (
+					"$(SRCROOT)/../target/aarch64-apple-watchos/release",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=watchos*][arch=arm64_32]" = (
 					"$(SRCROOT)/../target/arm64_32-apple-watchos/release",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=watchsimulator*][arch=arm64]" = (
 					"$(SRCROOT)/../target/aarch64-apple-watchos-sim/release",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.watch;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.watchkitapp;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkWatch/BridgingHeader.h;
@@ -610,9 +856,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4GWK4YU2PW;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../crates/benchmark-core/include";
 				INFOPLIST_FILE = WasmBenchmarkTV/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -624,11 +867,11 @@
 				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*][arch=arm64]" = (
 					"$(SRCROOT)/../target/aarch64-apple-tvos-sim/release",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rebeckerspecialties.wasmbench;
 				SDKROOT = appletvos;
 				SWIFT_OBJC_BRIDGING_HEADER = WasmBenchmarkTV/BridgingHeader.h;
 				TARGETED_DEVICE_FAMILY = 3;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
 			};
 			name = Release;
 		};
@@ -676,6 +919,15 @@
 			buildConfigurations = (
 				B9DD6741DAF121062451277A /* Debug */,
 				867AE984FDC4CEDA3EB3D6B9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E4887A64BF8FB100ECE7EC11 /* Build configuration list for PBXNativeTarget "WasmBenchmarkVision" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E0BA37ED1EB44F16C79B3DAD /* Debug */,
+				0B70C6589D12926ADDC004ED /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
