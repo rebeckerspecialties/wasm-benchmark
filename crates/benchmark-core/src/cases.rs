@@ -182,10 +182,18 @@ pub fn known_crash(rt: Runtime, case_id: &str) -> Option<&'static str> {
 }
 
 /// (case id, reason) cases the app's leaderboard does not run.
-pub const APP_EXCLUDED_CASES: &[(&str, &str)] = &[(
-    "sqlite3",
-    "only Pulley has the WASI import shim, and one call takes 86 s on an iPhone XS",
-)];
+pub const APP_EXCLUDED_CASES: &[(&str, &str)] = &[
+    ("sqlite3", "only Pulley has the WASI import shim, and one call takes 86 s on an iPhone XS"),
+    ("eh_parser_legacy", "legacy exception handling, superseded by exnref (eh_parser_exnref)"),
+    // LLVM auto-vectorizes these scalar programs in the canonical build; the
+    // app runs their `.scalar` builds, which every engine can run, and
+    // leaves SIMD to the benchmarks written for it.
+    ("factorial", "auto-vectorized build of a scalar program; the app runs factorial.scalar"),
+    ("sieve", "auto-vectorized build of a scalar program; the app runs sieve.scalar"),
+    ("crc32", "auto-vectorized build of a scalar program; the app runs crc32.scalar"),
+    ("convolution", "auto-vectorized build of a scalar program; the app runs convolution.scalar"),
+    ("bulk_memory", "auto-vectorized build of a scalar program; the app runs bulk_memory.scalar"),
+];
 
 /// (case id, reason) cases the watch app also leaves out, on top of
 /// `APP_EXCLUDED_CASES`: one call takes minutes on an S8, or the row's
