@@ -541,4 +541,8 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
     sample: `isolation-*.csv` (`next` against #11), `stack-*.csv` (`next`,
     `next` + #64 + #72 and #12 in one run), `stack-rerun-*.csv` (the base
     against #12 again), `upstream-74-*.csv` (#11 rebased onto `next`
-    `d1165c2`, as posted upstream), and the M4 runner runs.
+    `d1165c2`, as posted upstream; on the A12 and A13 one launch of the
+    PR build lost its console stream, so its medians there are of four
+    launches), `upstream-74-rerun-a12.csv` (a complete rerun on the A12:
+    −4.8% cycles geomean against the posted −5.2%), and the M4 runner
+    runs.
