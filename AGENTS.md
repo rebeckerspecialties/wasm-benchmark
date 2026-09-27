@@ -139,6 +139,19 @@ Pick this up cold without re-deriving state:
       instance. −6.4 / −9.4 / −6.4 % against that base, and the whole stack
       −13.8 / −16.5 / −16.0 % against `next` with every row faster
       (xmrsplayer −16 to −20 %). Upstreaming waits on #64.
+    - Plan item 3, frameless handlers: branch `perf/frameless-handlers`
+      (local, two commits on `next` `d1165c2`, not yet a fork PR). The
+      tail-call handlers `become` their mismatch and fetch panics, and
+      impossible value-stack and global accesses stop through
+      `invariant_violated` (`core::intrinsics::abort` in release
+      tail-call builds). Pushes inside a body are infallible (#59's
+      reservation), and the five memory helpers that were out of line are
+      now inlined. 444 of 615 handlers are frameless (1 on `next`).
+      −4.5 / −5.3 / −7.2 % cycles on the A14 / A12 / A13 E-cores, every
+      row faster; on the M4 it is −5.7 % cycles, and −10.8 % together
+      with #74. Memory, call and return handlers keep their frames.
+      `perf/frameless-on-calls` is the same on top of #74, used only to
+      measure the combination.
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
@@ -148,7 +161,7 @@ Pick this up cold without re-deriving state:
     - With #64 + #72: −8.8 % cycles on the iPhone 12 E-cores. The report's
       *Action plan* ranks what comes next for xmrsplayer-like guests:
       cheaper wasm calls and returns (done: fork #11 / #12), then frameless
-      handlers (4 of 42 instructions per op). None of the scored rows
+      handlers (done: `perf/frameless-handlers`). None of the scored rows
       imports anything or passes v128 to the host, so host-call fast
       paths cannot move WasmBench. `exp/acc` at `c8cf1ff` measured +24 %
       instructions on xmrsplayer against its base.

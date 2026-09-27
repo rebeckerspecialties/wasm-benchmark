@@ -483,6 +483,113 @@ On the M4's efficiency cores the same builds give −7.0% cycles for #11
 and −16.9% for the stack
 ([runner data](tinywasm-watch-2026-09-26/cheaper-calls/m4-e-core-runs.csv)).
 
+## Frameless handlers (plan item 3)
+
+Two commits on `next` (`d1165c2`), branch `perf/frameless-handlers`.
+
+On `next`, 1 of the 615 tail-call handlers runs without a stack frame. A
+handler that contains a call saves and restores its frame record on every
+instruction it executes, even when the call is on a path that validated
+code never takes, and almost every handler had one:
+
+- `instruction_handler_mismatch()`, behind the `let` that re-checks the
+  opcode the table already chose;
+- `stack_underflow()` from a pop, and the bounds-check panics of value-stack
+  and global indexing;
+- the conversion of the `Trap::ValueStackOverflow` a push could return into
+  an `ExecError`, which boxes the error.
+
+The first commit keeps these out of the handlers. The mismatch and
+instruction-pointer panics become cold functions that the handlers
+`become`: a branch, not a call. Value-stack and global accesses that
+validation rules out stop through `invariant_violated`, which with
+`nightly-tail-calls` in a release build is `core::intrinsics::abort`, a
+`brk` in place; debug builds and the loop dispatch still panic. A push
+inside a function body no longer returns a `Result`, because `enter_locals`
+reserves the function's whole operand stack
+([#59](https://github.com/explodingcamera/tinywasm/pull/59)) or traps
+before the body runs. Only a module that skipped validation can break these
+invariants, and tinywasm's README already requires archives, which skip it,
+to come from a trusted source. The second commit inlines the five memory
+helpers that were not `#[inline(always)]` (`exec_load_local` and its
+siblings), so a load or store through a local address no longer calls out.
+
+444 of the 615 handlers are now frameless, and `i32.add` is 26 instructions
+instead of 33. The memory, call and return handlers still save a frame:
+their traps, the shared-memory path and the calls themselves remain calls.
+They take 19% of xmrsplayer's dispatches (on `next`, framed handlers take
+93%). Removing those frames needs a cold handler they `become` with the
+trap or slow path, which changes the handler macro and the error type more
+than these commits do.
+
+Both commits pass tinywasm's test suite with the tail-call dispatch, with
+the default dispatch and without default features. On top of
+[#74](https://github.com/explodingcamera/tinywasm/pull/74) they merge with
+one trivial conflict and pass as well.
+
+### Against `next`
+
+Both commits, efficiency cores, change in cycles per call, median of five
+interleaved launches per build, from a three-way run of `next`, the first
+commit and both
+([raw](tinywasm-watch-2026-09-26/frameless-handlers/)):
+
+| benchmark | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −6.8% | −4.1% | −9.7% |
+| audio DSP (1000 frames × 512) | −4.1% | −5.5% | −8.1% |
+| graphql-validation (AS) | −3.5% | −3.1% | −7.5% |
+| multi-memory twin: one memory | −6.2% | −8.2% | −9.9% |
+| crc32 (64 KB) | −4.8% | −6.8% | −9.4% |
+| convolution 256×256 | −4.0% | −7.1% | −6.8% |
+| sieve (10000) | −4.8% | −5.6% | −9.4% |
+| bulk_memory (memory.copy/fill) | −5.1% | −5.8% | −8.2% |
+| matmul relaxed-simd FMA | −5.0% | −9.8% | −8.2% |
+| GC binary trees (~130K struct.new) | −1.5% | −1.9% | −2.2% |
+| fib(30) | −5.8% | −6.2% | −8.5% |
+| tail-call FSM (65536 return_call) | −6.2% | −4.9% | −8.2% |
+| call_indirect (200K) | −2.5% | −3.6% | −4.0% |
+| call_ref (200K) | −3.0% | −3.4% | −4.9% |
+| vtable_poly4 (200K) | −4.9% | −5.6% | −6.2% |
+| EH parser, exnref (4096 stmts, 25% throw) | −2.9% | −3.4% | −4.2% |
+| **geomean, cycles** | **−4.5%** | **−5.3%** | **−7.2%** |
+| geomean, instructions | −6.9% | −7.3% | −6.8% |
+| geomean, wall time | −4.5% | −5.0% | −7.3% |
+| rows faster (cycles) | 16/16 | 16/16 | 16/16 |
+
+Per commit, geomean change in cycles:
+
+| step | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| first commit against `next` | −3.5% | −4.9% | −6.8% |
+| second commit against the first | −1.0% | −0.4% | −0.5% |
+| first commit against `next`, separate two-way run | −3.3% | −4.6% | −6.2% |
+
+The second commit cuts xmrsplayer's instructions by 4.9% on all three
+phones but its cycles by only 0.4–2.4%: the call, return and prologue it
+removes are cheap, well-predicted instructions. fib and sieve moved by up
+to 4.7% between the two commits with the same instruction counts, from
+code layout alone, and matmul's instruction count varies between launches
+of the same build.
+
+### M4 efficiency cores
+
+Geomean of the seven benchmark rows of the runner, median of three runs
+([runner data](tinywasm-watch-2026-09-26/frameless-handlers/m4-e-core-runs.csv)):
+
+| against `next` | instructions | cycles |
+|---|---:|---:|
+| first commit | −5.8% | −5.2% |
+| both commits | −8.2% | −5.7% |
+| both commits, fuel-budgeted dispatch | −8.0% | −5.9% |
+| both commits, loop dispatch (no `nightly-tail-calls`) | −1.8% | −1.7% |
+| #74 | −5.1% | −6.6% |
+| #74 and both commits | −13.3% | −10.8% |
+
+The first commit alone costs the loop dispatch 0.3% instructions: its
+handlers share one frame anyway, and the single large loop function
+compiles differently. The second commit more than makes up for it.
+
 ## Action plan
 
 Ranked by expected effect on xmrsplayer-like guests. The estimates are
@@ -492,7 +599,7 @@ from the shares above, not measurements.
 |---|---|---|---|---|---|
 | 1 | Land #64 and #72 | −8.8% cycles together on A14 E-cores; #64 alone −5.7 / −7.4 / −8.2% on A14 / A12 / A13 | measured | us | upstream review |
 | 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | upstream [#74](https://github.com/explodingcamera/tinywasm/pull/74) (fork #11, remeasured on `next` `d1165c2`: −4.9 / −5.2 / −4.0%); fork [#12](https://github.com/rebeckerspecialties/tinywasm/pull/12) waits on #64 |
-| 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | −8 to −12% instructions on every row | us: safe, no IR change, but touches the handler macro | ask in the discussion first |
+| 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | measured: −4.5 / −5.3 / −7.2% cycles and −6.8 to −7.3% instructions on A14 / A12 / A13, every row faster; memory, call and return handlers keep their frames | us: safe, no IR change | branch `perf/frameless-handlers` (two commits on `next`) |
 | 4 | Specialize the hottest generic ops (`BinOpStackConst32` by operator; `LocalGet32` → `LocalGet32`) | 1.7–15.8% of dispatches take a second indirect branch; 13.7% of A14 slots discarded | −3 to −6% on the rows that use them | maintainer's call (IR size) | discussion |
 | 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
 | 6 | Memory operand offsets in the instruction (side-pool `resolve`) | ~2.3% of samples on the byte-hash row | small | maintainer (planned u16 memory index; our #63 was closed) | wait |
