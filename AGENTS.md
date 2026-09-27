@@ -102,18 +102,16 @@ Pick this up cold without re-deriving state:
     [`docs/tinywasm-iphone12-2026-09-23.md`](docs/tinywasm-iphone12-2026-09-23.md).
   - #59 adds `pub max_stack` to `tinywasm_types::WasmFunction` and bumps
     the archive to `06`.
-  - Since then, fork PRs with no upstream counterpart yet:
-    - #9: exception-handling spec tests, plus exnref unwinding cases
-      ported from the retired WAMR legacy-EH bugs. tinywasm passes all
-      of them. Upstream as
-      [explodingcamera/tinywasm#71](https://github.com/explodingcamera/tinywasm/pull/71).
-    - #10: shared-memory locking out of line, with atomics keeping the
-      lock inline (−4.6 % instructions and −8.6 % cycles on its worst
-      watch row; −3.7 % cycles geomean on the iPhone 12 E-cores, shared
-      memory included). Upstream as
-      [explodingcamera/tinywasm#72](https://github.com/explodingcamera/tinywasm/pull/72).
-      Its shared-memory cost and references to other runtimes are in
-      the watch report.
+  - Merged upstream on 2026-09-26 (fork PRs #9 and #10 closed):
+    [#71](https://github.com/explodingcamera/tinywasm/pull/71), the
+    exception-handling spec tests plus exnref unwinding cases ported from
+    the retired WAMR legacy-EH bugs, and
+    [#72](https://github.com/explodingcamera/tinywasm/pull/72),
+    shared-memory locking out of line with atomics keeping the lock
+    inline. #72's shared-memory cost and references to other runtimes
+    are in the watch report. Upstream `next` is now `d1165c2`; the
+    harness still pins `693d590c`.
+  - Fork PRs with no upstream counterpart yet, or waiting upstream:
     - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
       closed by the maintainer, who plans his own memory operand
       encoding) and [#64](https://github.com/explodingcamera/tinywasm/pull/64)
@@ -122,7 +120,10 @@ Pick this up cold without re-deriving state:
       E-cores. Rows that switch functions on every call are up to +6 % on
       the A12, and the exnref parser +3–13 %. The PR carries the table.
     - [#11](https://github.com/rebeckerspecialties/tinywasm/pull/11)
-      (`perf/cheaper-calls`, on `next`): the executor borrows the
+      (`perf/cheaper-calls`), upstream as
+      [explodingcamera/tinywasm#74](https://github.com/explodingcamera/tinywasm/pull/74)
+      (rebased onto `d1165c2`, remeasured −4.9 / −5.2 / −4.0 %; the
+      description is the user's with the table updated): the executor borrows the
       executing function and module from the instance, which
       `InterpreterRuntime` holds for the run, so calls and returns inside
       an instance make no refcount updates; leaving the instance (import,

@@ -491,7 +491,7 @@ from the shares above, not measurements.
 | # | change | evidence | estimate | owner | status |
 |---|---|---|---|---|---|
 | 1 | Land #64 and #72 | −8.8% cycles together on A14 E-cores; #64 alone −5.7 / −7.4 / −8.2% on A14 / A12 / A13 | measured | us | upstream review |
-| 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | fork [#11](https://github.com/rebeckerspecialties/tinywasm/pull/11) (on `next`) and [#12](https://github.com/rebeckerspecialties/tinywasm/pull/12) (on #64 + #72) |
+| 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | upstream [#74](https://github.com/explodingcamera/tinywasm/pull/74) (fork #11, remeasured on `next` `d1165c2`: −4.9 / −5.2 / −4.0%); fork [#12](https://github.com/rebeckerspecialties/tinywasm/pull/12) waits on #64 |
 | 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | −8 to −12% instructions on every row | us: safe, no IR change, but touches the handler macro | ask in the discussion first |
 | 4 | Specialize the hottest generic ops (`BinOpStackConst32` by operator; `LocalGet32` → `LocalGet32`) | 1.7–15.8% of dispatches take a second indirect branch; 13.7% of A14 slots discarded | −3 to −6% on the rows that use them | maintainer's call (IR size) | discussion |
 | 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
@@ -540,4 +540,5 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
   - `cheaper-calls/`: the A/Bs of plan item 2 on three phones, every
     sample: `isolation-*.csv` (`next` against #11), `stack-*.csv` (`next`,
     `next` + #64 + #72 and #12 in one run), `stack-rerun-*.csv` (the base
-    against #12 again), and the M4 runner runs.
+    against #12 again), `upstream-74-*.csv` (#11 rebased onto `next`
+    `d1165c2`, as posted upstream), and the M4 runner runs.
