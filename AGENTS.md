@@ -165,6 +165,12 @@ Pick this up cold without re-deriving state:
       cause is the value stack's length/top round trips between handlers
       (M4 sampling: `BinOpStackConst32`, `I32Add`, `Stack::set` /
       `Vec::push`). That is the evidence for register operands (`acc`).
+    - Why (2026-09-27, `scripts/memdep-bench` + a tinywasm pair sweep on
+      the M4 E-cores): the memory-dependence predictor saturates once more
+      than ~11–19 distinct handler pairs alias through the stack (~25 in
+      the model). Past that, loads wait (back-end execution latency, the
+      bulk of the cost) or flush. Real loops use 40 (audio DSP), 136
+      (xmrsplayer) and 226 (graphql) pairs for 90 % of their dispatches.
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
@@ -220,6 +226,7 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-device-pass.sh <out>` — iPhone N=10, one runtime per launch (`E2E=0,1` for the femtovg E2E)
   - `./scripts/run-m4-pmu-pass.sh <out>` — M4 PMU per runtime × workload (`RUNTIMES_LIST=` / `MODES=` narrow it; the 2026-09 report profiles tinywasm only), never alongside a timing pass
   - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode (deletes each capture's `.ktrace`; `KEEP_XML=1` keeps the counter exports; check `devicectl device info details` for `Transport Type: wired`: over the network each capture takes 2–8 min instead of ~40 s)
+  - `scripts/memdep-bench/` — memory-dependence-predictor microbenchmark (K copies of a tinywasm-shaped handler; see its README)
   - `scripts/pmu_per_call.py <pmu-root> <timing.csv> <steps>` — per-call counter changes between A/B builds (one `run-device-pmu.sh` directory per build + the A/B's `--csv`); `scripts/pmi_by_handler.py <samples.xml> [event]` — a sampling mode's samples (`SamplingModeSamples` export) by tinywasm handler and source line
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch

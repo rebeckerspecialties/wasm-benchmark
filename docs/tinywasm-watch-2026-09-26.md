@@ -783,6 +783,69 @@ On the same capture, 77% of the branch mispredicts are one conditional
 branch, `IncLocalJump32`'s loop test: the guest's loop exits, which every
 loop that uses that superinstruction shares.
 
+### Memory-order flushes: the dependence predictor runs out of room
+
+The theory: every handler inlines its own copy of the value-stack code, so
+the stores and loads that alias across a handler boundary are a different
+pair of instructions for every pair of handlers, and the CPU's
+memory-dependence predictor cannot track them all.
+
+A model first ([`scripts/memdep-bench`](../scripts/memdep-bench/)): K
+copies of one handler, built like tinywasm's tail-call dispatch (`become`
+through a table, a `Vec` value stack reached through an executor and a
+store), each updating the stack top in place like `BinOpStackConst32`, and
+each with its own constant so the copies cannot be merged. The copies
+dispatch in a cycle, so K handler pairs are in play. M4 efficiency cores;
+1, 8, 64 and 512 copies from one sweep, 16 to 32 from a finer second one
+([raw](tinywasm-watch-2026-09-26/after-75/memdep/)):
+
+| handler copies | 1 | 8 | 16 | 20 | 24 | 28 | 32 | 64 | 512 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| flushes per 1k dispatches | 0.00 | 0.00 | 0.10 | 0.22 | 0.54 | 3.66 | 4.26 | 3.88 | 2.67 |
+| cycles per dispatch | 5.40 | 5.43 | 5.45 | 5.72 | 5.84 | 6.53 | 6.64 | 7.14 | 7.92 |
+
+Every copy runs the same 25 instructions per dispatch. Two controls:
+
+- Without aliasing (each copy updates a slot of its own), 64 copies run at
+  5.28 cycles per dispatch with no flushes, so code size and dispatch
+  prediction are not the cause.
+- The same 64 copies in blocks of 64 dispatches, so that only a couple of
+  pairs are in play at a time, flush 0.12 times per 1k dispatches: what
+  counts is how many pairs alternate, not how many exist.
+
+At 64 copies the extra cycles are back-end stalls (25.3% of the slots
+against 5.3% at 8 copies), in execution latency (processing mode: 2,438
+against 139), while the flushes take 1.8% of the slots. Once the predictor
+is out of room, most loads wait for older stores, and the flushes are the
+smaller part of the cost.
+
+In tinywasm itself: a loop whose 84 statements cycle through D distinct
+stack binops (`i32.add`, `i32.xor`, `i32.rotl`, ...), so 3 + 2D distinct
+handler pairs are in play, with the same instructions per dispatch:
+
+| distinct handler pairs | 5 | 7 | 11 | 19 | 27 | 35 | 45 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| #75: flushes per 1k dispatches | 0.00 | 0.01 | 0.02 | 0.22 | 0.12 | 0.25 | 0.08 |
+| #75: cycles per dispatch | 6.95 | 6.95 | 7.02 | 7.17 | 7.25 | 7.24 | 7.31 |
+| #75 + ours: flushes per 1k dispatches | 0.00 | 0.01 | 0.01 | 0.93 | 1.08 | 1.05 | 0.97 |
+| #75 + ours: cycles per dispatch | 6.14 | 6.13 | 6.17 | 6.54 | 6.65 | 6.70 | 6.72 |
+
+The knee is between 11 and 19 pairs (tinywasm's handlers store and load
+several slots each: the stack length, values and locals). From 5 to 45 pairs
+back-end stalls with our changes go from 13.2% to 19.7% of the slots, with
+three times the execution latency, and the faster handlers pay more: +9.4%
+cycles against #75's +5.2%. The real loops are far past the knee: audio DSP
+needs 40 distinct handler pairs for 90% of its dispatches, xmrsplayer 136
+and graphql 226 (opcode-pair histograms).
+
+So the theory holds, with a correction: the flushes are only the visible
+part, and most of the cost is loads that wait, which is what the iPhone 12
+showed on audio DSP (+89 M back-end cycles per call with our changes). A
+stack pointer passed through the handlers the way #75 passes the
+instruction slice would make every stack address computable without a
+load, so nothing is left to predict; a top-of-stack register would also
+remove the top value's round trip.
+
 ### What #75 means for what comes next
 
 - The maintainer takes ideas and re-implements them in his idiom, small and
@@ -799,8 +862,8 @@ loop that uses that superinstruction shares.
   `i32.add` on our stack, and the source of the memory-order flushes that
   grow with every dispatch speedup. Passing the stack's length (or a top
   pointer) through the handlers the way #75 passes the instruction slice
-  would take both out; it is the register-operand work of the maintainer's
-  `acc` branch, and these numbers are the case for it.
+  would take both out (see the previous section); it is the register-operand
+  work of the maintainer's `acc` branch, and these numbers are the case for it.
 - Mispredicts stay the largest loss on the dispatch-heavy workloads
   (xmrsplayer, graphql, call_indirect: 15–24% of the slots). Faster handlers
   do not touch them; fewer dispatches do (fusion and specialization, plan
