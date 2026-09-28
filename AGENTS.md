@@ -159,6 +159,14 @@ Pick this up cold without re-deriving state:
       −4.5 / −5.3 / −7.2 % cycles on the A14 / A12 / A13 E-cores, every
       row faster, on `d1165c2`. Memory, call and return handlers keep
       their frames. Local `rebase/*-on-75` branches hold every rebase.
+      Upstream as
+      [explodingcamera/tinywasm#77](https://github.com/explodingcamera/tinywasm/pull/77)
+      (2026-09-27). On the maintainer's review (2026-09-28) the branch
+      gained `bc19bf4` (`core::process::abort_immediate` instead of the
+      intrinsic, feature `abort_immediate`) and `763e7b0` (no shared
+      `instruction_handler_mismatch`). Every handler compiles to the same
+      instructions with fat LTO, thin LTO and a default release build. He
+      may later put the abort behind its own feature flag.
     - iPhone 12 PMU of the stack on #75 (watch report): gains are mostly
       instructions. Memory-order flushes grow with each dispatch speedup.
       On audio DSP they are 2.7× as frequent as branch mispredicts. The
@@ -171,6 +179,26 @@ Pick this up cold without re-deriving state:
       the model). Past that, loads wait (back-end execution latency, the
       bulk of the cost) or flush. Real loops use 40 (audio DSP), 136
       (xmrsplayer) and 226 (graphql) pairs for 90 % of their dispatches.
+    - Discussion [#78](https://github.com/explodingcamera/tinywasm/discussions/78)
+      (2026-09-28). The maintainer wants to try the stack pointer, measured
+      on its own first. He worries about registers for later accumulators
+      and says a top-of-stack cache lost to "the extra branch". He calls
+      `exp/acc` a failed experiment: its accumulators sat beside a `Vec`
+      stack whose length still round-trips memory.
+      - `scripts/tos-bench` on the M4 E-cores: height as a handler
+        argument −34 % cycles per dispatch but 4× the flushes; plus a
+        written-through top, with parse-time no-reload pops that empty the
+        lane, −46 % and a quarter of today's flushes. The flag version
+        needs a third register. Adding the stack's slice (two more
+        registers) gives −51 % and no flushes.
+      - Argument registers (`abi_probe.py`): arm64 8 (all Apple targets,
+        arm64_32, Android, Windows); x86-64 System V 6; Windows x64 4.
+        tinywasm uses 5 (Unbudgeted) and 4 (Bounded), so Windows x64
+        already spills the `Instruction`.
+        `extern "rust-preserve-none"` (nightly) gives 12 on every x86-64
+        OS and 23–24 on arm64.
+      - Report: watch report *Registers for the value stack*. The reply
+        draft is Matt's to post (CONTRIBUTING).
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
@@ -227,6 +255,7 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-m4-pmu-pass.sh <out>` — M4 PMU per runtime × workload (`RUNTIMES_LIST=` / `MODES=` narrow it; the 2026-09 report profiles tinywasm only), never alongside a timing pass
   - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode (deletes each capture's `.ktrace`; `KEEP_XML=1` keeps the counter exports; check `devicectl device info details` for `Transport Type: wired`: over the network each capture takes 2–8 min instead of ~40 s)
   - `scripts/memdep-bench/` — memory-dependence-predictor microbenchmark (K copies of a tinywasm-shaped handler; see its README)
+  - `scripts/tos-bench/` — where an interpreter keeps its value stack's height and top between tail-called handlers (13 variants), its E-core sweep and PMU scripts, `asm_regs.py` (the state in machine code per target) and `abi_probe.py` (argument registers per target and ABI); see its README
   - `scripts/pmu_per_call.py <pmu-root> <timing.csv> <steps>` — per-call counter changes between A/B builds (one `run-device-pmu.sh` directory per build + the A/B's `--csv`); `scripts/pmi_by_handler.py <samples.xml> [event]` — a sampling mode's samples (`SamplingModeSamples` export) by tinywasm handler and source line
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
@@ -686,8 +715,10 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   ~100 MB/s of recording (system-wide kdebug; worse while devicectl
   streams) and never deletes it. A 2-minute M4 capture reached 11 GB and
   filled the disk mid-pass. Keep captures short and delete the `.ktrace`
-  after each export (both PMU scripts do), and keep a free-space
-  watchdog on long passes.
+  after each export (the PMU scripts do), and keep a free-space
+  watchdog on long passes. Other tools record too (Instruments.app, other
+  agents' xctrace runs), each leaving 0.5–4 GB traces: the scripts delete
+  only the traces no process holds open (`rm_ktraces`), never a live one.
 - **Xcode 26.5 (historical)**: `--launch` was broken for iPhone 12 /
   iOS 26.3+ (the trace held only `RunIssues.storedata`, no counter
   data), and `--attach <pid>` worked:

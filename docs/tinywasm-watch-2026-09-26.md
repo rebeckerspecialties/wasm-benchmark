@@ -862,8 +862,9 @@ remove the top value's round trip.
   `i32.add` on our stack, and the source of the memory-order flushes that
   grow with every dispatch speedup. Passing the stack's length (or a top
   pointer) through the handlers the way #75 passes the instruction slice
-  would take both out (see the previous section); it is the register-operand
-  work of the maintainer's `acc` branch, and these numbers are the case for it.
+  would take both out (see the previous section). The maintainer has since
+  called `acc` a failed experiment; [Registers for the value
+  stack](#registers-for-the-value-stack) shows why it gained nothing and what does.
 - Mispredicts stay the largest loss on the dispatch-heavy workloads
   (xmrsplayer, graphql, call_indirect: 15–24% of the slots). Faster handlers
   do not touch them; fewer dispatches do (fusion and specialization, plan
@@ -878,6 +879,211 @@ remove the top value's round trip.
   spread within a build, but move 1–5% between builds with the same
   instruction counts (code layout), which more data cannot fix.
 
+## Registers for the value stack
+
+On [discussion #78](https://github.com/explodingcamera/tinywasm/discussions/78) the maintainer
+said he would like to try passing the stack pointer through the handlers.
+He had two worries:
+
+- another argument takes a register he wants to keep for accumulators later;
+- a top-of-stack cache he tried before lost its gain to "the extra branch in the common path".
+
+He also called `exp/acc` a failed experiment. This section measures both worries.
+
+### The argument-register budget
+
+Between two handlers, only what the calling convention passes in registers stays out of memory.
+A probe crate ([`scripts/tos-bench`](../scripts/tos-bench/) has the method) with 24 integer and 24
+float arguments per function, compiled for each target with `nightly-2026-07-05`, counts how many
+arrive in registers (integer / float):
+
+| target (lowest-end hardware) | Rust ABI | `extern "sysv64"` | `extern "rust-preserve-none"` |
+|---|---|---|---|
+| arm64 iOS and tvOS (A10X, A12), arm64_32 watchOS (S4), Android (Snapdragon 835) | 8 / 8 | — | 24+ / 8 |
+| arm64 Windows (Snapdragon 835) | 8 / 8 | — | 23 / 8 |
+| x86-64 macOS and Linux (Core m3, i3) | 6 / 8 | 6 / 8 | 12 / 8 |
+| x86-64 Windows | 4 / 4 | 6 / 8 | 12 / 8 |
+
+tinywasm's `Unbudgeted` handlers take five integer arguments: the executor, the instruction slice's
+pointer and length, the instruction pointer and the next instruction. The `Bounded` ones take four:
+the executor, instruction pointer, instruction and budget. So:
+
+- **arm64 (every Apple target and the Snapdragon):** three integer registers to spare (four in
+  `Bounded`), and all eight FP/SIMD argument registers are unused. A frameless handler also has 18
+  caller-saved general registers (x0–x17) for its own work.
+- **x86-64 System V:** one to spare, and only four caller-saved registers left for the body. In a
+  release build without LTO, 302 of the 615 handlers push callee-saved registers (against 222 of 629
+  on arm64 that keep a frame).
+- **x86-64 Windows:** already one short. Every handler that dispatches writes the next `Instruction`
+  to the stack before its `jmp` (614 of 615), and with three scratch registers left, 551 of 615 push
+  callee-saved registers. `i32.add` pushes and pops `rsi` and `rdi` on every dispatch (24 instructions
+  on its hot path); on System V it is 19 with no push.
+- **`extern "rust-preserve-none"`** (nightly, feature `rust_preserve_none_cc`, like `become`): 12
+  integer arguments on every x86-64 OS and 23–24 on arm64. No register is callee-saved, so no
+  handler pushes anything. `extern "sysv64"` is stable and gives Windows the System V six.
+
+### A model of where the stack state lives
+
+[`scripts/tos-bench`](../scripts/tos-bench/) holds everything but the stack state fixed:
+- **Handlers:** eight handler kinds (const, local.get, local.set, local.tee, binop, in-place update,
+  load, store), plus the local.set and store that empty the stack, in up to 64 copies each.
+- **Dispatch:** like tinywasm's, `become` through a table, with the executor, instruction slice,
+  instruction pointer and next instruction as arguments.
+- **Program:** 64 random statements (277 dispatches) over 16 locals and a 1024-word heap.
+- **Scaling:** every handler picks one of *m* copies of its kind, so 9 to 171 distinct handlers and
+  19 to 276 handler pairs are in play.
+
+Every variant computes the same checksum:
+
+| variant | the stack's height | its top |
+|---|---|---|
+| `vec` | `Vec` length, in memory (tinywasm today) | in memory |
+| `sp` | handler argument | in memory |
+| `sp_wt` | handler argument | handler argument, written through to its slot; a pop reloads it from the slot below |
+| `sp_wt_nr` | handler argument | as `sp_wt`, but the pops that empty the stack (chosen at parse time, like a fused variant) skip the reload |
+| `sp_wb` / `sp_wb_nr` | handler argument | handler argument, stored only when a push covers it |
+| `tos_flag` | handler argument | cached behind a validity flag: a branch on every push and pop |
+| `vec_tos` | `Vec` length, in memory | handler argument (the shape of `exp/acc`) |
+| `sp_spill` | the ninth integer argument, so passed on the stack | in memory |
+| `sp_wt_pn` | `sp_wt` with `extern "rust-preserve-none"` handlers | |
+| `sp_wt_nr_ni` | `sp_wt_nr` without the Instruction argument: handlers reload their instruction | |
+| `sp_wt_nr_sl` | `sp_wt_nr` with the stack's slice as two more arguments (`rust-preserve-none`) | |
+| `sp_wt_nr_sl_ni` | `sp_wt_nr_sl` without the Instruction argument, under the Rust ABI | |
+
+M4 efficiency cores, cycles per dispatch, median of three interleaved runs:
+
+| handlers (pairs) | 9 (19) | 17 (64) | 32 (140) | 53 (224) | 87 (265) | 130 (273) | 171 (276) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `vec` (today) | 8.38 | 8.12 | 8.52 | 8.50 | 8.49 | 8.57 | 8.65 |
+| `sp` | 5.00 | 5.18 | 5.41 | 5.52 | 5.64 | 5.62 | 5.68 |
+| `sp_wt` | 5.25 | 5.11 | 4.91 | 5.02 | 4.99 | 4.97 | 4.99 |
+| `sp_wt_nr` | 4.52 | 4.48 | 4.77 | 5.03 | 4.84 | 4.63 | 4.66 |
+| `sp_wb` | 4.65 | 4.75 | 4.91 | 4.98 | 4.90 | 4.80 | 4.78 |
+| `sp_wb_nr` | 4.36 | 4.46 | 4.69 | 5.02 | 4.80 | 4.58 | 4.62 |
+| `tos_flag` | 4.66 | 4.81 | 5.27 | 5.67 | 5.60 | 5.00 | 4.93 |
+| `vec_tos` | 8.40 | 8.28 | 8.56 | 8.73 | 8.74 | 8.82 | 9.09 |
+| `sp_spill` | 7.97 | 8.59 | 8.88 | 9.15 | 9.27 | 9.40 | 9.22 |
+| `sp_wt_pn` | 4.76 | 4.87 | 4.94 | 5.02 | 4.94 | 4.95 | 5.10 |
+
+Instructions per dispatch stay within 21.6–24.8 for every variant but `sp_spill` (29), so the
+differences are memory round trips, not work. The numbers move with code layout:
+- In an earlier build, before `S` and `W` were separate kinds, `sp` ran at 5.45–6.81.
+- The top-of-stack variants moved less than 0.4.
+
+CPU Counters on the same cores, one 3 s capture per cell, events per 1,000 dispatches and
+shares of the pipeline slots, at 171 handlers:
+
+| at 171 handlers | `vec` | `sp` | `sp_wt` | `sp_wt_nr` | `sp_wb` | `sp_wb_nr` | `tos_flag` | `vec_tos` | `sp_spill` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| memory-order flushes | 9.8 | 39.1 | 5.6 | **2.2** | 25.8 | 22.0 | 21.7 | 2.0 | 22.7 |
+| branch mispredicts | 2.2 | 1.8 | 1.6 | **1.3** | 1.9 | 1.3 | 1.3 | 2.1 | 4.1 |
+| useful slots | 50.6% | 61.8% | 75.9% | **82.1%** | 71.1% | 75.7% | 75.4% | 49.6% | 58.8% |
+| back-end (processing) | 35.8% | 11.9% | 10.9% | 7.4% | 6.4% | 3.6% | 2.4% | 39.9% | 25.8% |
+| discarded | 4.2% | 16.0% | 4.0% | 2.4% | 12.8% | 12.1% | 10.1% | 1.7% | 5.4% |
+| delivery | 9.4% | 10.3% | 9.2% | 8.1% | 9.7% | 8.6% | 12.1% | 8.8% | 10.0% |
+| execution latency, share of the processing mode | 18.3% | 11.5% | 6.2% | 4.8% | 6.6% | 5.8% | 7.5% | 18.5% | 16.1% |
+
+At 53 handlers the flushes are 9.0 (`vec`), 38.6 (`sp`), 8.3 (`sp_wt`), 2.3 (`sp_wt_nr`), 24.5
+(`sp_wb`), 16.0 (`sp_wb_nr`), 5.2 (`tos_flag`), 2.6 (`vec_tos`) and 21.9 (`sp_spill`) per 1,000
+dispatches.
+
+A second build adds the variants that trade registers. At 171 handlers, with cycles as the median
+of five to ten runs:
+
+| at 171 handlers | `vec` | `sp_wt_nr` | `sp_wt_nr_ni` | `sp_wt_nr_sl` | `sp_wt_nr_sl_ni` |
+|---|---:|---:|---:|---:|---:|
+| integer arguments | 5 | 7 | 6 | 9 | 8 |
+| cycles per dispatch | 8.36 | 4.45 | 4.92 | 4.08 | 4.42 |
+| against `vec` | | −47% | −41% | −51% | −47% |
+| memory-order flushes per 1,000 | 9.8 | 2.1 | 1.4 | 0.05 | 0.01 |
+| branch mispredicts per 1,000 | 1.2 | 0.8 | 1.1 | 0.7 | 0.9 |
+
+The same handlers compiled for x86-64 (release, no LTO). Each cell is the number of stack-slot
+accesses in one binop handler, i.e. arguments passed through memory on every dispatch; arm64 has
+none in any variant but `sp_spill`:
+
+| binop handler | integer arguments | x86-64 System V | x86-64 Windows |
+|---|---:|---:|---:|
+| `vec` (today) | 5 | 0 | 1 (the next `Instruction`) |
+| `sp` | 6 | 0 | 3 |
+| `sp_wt_nr` | 7 | 2 (the top) | 5 |
+| `sp_wt_nr_ni` | 6 | 0 | 4 |
+| `sp_wt_nr_sl_ni` | 8 | 4 | 8 |
+| `sp_wt_pn`, `sp_wt_nr_sl` (`rust-preserve-none`) | 7, 9 | 0 | 0 |
+
+On Windows the Rust-ABI variants also push and pop two to four callee-saved registers per dispatch;
+the `rust-preserve-none` ones push none and are 26 and 25 instructions against 36.
+
+What this says:
+
+1. **The height is the critical path.** With the length in the `Vec`, every stack op makes a
+   store-to-load round trip through memory, and the next handler waits for it.
+   - `vec` runs at 8.1–8.7 cycles per dispatch at every handler count, with 36% of the slots stalled
+     in the back end.
+   - A top register beside that `Vec` changes nothing: `vec_tos` runs at 8.3–9.1, with 40% back end.
+   - That is the shape of `exp/acc`, whose accumulators sat beside the `Vec` stack. It gained nothing
+     either (+6% cycles on xmrsplayer, [above](#upstreams-expacc)).
+2. **The height alone gains 34% but quadruples the flushes.** With the length chain gone, a
+   value-slot load can run ahead of a value-slot store whose address is still being computed: 39
+   flushes per 1,000 dispatches, and 16% of the slots are discarded.
+3. **With the top in a register too, the flushes fall below today's.**
+   - Written through (`sp_wt`): −42%, 5.6 flushes per 1,000 dispatches.
+   - With pops that empty the stack skipping the reload (`sp_wt_nr`): −46%, 2.2 flushes per 1,000
+     (under a quarter of today's) and the fewest mispredicts. 82% of the slots do useful work, against 51%
+     today.
+   - The reload after a statement's last pop is wasted. It reads the slot below the operands (in the
+     model, the last local), which the `local.set` stores race. Removing it cuts the flushes from 5.6 to
+     2.2 per 1,000 at 171 handlers, and from 8.3 to 2.3 at 53.
+4. **Write-back stores less but flushes more** (16–26 per 1,000). It spills the old top in the
+   handler just before the one that reads it back. Write-through stored the value when it was
+   pushed, a dispatch earlier.
+5. **The flag is not the cost it was.**
+   - With the height in a register, `tos_flag` matches write-through at both ends of the range, but
+     is 13% slower at 53 handlers.
+   - Its branches predict well in this model (1.3 mispredicts per 1,000), but it takes a third
+     register and flushes 22 times per 1,000.
+   - The branch-free version needs neither the register nor the branch.
+6. **Over budget is worse than today.** The height as a stack-passed argument (`sp_spill`) runs 7%
+   slower than `vec`: the round trip moves from the `Vec` to the argument slot.
+7. **`rust-preserve-none` costs nothing on arm64** (`sp_wt_pn` 4.79 against `sp_wt` 4.81).
+8. **Dropping the Instruction argument costs 10%.** Handlers that reload their instruction from the
+   slice (`sp_wt_nr_ni`) are still 41% faster than today. That is how x86-64 System V fits the height
+   and the top into its six registers under the Rust ABI.
+9. **The slice in registers ends the flushes.** Two more arguments hold the stack's slice itself, so
+   no slot address waits for the two loads of the base pointer.
+   - `sp_wt_nr_sl`: 0.05 flushes per 1,000 and −51%. The loads never run ahead of a store whose
+     address is unknown, so the dependence predictor has nothing left to learn.
+   - It needs nine arguments. Without the Instruction argument it fits the Rust ABI's eight on arm64:
+     `sp_wt_nr_sl_ni`, −47%.
+   - In tinywasm it would also need the lane moved out of the store while the chain runs, since it
+     cannot be borrowed twice.
+
+### What it means for tinywasm
+
+- **Which lane.** In the opcode histograms of the three real loops, every op listed is either a
+  32-bit-lane op or control flow. The listed ops cover 92.6% of xmrsplayer's dispatches, 80.4% of
+  audio DSP's and 61.6% of graphql's. So the 32-bit lane's height and top are the two registers to add. The 64- and
+  128-bit lanes can stay in memory at first.
+- **Registers.** `Unbudgeted` would use 7 of arm64's 8 integer argument registers and `Bounded` 6.
+  x86-64 System V has 6: with `extern "rust-preserve-none"` (12) nothing spills; with the Rust ABI the
+  handlers would have to stop receiving the next `Instruction` and reload it, which is 10% slower than
+  passing it and 41% faster than today (finding 8). Windows x64 needs `rust-preserve-none` or
+  `sysv64` either way, and it already spills today.
+- **No branch and no new IR.** The top register is valid whenever a handler reads it, because
+  validation already guarantees a non-empty stack there.
+  - Pushes write through, so everything outside the handlers keeps working on the in-memory stack
+    unchanged: calls, returns, host calls, traps, suspension and exceptions. Only the height has to
+    be written back when the chain returns to its run loop (`Switch`, `Complete` and errors).
+  - The one parse-time change: pops that leave the lane empty get variants without the reload, like
+    the existing fused variants. These are the statement-ending `local.set`, `br_if`, stores and
+    `drop`.
+- **Fused ops keep working.** The ones that read locals directly do not touch the stack. The ones
+  on the stack top read and write the register (`BinOpStackConst32`, `AddConst32`, the loads).
+- **The model overstates the gain.** tinywasm's handlers do more per dispatch than the model's ~23
+  instructions, and the fused ops already skip the stack on part of the dispatches, so the real gain
+  will be well below the model's −46%. The test is a prototype on the phones: the height alone
+  first, as the maintainer asked, then the top.
+
 ## Action plan
 
 Ranked by expected effect on xmrsplayer-like guests. The estimates are
@@ -889,7 +1095,7 @@ from the shares above, not measurements.
 | 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | upstream [#74](https://github.com/explodingcamera/tinywasm/pull/74), rebased onto #75 on 2026-09-27: −6.0 / −8.3 / −5.2%. The chain across calls (fork #12) is closed: worth 0.2–0.6% on #75 |
 | 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | measured: −4.5 / −5.3 / −7.2% cycles and −6.8 to −7.3% instructions on A14 / A12 / A13, every row faster; memory, call and return handlers keep their frames | us: safe, no IR change | fork [#13](https://github.com/rebeckerspecialties/tinywasm/pull/13), rebased onto #75: −5.8 / −6.0 / −7.6%, every row faster |
 | 4 | Specialize the hottest generic ops (`BinOpStackConst32` by operator; `LocalGet32` → `LocalGet32`) | 1.7–15.8% of dispatches take a second indirect branch; 13.7% of A14 slots discarded | −3 to −6% on the rows that use them | maintainer's call (IR size) | discussion |
-| 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples; the value stack's length and top go through memory between handlers, which causes the memory-order flushes that grow with every dispatch speedup (audio DSP: 2.7× as frequent as branch mispredicts) | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
+| 5 | The value stack's height and top as handler arguments: the 32-bit lane's height and a written-through top, with pops that empty the lane chosen at parse time to skip the reload | stack moves are 35% of dispatches and 18.5% of samples; the length and top go through memory between handlers, which causes the memory-order flushes that grow with every dispatch speedup (audio DSP: 2.7× as frequent as branch mispredicts). Model on the M4 E-cores: −46% cycles per dispatch and a quarter of the flushes; with the stack's slice in registers too, −51% and no flushes | well below the model's; the only item that can close the gap to WAMR and wasm3 | maintainer's call (discussion #78: he wants the height measured on its own first) | prototype the height, then the top |
 | 6 | Memory operand offsets in the instruction (side-pool `resolve`) | ~2.3% of samples on the byte-hash row | small | maintainer (planned u16 memory index; our #63 was closed) | wait |
 | 7 | NEON `tbl` for `i8x16.shuffle` and `swizzle` | 150–200 scalar instructions each | SIMD rows and femtovg only | opt-in like `simd-x86` | later |
 | 8 | Host-call fast path (ideas 1 and 3) | ~500 instructions per host call | only for guests that call the host per sample | us | if production needs it |
@@ -941,3 +1147,9 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
     launches), `upstream-74-rerun-a12.csv` (a complete rerun on the A12:
     −4.8% cycles geomean against the posted −5.2%), and the M4 runner
     runs.
+  - `registers/`: the value-stack register study ([`scripts/tos-bench`](../scripts/tos-bench/)):
+    - `abi-probe.md`: the argument registers per target and ABI.
+    - `tinywasm-x86-handlers.txt`: pushes and stack arguments of tinywasm's handlers on x86-64.
+    - `sweep.txt`, `sweep-slice.txt` and `sweep-before-final-kinds.txt`: every timing run.
+    - `pmu.jsonl` and `pmu-slice.jsonl`: the counter captures.
+    - `asm/`: where each variant's state lives in machine code per target.

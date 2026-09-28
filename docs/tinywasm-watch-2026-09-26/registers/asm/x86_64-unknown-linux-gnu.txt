@@ -1,0 +1,14 @@
+variant         b: instrs/saved/stack  g: instrs/saved/stack  S: instrs/saved/stack
+vec_tos                        27/1/0                 31/1/0                 30/1/0
+sp_spill                       40/3/6                 40/3/6                 40/3/6
+sp_wb_nr                       27/1/2                 32/1/2                 26/1/1
+sp_wt_nr                       29/1/2                 31/1/1                 26/1/1
+sp_wt_pn                       26/1/0                 29/1/0                 30/1/0
+tos_flag                       38/1/4                 35/1/4                 43/3/4
+sp_wt_nr_ni                    26/1/0                 29/1/0                 25/1/0
+sp_wt_nr_sl                    24/1/0                 26/1/0                 23/1/0
+sp_wt_nr_sl_ni                 34/3/4                 35/3/3                 33/3/4
+sp                             29/1/0                 28/1/0                 29/1/0
+vec                            28/1/0                 29/1/0                 29/1/0
+sp_wb                          27/1/2                 32/1/2                 33/1/2
+sp_wt                          29/1/2                 31/1/1                 32/1/2
