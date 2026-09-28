@@ -590,6 +590,231 @@ The first commit alone costs the loop dispatch 0.3% instructions: its
 handlers share one frame anyway, and the single large loop function
 compiles differently. The second commit more than makes up for it.
 
+## After upstream #75
+
+The maintainer closed #64 and merged his own version of it as
+[#75](https://github.com/explodingcamera/tinywasm/pull/75) (`next`
+`a0ea681`, 2026-09-27). Both pass the executing function's instruction
+slice through the tail-call handlers as an argument, so the fetch of the
+next instruction no longer goes through the executor. They differ in how a
+handler learns that the function changed:
+
+- #64 also passed the function's address through every handler, and every
+  control-flow handler (branches included) loaded `cf.func_addr` and
+  compared it with that argument to decide whether to leave the chain;
+- #75 passes only the slice. The code that changes functions (a call, a
+  return into another function, an exception caught in one) says so by
+  returning `ExecFlow::Switch` instead of `Next`, and the chain returns to
+  its run loop, which clones the new function's handle and borrows its
+  instructions. Branches never pay for it.
+
+### #75 against #64
+
+Both on `d1165c2`, efficiency cores, change in cycles per call, median of
+five interleaved launches per build (a seven-build run: `next`, #64, #75
+and our stack on #75)
+([raw](tinywasm-watch-2026-09-26/after-75/)):
+
+| benchmark | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −2.4% | −2.9% | −1.9% |
+| audio DSP (1000 frames × 512) | −1.1% | −2.6% | −2.3% |
+| graphql-validation (AS) | +0.3% | −1.6% | −2.0% |
+| multi-memory twin: one memory | −2.3% | −2.6% | −2.3% |
+| crc32 (64 KB) | −2.1% | −2.5% | −2.7% |
+| convolution 256×256 | −2.4% | −3.4% | −3.4% |
+| sieve (10000) | +4.2% | −1.1% | +1.0% |
+| bulk_memory (memory.copy/fill) | −0.8% | −1.3% | −1.3% |
+| matmul relaxed-simd FMA | −3.5% | −9.0% | −5.8% |
+| GC binary trees (~130K struct.new) | −0.6% | +0.1% | −0.1% |
+| fib(30) | −0.0% | +0.4% | −0.7% |
+| tail-call FSM (65536 return_call) | −0.0% | −1.2% | −1.2% |
+| call_indirect (200K) | −1.1% | +2.5% | −1.6% |
+| call_ref (200K) | +0.0% | +0.2% | −0.1% |
+| vtable_poly4 (200K) | −0.8% | −0.6% | −0.0% |
+| EH parser, exnref (4096 stmts, 25% throw) | −1.6% | −2.5% | +0.3% |
+| **geomean, cycles** | **−0.9%** | **−1.8%** | **−1.5%** |
+| geomean, instructions | −0.9% | −1.5% | −1.1% |
+| geomean, wall time | −0.8% | −1.4% | −1.2% |
+| rows faster (cycles) | 13/16 | 12/16 | 14/16 |
+
+#75 retires about 1% fewer instructions than #64 and is 0.9–1.8% faster,
+as the maintainer measured. Against `d1165c2`, #64 gives −5.8 / −6.0 /
+−8.2% cycles and #75 −6.6 / −7.6 / −9.6%, but only −1.6 to −3.1%
+instructions. The cycles come from the dispatch's dependency chain, which
+instruction counts do not show. On `d1165c2` every handler reached the
+next handler through four dependent loads before its indirect branch:
+
+```
+ldr x9, [x0, #0x20]        ; executor.func
+ldr x8, [x9, #0x10]        ; func.instructions.ptr
+ldr x2, [x8, x1, lsl #3]   ; the next instruction
+ldr x3, [x8, x9, lsl #3]   ; its handler (x8 = the table, x9 = its opcode)
+br  x3
+```
+
+With the slice in argument registers it is two: the instruction, then its
+handler. On the M4's efficiency cores #75 is −2.0% instructions and
+−10.2% cycles against `d1165c2`.
+
+### Our changes on #75
+
+Every step, geomean change over the 16 rows, from the same seven-build run:
+
+| step | cycles A14 | A12 | A13 | instructions A14 | A12 | A13 |
+|---|---:|---:|---:|---:|---:|---:|
+| #64 on `d1165c2` | −5.8% | −6.0% | −8.2% | −1.8% | −1.6% | −1.9% |
+| #75 (`a0ea681`) | −6.6% | −7.6% | −9.6% | −2.7% | −3.1% | −3.0% |
+| #75 against #64 | −0.9% | −1.8% | −1.5% | −0.9% | −1.5% | −1.1% |
+| #74, rebased | −6.0% | −8.3% | −5.2% | −4.4% | −4.6% | −4.2% |
+| chain, on #74 | −0.2% | −0.2% | −0.6% | −0.8% | −0.7% | −0.7% |
+| frameless (#13), rebased | −5.8% | −6.0% | −7.6% | −7.2% | −7.2% | −7.2% |
+| frameless, on #74 + chain | −6.8% | −7.1% | −8.6% | −7.5% | −7.6% | −7.5% |
+| #74 + chain + frameless | −12.6% | −15.0% | −13.8% | −12.4% | −12.4% | −12.0% |
+| the same against `d1165c2` | −18.4% | −21.5% | −22.1% | −14.7% | −15.1% | −14.7% |
+
+All of it against #75, per row:
+
+| benchmark | A14 | A12 | A13 |
+|---|---:|---:|---:|
+| xmrsplayer (1024-frame buffer) | −13.4% | −14.0% | −17.8% |
+| audio DSP (1000 frames × 512) | −4.3% | −6.8% | −9.4% |
+| graphql-validation (AS) | −9.1% | −12.1% | −14.0% |
+| multi-memory twin: one memory | −11.0% | −8.6% | −11.2% |
+| crc32 (64 KB) | −9.8% | −8.9% | −10.5% |
+| convolution 256×256 | −3.7% | −6.0% | −6.9% |
+| sieve (10000) | −14.3% | −8.6% | −14.1% |
+| bulk_memory (memory.copy/fill) | −8.7% | −7.7% | −8.9% |
+| matmul relaxed-simd FMA | −5.0% | −8.3% | −6.0% |
+| GC binary trees (~130K struct.new) | −1.8% | −4.5% | −3.3% |
+| fib(30) | −12.3% | −12.9% | −12.5% |
+| tail-call FSM (65536 return_call) | −21.5% | −21.5% | −20.0% |
+| call_indirect (200K) | −18.1% | −24.7% | −20.2% |
+| call_ref (200K) | −20.8% | −29.9% | −19.4% |
+| vtable_poly4 (200K) | −19.0% | −24.0% | −19.5% |
+| EH parser, exnref (4096 stmts, 25% throw) | −23.9% | −32.9% | −24.4% |
+| **geomean, cycles** | **−12.6%** | **−15.0%** | **−13.8%** |
+| geomean, instructions | −12.4% | −12.4% | −12.0% |
+| geomean, wall time | −12.6% | −15.0% | −14.2% |
+| rows faster (cycles) | 16/16 | 16/16 | 16/16 |
+
+#74 needed a real rebase: it and #75 both change how the dispatch learns that
+the function changed. On #75, a call or return within the instance returns
+`Switch` and goes back to #75's loop, which now borrows the new function's
+instructions from the instance instead of cloning its handle; leaving the
+instance returns `Complete` with #74's `left` set. #75 made each call and
+return about 16 instructions dearer (a loop calling a one-line function: 397
+instructions per iteration on `d1165c2`, 413 on #75); #74 takes it to 323.
+Continuing the chain across calls instead of going back to the loop (#12's
+idea) is worth only 0.2–0.6% once the loop no longer clones the handle, so
+it was dropped.
+
+### iPhone 12 PMU
+
+The guided CPU Counters modes on the iPhone 12 (A14) efficiency cores,
+one 6 s capture per build, workload and mode: pipeline slots, front-end
+delivery, all and conditional branch mispredicts with memory-order flushes,
+indirect / call / return mispredicts, L1D, and L1I with the iTLB. A
+capture's rate per cycle times the row's median cycles per call (the
+timing run above, same builds, same phone) gives a count per call. Counts
+from different modes of the same build come from different captures and
+can differ by about 10%
+([raw](tinywasm-watch-2026-09-26/after-75/iphone12-pmu/)).
+
+Cycles per call (millions) by where they went, and counts per call. “#75 +
+ours” is #75 with #74, the chain commit and both frameless commits:
+
+| workload | build | cycles | useful | back end | front end | discarded | mispredicts | memory-order flushes |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| xmrsplayer | `d1165c2` | 43.4 | 30.3 | 3.5 | 3.0 | 6.5 | 322 k | 1.6 k |
+|  | #75 | 39.5 | 29.3 | 2.2 | 3.2 | 4.8 | 273 k | 7.7 k |
+|  | #75 + ours | 34.2 | 23.4 | 2.2 | 3.4 | 5.2 | 253 k | 13.4 k |
+| graphql (AS) | `d1165c2` | 35.1 | 21.1 | 2.6 | 3.3 | 8.1 | 353 k | 0.8 k |
+|  | #75 | 32.3 | 20.6 | 2.0 | 3.0 | 6.6 | 373 k | 3.1 k |
+|  | #75 + ours | 29.3 | 17.6 | 1.6 | 3.1 | 7.0 | 361 k | 7.0 k |
+| call_indirect | `d1165c2` | 61.8 | 40.6 | 9.7 | 1.7 | 9.9 | 389 k | 0.1 k |
+|  | #75 | 59.9 | 41.6 | 8.2 | 2.3 | 7.8 | 386 k | 1.3 k |
+|  | #75 + ours | 49.0 | 32.5 | 6.4 | 1.7 | 8.5 | 322 k | 1.8 k |
+| fib(30) | `d1165c2` | 280.6 | 237.9 | 12.5 | 9.4 | 20.9 | 744 k | 0.5 k |
+|  | #75 | 262.3 | 228.6 | 7.3 | 8.0 | 18.4 | 744 k | 0.5 k |
+|  | #75 + ours | 230.0 | 196.1 | 8.3 | 7.5 | 18.1 | 663 k | 0.4 k |
+| audio DSP | `d1165c2` | 2,857 | 2,437 | 345.9 | 52.5 | 22.1 | 740 k | 460 k |
+|  | #75 | 2,627 | 2,290 | 256.6 | 45.7 | 34.7 | 705 k | 1,084 k |
+|  | #75 + ours | 2,513 | 2,042 | 345.9 | 67.5 | 58.1 | 691 k | 1,891 k |
+
+- #75 is a latency change. Back-end stalls drop on every workload (by 36%
+  on xmrsplayer, 42% on fib), and mispredicts per call drop on xmrsplayer
+  (−15%), for about 3% fewer instructions overall.
+- Our changes on #75 are mostly instructions: useful-work cycles drop
+  11–22% per call on every workload, and mispredicts per call drop on all
+  five (by 17% on call_indirect, 11% on fib). The front end is flat except
+  on audio DSP (+22 M cycles per call).
+- One front goes the wrong way on every dispatch speedup: memory-order
+  flushes. They grow 2.4–4.8× per call with #75 and another 1.7–2.3× with
+  our changes on xmrsplayer, graphql and audio DSP.
+  On audio DSP, the loop closest to the production audio app, they are
+  2.7× as frequent as branch mispredicts (1.9 M against 0.7 M per call),
+  and its back-end stalls return to `d1165c2`'s level.
+
+Per change, on the three workloads that have every build:
+
+| change (per call) | cycles | instructions | mispredicts | memory-order flushes |
+|---|---|---|---|---|
+| #75 against #64 | −2.4 / +0.3 / −1.1% | −1.1 / −1.0 / −0.1% | −7.8 / +1.5 / −1.4% | +148 / +35 / −1% |
+| #74 on #75 | −3.6 / −3.5 / −12.7% | −3.7 / −4.1 / −10.9% | −3.7 / −1.4 / −16.4% | −1 / +26 / +202% |
+| frameless on #75 | −5.5 / −4.6 / −2.9% | −11.9 / −9.0 / −5.0% | +4.7 / −1.1 / −0.7% | +72 / +47 / −84% |
+
+(xmrsplayer / graphql / call_indirect; call_indirect's flush counts are in
+the hundreds per call.)
+
+Where the flushes come from: the M4's efficiency cores show the same
+ratio on audio DSP (837 flush samples against 305 branch-mispredict samples
+at the same sampling period, all on E cores), and their samples carry
+backtraces. 51% of the flushes are in `BinOpStackConst32`, 17% in
+`I32Add`, 10% in `AddConst32` and 5% in `Const32`; by source line, 62% at
+the in-place write of the stack top (`Stack::set`), 28% in `Vec::push` and
+9% in `Vec::pop`. Each handler stores the value-stack length and top, and
+the next handler loads them again. The likely reason this flushes so often:
+every handler inlines its own copy of that code, so the store and the load
+that alias are a different pair of PCs for every pair of opcodes, which
+leaves the memory-dependence predictor little to learn from, and the faster
+the dispatch, the earlier the next handler's load issues.
+On the same capture, 77% of the branch mispredicts are one conditional
+branch, `IncLocalJump32`'s loop test: the guest's loop exits, which every
+loop that uses that superinstruction shares.
+
+### What #75 means for what comes next
+
+- The maintainer takes ideas and re-implements them in his idiom, small and
+  typed: the function switch became an `ExecFlow` variant rather than a
+  check in every handler, and he credited the original. Proposals that come
+  with the measurements and a sketch fit that better than large branches.
+- Count latency, not only instructions. #75 cut about 3% of the
+  instructions and 7–10% of the cycles by removing loads from the dispatch's dependency
+  chain; the inlined memory helpers (frameless, second commit) removed 4.9%
+  of xmrsplayer's instructions for 0.4–2.4% of its cycles.
+- The next latency win of #75's kind is the value stack. The simple
+  handlers reach it through the executor and the store (two dependent loads)
+  and store its length back on every op: about 7 of the 23 instructions of
+  `i32.add` on our stack, and the source of the memory-order flushes that
+  grow with every dispatch speedup. Passing the stack's length (or a top
+  pointer) through the handlers the way #75 passes the instruction slice
+  would take both out; it is the register-operand work of the maintainer's
+  `acc` branch, and these numbers are the case for it.
+- Mispredicts stay the largest loss on the dispatch-heavy workloads
+  (xmrsplayer, graphql, call_indirect: 15–24% of the slots). Faster handlers
+  do not touch them; fewer dispatches do (fusion and specialization, plan
+  item 4, and register operands, item 5).
+- Measurement: audio DSP gets one sample per launch (one ~1.8 s call per
+  2 s window), so its "median of five" is five single calls; it needs the
+  one-buffer-per-call shape xmrsplayer already has. matmul's instruction
+  counts move up to 12.6% between launches of the same build (the process
+  counters include other threads), so it should stay out of geomeans until
+  the harness counts only the benchmark thread. The small kernels (crc32,
+  convolution, sieve) have 47–2,600 samples per launch and mostly under 2%
+  spread within a build, but move 1–5% between builds with the same
+  instruction counts (code layout), which more data cannot fix.
+
 ## Action plan
 
 Ranked by expected effect on xmrsplayer-like guests. The estimates are
@@ -597,11 +822,11 @@ from the shares above, not measurements.
 
 | # | change | evidence | estimate | owner | status |
 |---|---|---|---|---|---|
-| 1 | Land #64 and #72 | −8.8% cycles together on A14 E-cores; #64 alone −5.7 / −7.4 / −8.2% on A14 / A12 / A13 | measured | us | upstream review |
-| 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | upstream [#74](https://github.com/explodingcamera/tinywasm/pull/74) (fork #11, remeasured on `next` `d1165c2`: −4.9 / −5.2 / −4.0%); fork [#12](https://github.com/rebeckerspecialties/tinywasm/pull/12) waits on #64 |
-| 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | measured: −4.5 / −5.3 / −7.2% cycles and −6.8 to −7.3% instructions on A14 / A12 / A13, every row faster; memory, call and return handlers keep their frames | us: safe, no IR change | branch `perf/frameless-handlers` (two commits on `next`) |
+| 1 | Land #64 and #72 | −8.8% cycles together on A14 E-cores; #64 alone −5.7 / −7.4 / −8.2% on A14 / A12 / A13 | measured | us | #72 merged; #64 closed, replaced by the maintainer's [#75](https://github.com/explodingcamera/tinywasm/pull/75) (merged 2026-09-27; −6.6 / −7.6 / −9.6% cycles, 0.9–1.8% faster than #64) |
+| 2 | Cheaper wasm calls and returns: the executor borrows the executing function from its instance (no refcount updates), a same-module direct-call path, unused value-stack lanes skipped, and #64's chain kept across calls within an instance | 14% of xmrsplayer samples; 391 → 310 instructions per call and return | measured: −4.5 to −5.3% cycles alone; −6.4 to −9.4% on top of #64 + #72 (xmrsplayer −4.7 to −5.9%, call-heavy rows −13 to −33%) | us: safe, no IR change | upstream [#74](https://github.com/explodingcamera/tinywasm/pull/74), rebased onto #75 on 2026-09-27: −6.0 / −8.3 / −5.2%. The chain across calls (fork #12) is closed: worth 0.2–0.6% on #75 |
+| 3 | Frameless handlers: cold paths `become` a shared cold handler instead of calling panics or boxing an error; inline the `exec_load_local` helpers | 4.1 frame instructions per op; 19.5% of samples in local-address loads that each call a helper | measured: −4.5 / −5.3 / −7.2% cycles and −6.8 to −7.3% instructions on A14 / A12 / A13, every row faster; memory, call and return handlers keep their frames | us: safe, no IR change | fork [#13](https://github.com/rebeckerspecialties/tinywasm/pull/13), rebased onto #75: −5.8 / −6.0 / −7.6%, every row faster |
 | 4 | Specialize the hottest generic ops (`BinOpStackConst32` by operator; `LocalGet32` → `LocalGet32`) | 1.7–15.8% of dispatches take a second indirect branch; 13.7% of A14 slots discarded | −3 to −6% on the rows that use them | maintainer's call (IR size) | discussion |
-| 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
+| 5 | Operands in registers (`exp/acc`) | stack moves are 35% of dispatches and 18.5% of samples; the value stack's length and top go through memory between handlers, which causes the memory-order flushes that grow with every dispatch speedup (audio DSP: 2.7× as frequent as branch mispredicts) | the only item that can close the gap to WAMR and wasm3 | maintainer | share the `exp/acc` table |
 | 6 | Memory operand offsets in the instruction (side-pool `resolve`) | ~2.3% of samples on the byte-hash row | small | maintainer (planned u16 memory index; our #63 was closed) | wait |
 | 7 | NEON `tbl` for `i8x16.shuffle` and `swizzle` | 150–200 scalar instructions each | SIMD rows and femtovg only | opt-in like `simd-x86` | later |
 | 8 | Host-call fast path (ideas 1 and 3) | ~500 instructions per host call | only for guests that call the host per sample | us | if production needs it |

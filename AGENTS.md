@@ -109,21 +109,27 @@ Pick this up cold without re-deriving state:
     [#72](https://github.com/explodingcamera/tinywasm/pull/72),
     shared-memory locking out of line with atomics keeping the lock
     inline. #72's shared-memory cost and references to other runtimes
-    are in the watch report. Upstream `next` is now `d1165c2`; the
-    harness still pins `693d590c`.
+    are in the watch report. The harness still pins `693d590c`.
+  - 2026-09-27: the maintainer closed #64 and merged his own version as
+    [#75](https://github.com/explodingcamera/tinywasm/pull/75) (`next`
+    `a0ea681`, Matt co-author). #75 passes only the instruction slice
+    through the handlers. A call, return or exception that changes the
+    function returns `ExecFlow::Switch` to a run loop, where #64 compared
+    `cf.func_addr` in every control-flow handler. #75 vs #64: −0.9 /
+    −1.8 / −1.5 % cycles (A14 / A12 / A13). See the watch report's *After
+    upstream #75*.
   - Fork PRs with no upstream counterpart yet, or waiting upstream:
     - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
       closed by the maintainer, who plans his own memory operand
       encoding) and [#64](https://github.com/explodingcamera/tinywasm/pull/64)
-      (borrow the instruction stream). #64 was remeasured on 2026-09-26
-      against `next`: −5.7 / −7.4 / −8.2 % cycles on the A14 / A12 / A13
-      E-cores. Rows that switch functions on every call are up to +6 % on
-      the A12, and the exnref parser +3–13 %. The PR carries the table.
+      (borrow the instruction stream). #64 was closed on 2026-09-27 in
+      favor of #75 (above).
     - [#11](https://github.com/rebeckerspecialties/tinywasm/pull/11)
       (`perf/cheaper-calls`), upstream as
       [explodingcamera/tinywasm#74](https://github.com/explodingcamera/tinywasm/pull/74)
-      (rebased onto `d1165c2`, remeasured −4.9 / −5.2 / −4.0 %; the
-      description is the user's with the table updated): the executor borrows the
+      (rebased onto #75 on 2026-09-27 as `perf/cheaper-calls` `8370a09`:
+      −6.0 / −8.3 / −5.2 %; the description is the user's with the table
+      updated): the executor borrows the
       executing function and module from the instance, which
       `InterpreterRuntime` holds for the run, so calls and returns inside
       an instance make no refcount updates; leaving the instance (import,
@@ -138,9 +144,12 @@ Pick this up cold without re-deriving state:
       plus a commit that keeps #64's borrowed chain across calls within an
       instance. −6.4 / −9.4 / −6.4 % against that base, and the whole stack
       −13.8 / −16.5 / −16.0 % against `next` with every row faster
-      (xmrsplayer −16 to −20 %). Upstreaming waits on #64.
-    - Plan item 3, frameless handlers: branch `perf/frameless-handlers`
-      (local, two commits on `next` `d1165c2`, not yet a fork PR). The
+      (xmrsplayer −16 to −20 %). Closed 2026-09-27: on #75 plus #74 the
+      chain is worth only −0.2 to −0.6 %.
+    - Plan item 3, frameless handlers: fork
+      [#13](https://github.com/rebeckerspecialties/tinywasm/pull/13)
+      (`perf/frameless-handlers`, rebased onto #75: −5.8 / −6.0 / −7.6 %,
+      every row faster). The
       tail-call handlers `become` their mismatch and fetch panics, and
       impossible value-stack and global accesses stop through
       `invariant_violated` (`core::intrinsics::abort` in release
@@ -148,10 +157,14 @@ Pick this up cold without re-deriving state:
       reservation), and the five memory helpers that were out of line are
       now inlined. 444 of 615 handlers are frameless (1 on `next`).
       −4.5 / −5.3 / −7.2 % cycles on the A14 / A12 / A13 E-cores, every
-      row faster; on the M4 it is −5.7 % cycles, and −10.8 % together
-      with #74. Memory, call and return handlers keep their frames.
-      `perf/frameless-on-calls` is the same on top of #74, used only to
-      measure the combination.
+      row faster, on `d1165c2`. Memory, call and return handlers keep
+      their frames. Local `rebase/*-on-75` branches hold every rebase.
+    - iPhone 12 PMU of the stack on #75 (watch report): gains are mostly
+      instructions. Memory-order flushes grow with each dispatch speedup.
+      On audio DSP they are 2.7× as frequent as branch mispredicts. The
+      cause is the value stack's length/top round trips between handlers
+      (M4 sampling: `BinOpStackConst32`, `I32Add`, `Stack::set` /
+      `Vec::push`). That is the evidence for register operands (`acc`).
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
@@ -206,7 +219,8 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-m4-pass.sh <out>` — M4 E-core N=10 (matrix + femtovg E2E + CM async)
   - `./scripts/run-device-pass.sh <out>` — iPhone N=10, one runtime per launch (`E2E=0,1` for the femtovg E2E)
   - `./scripts/run-m4-pmu-pass.sh <out>` — M4 PMU per runtime × workload (`RUNTIMES_LIST=` / `MODES=` narrow it; the 2026-09 report profiles tinywasm only), never alongside a timing pass
-  - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode
+  - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode (deletes each capture's `.ktrace`; `KEEP_XML=1` keeps the counter exports; check `devicectl device info details` for `Transport Type: wired`: over the network each capture takes 2–8 min instead of ~40 s)
+  - `scripts/pmu_per_call.py <pmu-root> <timing.csv> <steps>` — per-call counter changes between A/B builds (one `run-device-pmu.sh` directory per build + the A/B's `--csv`); `scripts/pmi_by_handler.py <samples.xml> [event]` — a sampling mode's samples (`SamplingModeSamples` export) by tinywasm handler and source line
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
   - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...> [--metric wall]` — interleaved A/B of tinywasm revisions on the iPhone (`UDID=` / `DEVICE_NAME=` pick the phone; one run per phone can go in parallel)
