@@ -19,7 +19,9 @@ best=max((json.loads(l) for l in sys.stdin), key=lambda d: d["cycles"])
 mode,kern,k,order,line=sys.argv[1:6]
 m=re.search(r"([0-9.]+) instr/dispatch, ([0-9.]+) cycles/dispatch", line)
 print(json.dumps({"mode":mode,"kernel":kern,"k":int(k),"order":order,"instr_per_dispatch":float(m.group(1)),"cycles_per_dispatch":float(m.group(2)),"cap_cycles":best["cycles"],"counts":best["counts"],"fractions":best["fractions"],"weights":best["weights"]}))' $mode $kern $k $order "$line" >> $OUT
-  rm -rf $S/cap.trace $S/cap.xml "$KT"/instruments*.ktrace
+  rm -rf $S/cap.trace $S/cap.xml
+  # xctrace leaves its kernel trace behind; leave the ones another process still holds
+  for f in "$KT"/instruments*.ktrace; do [ -e "$f" ] && [ -z "$(lsof -t "$f" 2>/dev/null)" ] && rm -f "$f"; done
   echo "done $mode $kern $k $order: $line"
 }
 for k in 16 20 24 28 32 40; do run bottleneck:discarded_sampling u $k cyclic; done

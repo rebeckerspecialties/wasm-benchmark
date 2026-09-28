@@ -24,7 +24,8 @@
 # Disk: xctrace also writes a raw kernel trace (instruments*.ktrace in the
 # user temp dir, up to ~100 MB/s of recording, more while devicectl
 # streams) and never deletes it, so each capture's .ktrace is deleted with
-# its trace, and the run stops when free space drops below MIN_FREE_GB.
+# its trace (other tools' open ones are left alone), and the run stops when
+# free space drops below MIN_FREE_GB.
 #
 # Usage: scripts/run-device-pmu.sh <out-dir>
 #   UDID=00008101-000A044A3C28801E (iPhone 12; devicectl and xctrace IDs match)
@@ -51,6 +52,16 @@ BENCH_TARGET_MS="${BENCH_TARGET_MS:-30000}"
 MIN_FREE_GB="${MIN_FREE_GB:-3}"
 KEEP_XML="${KEEP_XML:-0}"
 KTRACE_DIR="$(getconf DARWIN_USER_TEMP_DIR)"
+
+# Deletes xctrace's leftover kernel traces, but not one a process still holds: another tool's
+# recording in progress (Instruments, other agents) writes its own instruments*.ktrace here.
+rm_ktraces() {
+  local f
+  for f in "${KTRACE_DIR}"/instruments*.ktrace; do
+    [[ -e "${f}" && -z "$(lsof -t "${f}" 2>/dev/null)" ]] && rm -f "${f}"
+  done
+  return 0
+}
 mkdir -p "${OUT}/logs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
@@ -110,7 +121,7 @@ for rt in ${RUNTIMES_LIST}; do
       stop_app
       if [[ ! -d "${trace}" ]]; then
         echo "[fail] ${label}: no trace"
-        rm -rf "${KTRACE_DIR}"/instruments*.ktrace
+        rm_ktraces
         continue
       fi
       if [[ "${mode}" == timeprofile ]]; then
@@ -134,7 +145,8 @@ for l in sys.stdin: print(json.dumps({"workload": sys.argv[1], **json.loads(l)})
       fi
       echo "[ok] ${label} $(du -sh "${trace}" | cut -f1)," \
         "ktrace $(du -shc "${KTRACE_DIR}"/instruments*.ktrace 2>/dev/null | tail -1 | cut -f1), free $(df -h / | awk 'NR==2{print $4}')"
-      rm -rf "${trace}" "${TMP}/${label}.xml" "${KTRACE_DIR}"/instruments*.ktrace
+      rm -rf "${trace}" "${TMP}/${label}.xml"
+      rm_ktraces
     done
   done
 done

@@ -61,6 +61,16 @@ BENCH_TARGET_MS="${BENCH_TARGET_MS:-100}"
 PARTS=" ${PARTS:-matrix e2e} "
 E2E_FRAMES="${E2E_FRAMES:-31}"
 KTRACE_DIR="$(getconf DARWIN_USER_TEMP_DIR)"
+
+# Deletes xctrace's leftover kernel traces, but not one a process still holds: another tool's
+# recording in progress (Instruments, other agents) writes its own instruments*.ktrace here.
+rm_ktraces() {
+  local f
+  for f in "${KTRACE_DIR}"/instruments*.ktrace; do
+    [[ -e "${f}" && -z "$(lsof -t "${f}" 2>/dev/null)" ]] && rm -f "${f}"
+  done
+  return 0
+}
 # Case groups, one capture each: every case but audio_dsp and sqlite3, then
 # audio_dsp alone (5-6 s per call on the slowest runtimes).
 GROUP_A="$(python3 -c '
@@ -103,7 +113,8 @@ capture() {  # label mode e2e_case cmd... ; exports + summarizes, deletes the tr
   python3 scripts/pmu_summarize.py "${xml}" "${rt}" "${mode}" "${e2e_case}" >> "${OUT}/pmu.jsonl"
   echo "[pmu] ${label}: $(( $(date +%s) - t0 ))s, trace $(du -sh "${trace}" 2>/dev/null | cut -f1)," \
     "ktrace $(du -shc "${KTRACE_DIR}"/instruments*.ktrace 2>/dev/null | tail -1 | cut -f1), free $(df -h / | awk 'NR==2{print $4}')"
-  rm -rf "${trace}" "${xml}" "${KTRACE_DIR}"/instruments*.ktrace
+  rm -rf "${trace}" "${xml}"
+  rm_ktraces
 }
 
 echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ) git: $(git rev-parse --short HEAD) modes: ${MODES}" \
