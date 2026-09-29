@@ -102,6 +102,8 @@ for rt in ${RUNTIMES_LIST}; do
     ws="$(slug "${wl}")"
     for mode in ${rt_modes}; do
       label="${rt}-${ws}-${mode//:/_}"
+      # Orphaned traces from an interrupted run count against the limit too.
+      rm_ktraces
       free_gb=$(df -g / | awk 'NR==2{print $4}')
       if (( free_gb < MIN_FREE_GB )); then
         echo "[stop] ${label}: ${free_gb} GB free, below ${MIN_FREE_GB}"
