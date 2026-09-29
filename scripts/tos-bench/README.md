@@ -4,7 +4,8 @@ Where should an interpreter keep its operand stack's height and top between tail
 handlers, and what does each choice cost in registers? (watch report, "Registers for the value
 stack"; tinywasm discussion #78)
 
-`gen.py` writes `src/main.rs`. Every variant implements the same stack-machine handlers in up to
+`gen.py` writes `src/lib.rs` (the variants, `program` and `run`) and `src/main.rs` (the macOS
+CLI). Every variant implements the same stack-machine handlers in up to
 64 copies each:
 - `c` const, `g` local.get, `s` local.set, `t` local.tee;
 - `b` binop, `u` in-place update, `l` load, `w` store;
@@ -57,3 +58,24 @@ keeps a foreign target's link from failing):
 
 `abi_probe.py <work dir>` counts, per target and calling convention, how many integer and float
 arguments arrive in registers.
+
+## On the phones
+
+`build-ios.sh` builds the iOS app with benchmark-core's `tos-model` feature into
+`apps/build/DerivedData-tw-tosb`. The feature turns every variant into `tos-bench <variant> (m=<copies>)`
+cases of 554,000 dispatches per call, which run under any engine:
+
+    scripts/tos-bench/build-ios.sh
+    REPS=5 WORKLOADS="tos-bench" UDID=<udid> DEVICE_NAME=<name> scripts/tinywasm-ab-iphone.sh <out> tosb
+    python3 scripts/tinywasm_ab_summary.py <out> tosb --csv <out>.csv
+    python3 scripts/tos-bench/device_table.py <out>.csv
+
+On the iPhone 12, the CPU Counters come from `scripts/run-device-pmu.sh` with one row per case:
+
+    UDID=00008101-000A044A3C28801E RUNTIMES_LIST=tinywasm CAPTURE_MS=6000 BENCH_TARGET_MS=8000 \
+      WORKLOADS_LIST="tos-bench vec (m=64);tos-bench sp_wt_nr (m=64)" \
+      MODES="bottleneck:discarded_sampling bottleneck:bottlenecks" scripts/run-device-pmu.sh <pmu-out>
+    python3 scripts/tos-bench/device_pmu_table.py <pmu-out>/pmu.jsonl <out>.csv
+
+A launch stalls if another tool brings its own app to the foreground on the phone. The launcher
+then waits for its timeout, so end the stalled launch and rerun the cases it missed.

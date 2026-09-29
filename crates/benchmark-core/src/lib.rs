@@ -2142,7 +2142,7 @@ pub unsafe extern "C" fn bench_run_case(
             anyhow::bail!("null case id");
         }
         let id = unsafe { std::ffi::CStr::from_ptr(case_id) }.to_string_lossy();
-        let case = cases::CASES
+        let case = cases::all()
             .iter()
             .find(|c| c.id == id)
             .ok_or_else(|| anyhow::anyhow!("unknown case id `{id}`"))?;

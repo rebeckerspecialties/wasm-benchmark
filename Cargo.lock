@@ -163,6 +163,7 @@ dependencies = [
  "pollster 0.4.0",
  "serde_json",
  "tinywasm",
+ "tos-bench",
  "wasmtime",
  "wat",
  "wgpu",
@@ -3171,6 +3172,10 @@ checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "tos-bench"
+version = "0.1.0"
 
 [[package]]
 name = "tracing"

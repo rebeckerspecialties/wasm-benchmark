@@ -20,6 +20,9 @@ pub enum Shape {
     /// + call is timed, teardown is not. For features whose hot path runs
     /// at instantiation (extended constant expressions).
     InstantiateEach,
+    /// No wasm: scripts/tos-bench's model, variant `func` with `arg` handler copies
+    /// (feature `tos-model`). Runs the same on every runtime.
+    TosModel,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -244,6 +247,7 @@ pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
     let r = match case.shape {
         Shape::I32ToI32 => run_workload_with(rt, case.wasm, case.func, case.arg),
         Shape::InstantiateEach => run_instantiate_each_with(rt, case.wasm, case.func, case.arg),
+        Shape::TosModel => run_tos_model(case.func, case.arg as usize),
         Shape::Sqlite3 => match rt {
             Runtime::Pulley => sqlite3::run_sqlite3(case.wasm),
             _ => Err(anyhow!(
@@ -261,4 +265,48 @@ pub fn run_case(rt: Runtime, case: &Case) -> Result<RunReport> {
         }
     }
     Ok(r)
+}
+
+/// Iterations of the tos-bench program per timed call: its 277 dispatches each, so 554,000
+/// dispatches per call.
+pub const TOS_MODEL_ITERS: u64 = 2000;
+
+#[cfg(feature = "tos-model")]
+fn run_tos_model(variant: &str, copies: usize) -> Result<RunReport> {
+    let (prog, _) = tos_bench::program(copies, 64, 0x5eed);
+    measure_calls(std::time::Duration::ZERO, 0, || {
+        tos_bench::run(variant, &prog, TOS_MODEL_ITERS)
+            .map(|checksum| checksum as i32)
+            .ok_or_else(|| anyhow!("unknown tos-bench variant `{variant}`"))
+    })
+}
+
+#[cfg(not(feature = "tos-model"))]
+fn run_tos_model(_variant: &str, _copies: usize) -> Result<RunReport> {
+    Err(anyhow!("N/A: built without the `tos-model` feature"))
+}
+
+/// Every case the app and the CLIs offer: `CASES`, plus the tos-bench model's
+/// `tos-bench <variant> (m=<copies>)` cases with the `tos-model` feature.
+pub fn all() -> &'static [Case] {
+    #[cfg(feature = "tos-model")]
+    {
+        static ALL: std::sync::OnceLock<Vec<Case>> = std::sync::OnceLock::new();
+        ALL.get_or_init(|| {
+            let mut all = CASES.to_vec();
+            for &variant in tos_bench::VARIANTS {
+                for copies in [1, 2, 4, 8, 16, 32, 64] {
+                    let id: &'static str = Box::leak(format!("tosb.{variant}.{copies}").into_boxed_str());
+                    let label: &'static str =
+                        Box::leak(format!("tos-bench {variant} (m={copies})").into_boxed_str());
+                    all.push(Case { id, label, wasm: &[], func: variant, arg: copies, expected: None, shape: Shape::TosModel });
+                }
+            }
+            all
+        })
+    }
+    #[cfg(not(feature = "tos-model"))]
+    {
+        CASES
+    }
 }
