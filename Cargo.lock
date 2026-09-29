@@ -3119,7 +3119,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 [[package]]
 name = "tinywasm"
 version = "0.11.0"
-source = "git+https://github.com/explodingcamera/tinywasm?rev=693d590ca812bb0f301dd3acaf9235251ffa10de#693d590ca812bb0f301dd3acaf9235251ffa10de"
+source = "git+https://github.com/explodingcamera/tinywasm?rev=a0ea6817adcb2338dbc986aced9cc1001efc3f7b#a0ea6817adcb2338dbc986aced9cc1001efc3f7b"
 dependencies = [
  "libm",
  "tinywasm-parser",
@@ -3129,7 +3129,7 @@ dependencies = [
 [[package]]
 name = "tinywasm-parser"
 version = "0.11.0"
-source = "git+https://github.com/explodingcamera/tinywasm?rev=693d590ca812bb0f301dd3acaf9235251ffa10de#693d590ca812bb0f301dd3acaf9235251ffa10de"
+source = "git+https://github.com/explodingcamera/tinywasm?rev=a0ea6817adcb2338dbc986aced9cc1001efc3f7b#a0ea6817adcb2338dbc986aced9cc1001efc3f7b"
 dependencies = [
  "tinywasm-types",
  "wasmparser 0.259.0",
@@ -3138,7 +3138,7 @@ dependencies = [
 [[package]]
 name = "tinywasm-types"
 version = "0.11.0"
-source = "git+https://github.com/explodingcamera/tinywasm?rev=693d590ca812bb0f301dd3acaf9235251ffa10de#693d590ca812bb0f301dd3acaf9235251ffa10de"
+source = "git+https://github.com/explodingcamera/tinywasm?rev=a0ea6817adcb2338dbc986aced9cc1001efc3f7b#a0ea6817adcb2338dbc986aced9cc1001efc3f7b"
 dependencies = [
  "serde",
 ]
