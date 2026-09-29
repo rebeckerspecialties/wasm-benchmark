@@ -6,7 +6,7 @@
 // where the reference is the typical engine on an iPhone XS
 // (crates/benchmark-core/src/score_reference.rs). A benchmark the engine
 // cannot run (an error, a trap, a wrong result, or a known failure the app
-// does not attempt) scores -5. An engine's score is the mean of its
+// does not attempt) scores -10. An engine's score is the mean of its
 // benchmark scores, so every benchmark it cannot run costs it.
 
 import Foundation
@@ -216,7 +216,7 @@ enum Outcome: Hashable, Sendable {
 
 enum Scoring {
     /// A failed benchmark's score.
-    static let failurePenalty: Double = -5
+    static let failurePenalty: Double = -10
 
     /// 100 x reference / median; nil without a reference or a measurable time.
     static func score(_ m: Measurement, reference: Double?) -> Double? {
@@ -248,7 +248,7 @@ struct Standing: Hashable, Sendable {
 // MARK: - Formatting
 
 enum Format {
-    /// Whole numbers from 10 up ("1,234") and for whole values ("−5"), two
+    /// Whole numbers from 10 up ("1,234") and for whole values ("−10"), two
     /// significant digits otherwise. Negative scores get a minus sign, not a
     /// hyphen.
     static func score(_ s: Double) -> String {

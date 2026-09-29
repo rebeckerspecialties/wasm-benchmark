@@ -26,7 +26,7 @@ Pick this up cold without re-deriving state:
   each an expandable row with the release and short commit it was built
   from and an aggregate score (higher is better; 100 is the typical
   engine on an iPhone XS), ranked best first and re-sorted after every
-  result; inside, each benchmark's score, or a red −5 for a benchmark
+  result; inside, each benchmark's score, or a red −10 for a benchmark
   the engine cannot run. The aggregate is the arithmetic mean of those,
   so every missing feature costs. SwiftUI for iOS 17+ / iPadOS,
   watchOS 11+, tvOS 18+ and visionOS 26+ (plus the macOS dev host),
@@ -567,7 +567,7 @@ To add a workload:
    one). Add it to `WATCH_EXCLUDED_CASES` in `cases.rs` if a call takes
    seconds on an S8 or it needs a lot of memory, and to `APP_SKIPS` for
    a runtime that keeps the row's memory for the life of the process
-   (the app scores that engine −5 there without running it).
+   (the app scores that engine −10 there without running it).
 
 The older per-workload `bench_run_<name>` FFI functions still exist for
 the original rows; new rows don't need them.
@@ -593,7 +593,7 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   crc32, convolution and bulk_memory, which LLVM auto-vectorizes into
   SIMD, so the app runs their `.scalar` builds, which every engine can
   run). The watch also leaves out `WATCH_EXCLUDED_CASES`. A failed row
-  scores −5, and so do the `APP_SKIPS` rows, which it does not attempt.
+  scores −10, and so do the `APP_SKIPS` rows, which it does not attempt.
   It pauses while the app is not in the foreground and measures an
   interrupted benchmark again, and skips a row without penalty when
   `os_proc_available_memory()` is under 192 MB (48 MB on the watch).
