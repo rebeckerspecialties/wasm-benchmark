@@ -638,17 +638,28 @@ enum Metrics {
     static let rowPadding: CGFloat = 4
     /// Benchmark rows sit under the engine's name.
     static let childIndent: CGFloat = badge + spacing
-    static let chartRow: CGFloat = 72
     #elseif os(watchOS)
     static let badge: CGFloat = 18
     static let spacing: CGFloat = 5
     static let rowPadding: CGFloat = 0
     static let childIndent: CGFloat = 0
-    static let chartRow: CGFloat = 28
     #else
     static let badge: CGFloat = 28
     static let spacing: CGFloat = 12
     static let rowPadding: CGFloat = 2
-    static let chartRow: CGFloat = 44
+    #endif
+
+    // The score bars (ScoreBars): the bar's thickness, the gap between an
+    // engine's name and its bar, and the space between engines.
+    #if os(tvOS)
+    static let chartFont = Font.callout
+    static let chartBar: CGFloat = 16
+    static let chartLabelGap: CGFloat = 10
+    static let chartRowSpacing: CGFloat = 26
+    #else
+    static let chartFont = Font.callout
+    static let chartBar: CGFloat = 10
+    static let chartLabelGap: CGFloat = 6
+    static let chartRowSpacing: CGFloat = 16
     #endif
 }
