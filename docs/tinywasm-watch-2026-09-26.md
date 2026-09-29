@@ -1037,11 +1037,12 @@ What this says:
 4. **Write-back stores less but flushes more** (16–26 per 1,000). It spills the old top in the
    handler just before the one that reads it back. Write-through stored the value when it was
    pushed, a dispatch earlier.
-5. **The flag is not the cost it was.**
-   - With the height in a register, `tos_flag` matches write-through at both ends of the range, but
-     is 13% slower at 53 handlers.
-   - Its branches predict well in this model (1.3 mispredicts per 1,000), but it takes a third
-     register and flushes 22 times per 1,000.
+5. **The flag costs a register, and on the phones cycles.**
+   - With the height in a register, `tos_flag` comes within 3–16% of `sp_wt_nr` on the M4.
+   - Its branches predict well (1.3 mispredicts per 1,000), but it takes a third register and flushes
+     22 times per 1,000.
+   - On the iPhone 12 and SE it is 1–16% slower at every handler count, and the cost is fetch, not
+     mispredicts ([On the phones](#on-the-phones)).
    - The branch-free version needs neither the register nor the branch.
 6. **Over budget is worse than today.** The height as a stack-passed argument (`sp_spill`) runs 7%
    slower than `vec`: the round trip moves from the `Vec` to the argument slot.
@@ -1057,6 +1058,82 @@ What this says:
      `sp_wt_nr_sl_ni`, −47%.
    - In tinywasm it would also need the lane moved out of the store while the chain runs, since it
      cannot be borrowed twice.
+
+### On the phones
+
+Everything above ran on the M4. The model also runs as cases of the benchmark app. benchmark-core's
+`tos-model` feature adds a `tos-bench <variant> (m=<copies>)` case per variant and copy count
+(`scripts/tos-bench/build-ios.sh`). Each call runs 554,000 dispatches.
+- Every launch ran all 91 cases on the efficiency cores of three iPhones.
+- Each phone got five launches.
+- Another tool on this Mac launched its own apps on two of the phones during the runs, which sent
+  the benchmark app to the background. The cases those launches missed were rerun until every case
+  had five samples.
+- E-core share was at least 0.91 in every cell.
+
+Cycles per dispatch (medians), with the change against `vec` on the same core:
+
+| at 171 handlers | M4 | iPhone 12 (A14) | iPhone SE (A13) | iPhone XS Max (A12) |
+|---|---:|---:|---:|---:|
+| `vec` (today) | 8.65 | 10.56 | 9.60 | 21.18 |
+| `sp` | 5.68 (−34%) | 7.19 (−32%) | 8.11 (−16%) | 19.93 (−6%) |
+| `sp_wt_nr` | 4.66 (−46%) | 6.03 (−43%) | 7.45 (−22%) | 20.01 (−6%) |
+| `sp_wb_nr` | 4.62 (−47%) | 5.90 (−44%) | 7.35 (−23%) | 18.97 (−10%) |
+| `tos_flag` | 4.93 (−43%) | 6.65 (−37%) | 8.13 (−15%) | 18.93 (−11%) |
+| `vec_tos` | 9.09 (+5%) | 10.60 (0%) | 9.65 (+1%) | 19.77 (−7%) |
+| `sp_spill` | 9.22 (+7%) | 11.04 (+4%) | 11.94 (+24%) | 22.82 (+8%) |
+| `sp_wt_nr_sl` | −51% (second build) | 5.48 (−48%) | 6.71 (−30%) | 17.87 (−16%) |
+
+At 53 handlers, `sp_wt_nr` gains 41% on the M4, 15% on the iPhone 12, 22% on the SE and 11% on the
+XS Max.
+
+`tos_flag` against `sp_wt_nr`, the branch-free version, by handler count:
+
+| handlers | 9 | 17 | 32 | 53 | 87 | 130 | 171 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| M4 | +3% | +7% | +10% | +13% | +16% | +8% | +6% |
+| iPhone 12 (A14) | +14% | +1% | +15% | +6% | +4% | +12% | +10% |
+| iPhone SE (A13) | +16% | +7% | +10% | +9% | +9% | +10% | +9% |
+| iPhone XS Max (A12) | +12% | +13% | −6% | −1% | −4% | −7% | −5% |
+
+The iPhone 12's CPU Counters show where the cycles go. There is one 6 s capture per cell; events are
+per 1,000 dispatches, and slots are shares of the pipeline slots:
+
+| iPhone 12 | `vec` 9 h | `sp_wt_nr` 9 h | `tos_flag` 9 h | `vec` 53 h | `sp_wt_nr` 53 h | `tos_flag` 53 h | `vec` 171 h | `sp_wt_nr` 171 h | `tos_flag` 171 h |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| conditional-branch mispredicts | 0.41 | 0.30 | 0.33 | 0.47 | 0.43 | 0.48 | 0.48 | 0.28 | 0.31 |
+| all branch mispredicts | 45 | 46 | 73 | 163 | 168 | 134 | 10 | 29 | 1.1 |
+| memory-order flushes | 1.25 | 0.07 | 0.01 | 0.77 | 0.02 | 0.02 | 3.78 | 0.01 | 0.01 |
+| back-end stalls | 17.2% | 0.4% | 0.3% | 8.0% | 0.4% | 0.3% | 37.5% | 0.4% | 0.3% |
+| discarded | 13.1% | 16.3% | 20.6% | 30.5% | 30.8% | 25.6% | 2.3% | 1.2% | 4.1% |
+| front-end delivery | 2.5% | 3.3% | 8.5% | 7.9% | 12.0% | 17.4% | 1.8% | 4.4% | 10.2% |
+
+- **The flag's branch predicts well on the iPhone 12 too, but it is not free.**
+  - Conditional mispredicts are 0.3–0.5 per 1,000 dispatches in every variant, flag or not.
+  - The flag version loses front-end delivery instead: 10.2% of the slots against 4.4% at 171
+    handlers, and 8.5% against 3.3% at 9.
+  - The delivery mode splits that loss. Against `sp_wt_nr`, the flag loses 1.9–2.7× as much fetch
+    bandwidth (taken branches ending a fetch group) and 1.5–1.7× as much fetch latency.
+  - The branch predicts but still costs the small core's front end on every dispatch. This fits the
+    maintainer's "the extra branch in the common path wiped out the benefit".
+  - On the iPhone 12 and SE the flag is 1–16% slower than the branch-free version at every handler
+    count. The M4's wider front end hid most of it.
+- **The height's round trip is the back-end cost here too.**
+  - Back-end stalls take 8–38% of the slots for `vec` and `vec_tos`, and under 0.5% with the height
+    and top in registers (2.2% with the height alone at 171 handlers).
+  - Memory-order flushes, the M4's problem, stay under 7 per 1,000 for `vec` on this core, and
+    under 1.5 for the rest.
+- **The dispatch's indirect branch dominates the middle.** From 17 to 53 handlers, 13–18% of the
+  iPhone 12's dispatches mispredict, in every variant, against 0.1–0.2% on the M4. That is where
+  the gains shrink.
+  - With one copy per kind, the predictor learns the sequence from history.
+  - With nearly one handler copy per program position (171 handlers), it hardly needs to.
+  - In between, it runs out of room.
+  - Real tinywasm loops have 40–226 handler pairs in play, the middle of this range.
+- **The XS Max is dispatch-bound.** Its efficiency core (Tempest, the S4's core) spends 18–24 cycles
+  per dispatch from 53 handlers up whatever the stack does. Every variant lands between −16% and +8%
+  of `vec`. It has no counters to say which branch. Its spread is up to 18% between launches, against
+  2.6% on the SE.
 
 ### What it means for tinywasm
 
@@ -1079,10 +1156,15 @@ What this says:
     `drop`.
 - **Fused ops keep working.** The ones that read locals directly do not touch the stack. The ones
   on the stack top read and write the register (`BinOpStackConst32`, `AddConst32`, the loads).
-- **The model overstates the gain.** tinywasm's handlers do more per dispatch than the model's ~23
-  instructions, and the fused ops already skip the stack on part of the dispatches, so the real gain
-  will be well below the model's −46%. The test is a prototype on the phones: the height alone
-  first, as the maintainer asked, then the top.
+- **The gain depends on the core.** At 171 handlers the model gains 43% on the iPhone 12, 22% on the
+  SE and 6% on the XS Max, whose efficiency core (the S4's) is bound by dispatch.
+  - tinywasm's handlers also do more per dispatch than the model's ~23 instructions.
+  - The fused ops already skip the stack on part of the dispatches.
+  - So the real gains will be below the model's.
+  - The test is a prototype on the phones: the height alone first, as the maintainer asked, then
+    the top.
+- **On the smallest cores, dispatch is the next limit.** Fewer dispatches (fusion, plan item 4)
+  matter more there than anything the stack does.
 
 ## Action plan
 
@@ -1153,3 +1235,6 @@ post: tinywasm's CONTRIBUTING asks for text written by the contributor.
     - `sweep.txt`, `sweep-slice.txt` and `sweep-before-final-kinds.txt`: every timing run.
     - `pmu.jsonl` and `pmu-slice.jsonl`: the counter captures.
     - `asm/`: where each variant's state lives in machine code per target.
+    - `phones/`: the model on the iPhone 12, SE and XS Max efficiency cores. The CSVs hold every
+      sample (5 per case); `a14-pmu.jsonl` and `a14-pmu-delivery.jsonl` are the iPhone 12's counter
+      captures.

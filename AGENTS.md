@@ -197,6 +197,16 @@ Pick this up cold without re-deriving state:
         already spills the `Instruction`.
         `extern "rust-preserve-none"` (nightly) gives 12 on every x86-64
         OS and 23–24 on arm64.
+      - On the phones (benchmark-core feature `tos-model`,
+        `scripts/tos-bench/build-ios.sh`): at 171 handlers the branch-free
+        top gains 43 % on the iPhone 12, 22 % on the SE and 6 % on the XS
+        Max. The XS Max's Tempest efficiency core (the S4's) is
+        dispatch-bound at 18–24 cycles per dispatch.
+        - On the iPhone 12 the flag's branch predicts (0.3–0.5
+          conditional mispredicts per 1k dispatches), but it costs 1–16 %
+          through front-end delivery.
+        - From 17 to 53 handlers, 13–18 % of the iPhone 12's dispatches
+          mispredict (indirect), against 0.1–0.2 % on the M4.
       - Report: watch report *Registers for the value stack*. The reply
         draft is Matt's to post (CONTRIBUTING).
   - Apple Watch Series 10 analysis:
