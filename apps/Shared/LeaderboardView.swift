@@ -113,8 +113,38 @@ struct LeaderboardList: View {
                 expanded.insert(engine.id)
                 withAnimation(.snappy) { proxy.scrollTo(EngineGroup.anchor(engine), anchor: .top) }
             }
+            #if os(tvOS)
+            .background(MenuPressCatcher(isEnabled: !isAtTop, action: backToTop(proxy)))
+            #endif
         }
     }
+
+    #if os(tvOS)
+    /// The list's first row's scroll target.
+    static let top = "top"
+
+    /// Whether the focus is at the top of the list: on the Run button, on the
+    /// leading engine, or nowhere yet.
+    private var isAtTop: Bool {
+        switch tvFocus.wrappedValue {
+        case nil, .control: true
+        case .engine(let id): id == session.ranking.first?.id
+        case .result: false
+        }
+    }
+
+    /// The remote's Back button below the top of the list: scroll back up and
+    /// focus the leading engine. At the top the press goes to the system,
+    /// which takes the app to the Home screen.
+    private func backToTop(_ proxy: ScrollViewProxy) -> () -> Void {
+        {
+            withAnimation(.snappy) { proxy.scrollTo(Self.top, anchor: .top) }
+            if let leader = session.ranking.first {
+                tvFocus.wrappedValue = .engine(leader.id)
+            }
+        }
+    }
+    #endif
 
     @ViewBuilder private var sections: some View {
         #if os(tvOS)
@@ -126,6 +156,7 @@ struct LeaderboardList: View {
             Text("WasmBench")
                 .font(.title2.bold())
                 .textCase(nil)
+                .id(Self.top)
         }
         #else
         Section { controls }
@@ -599,6 +630,54 @@ enum TVRow: Hashable {
     case control
     case engine(UInt32)
     case result(ResultKey)
+}
+
+/// Takes the Siri Remote's Back (Menu) presses while enabled, with a press
+/// recognizer on the window. SwiftUI's `onExitCommand` cannot hand a press
+/// back: even with a nil action it keeps the press from the system, which
+/// takes the app to the Home screen only when nothing handles it. Disabling
+/// the recognizer lets the press through, and the view never changes, so the
+/// list keeps its scroll position and focus.
+struct MenuPressCatcher: UIViewRepresentable {
+    var isEnabled: Bool
+    var action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> WindowAttachedView {
+        let view = WindowAttachedView()
+        view.recognizer = context.coordinator.recognizer
+        return view
+    }
+
+    func updateUIView(_ view: WindowAttachedView, context: Context) {
+        context.coordinator.action = action
+        context.coordinator.recognizer.isEnabled = isEnabled
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var action: () -> Void = {}
+        lazy var recognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(pressed))
+            recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
+            return recognizer
+        }()
+
+        @objc private func pressed() { action() }
+    }
+
+    /// Puts the recognizer on the window it joins, so it sees every press.
+    final class WindowAttachedView: UIView {
+        var recognizer: UITapGestureRecognizer?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard let recognizer else { return }
+            recognizer.view?.removeGestureRecognizer(recognizer)
+            window?.addGestureRecognizer(recognizer)
+        }
+    }
 }
 
 /// The right-hand column on Apple TV: the focused benchmark's
