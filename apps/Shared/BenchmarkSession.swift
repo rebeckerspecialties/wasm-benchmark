@@ -12,6 +12,7 @@
 import Foundation
 import Observation
 import os
+import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -126,7 +127,11 @@ final class BenchmarkSession {
     /// Engines that are linked and initialized.
     @ObservationIgnored private let available: Set<UInt32>
     @ObservationIgnored private var control: RunControl?
-    @ObservationIgnored private var sceneActive = true
+    #if os(watchOS)
+    /// Keeps the app frontmost, and so the run going, while the screen is off.
+    @ObservationIgnored private let screenOff = ScreenOffSession()
+    #endif
+    @ObservationIgnored private var scenePhase = ScenePhase.active
     @ObservationIgnored private var autoran = false
 
     init() {
@@ -142,6 +147,13 @@ final class BenchmarkSession {
         #endif
         available = Self.initializeEngines(catalog.engines)
         resetStandings()
+        #if os(watchOS)
+        // The session ending while the screen is off leaves the foreground.
+        screenOff.onChange = { [weak self] _ in
+            guard let self else { return }
+            control?.setForeground(inForeground)
+        }
+        #endif
     }
 
     var isRunning: Bool { phase == .running || phase == .paused }
@@ -223,11 +235,39 @@ final class BenchmarkSession {
         begin(plan, mode: .harness)
     }
 
-    /// Pauses a hand-started run while the app is not in the foreground and
-    /// measures the interrupted benchmark again when it returns.
-    func sceneActivityChanged(active: Bool) {
-        sceneActive = active
-        control?.setActive(active)
+    /// Tells the runner whether the app is in the foreground. Only a
+    /// measurement made there counts: out of it a run pauses, and the
+    /// benchmark that the change interrupted runs again once the app is back.
+    func scenePhaseChanged(_ newPhase: ScenePhase) {
+        scenePhase = newPhase
+        #if os(watchOS)
+        // A session can only start while the app is active: this replaces one
+        // that ended (a session runs only once).
+        if newPhase == .active, isRunning { screenOff.start() }
+        #endif
+        control?.setForeground(inForeground)
+    }
+
+    /// The scene is active or, on the watch, inactive with the screen off
+    /// while ScreenOffSession keeps the app frontmost.
+    private var inForeground: Bool {
+        #if os(watchOS)
+        return scenePhase == .active || (scenePhase == .inactive && screenOff.isRunning)
+        #else
+        return scenePhase == .active
+        #endif
+    }
+
+    /// Whether a run pauses out of the foreground. Hand-started runs always
+    /// do, and so do harness runs outside macOS: a row measured while iOS
+    /// throttles or suspends the app is not a result, and the watch kills an
+    /// app that keeps the CPU busy out of the foreground.
+    private static func pauses(_ mode: Runner.Mode) -> Bool {
+        #if os(macOS)
+        return mode == .interactive
+        #else
+        return true
+        #endif
     }
 
     // MARK: Running
@@ -246,8 +286,12 @@ final class BenchmarkSession {
         resetStandings()
         setIdleTimerDisabled(true)
 
-        let control = RunControl(active: mode == .harness || sceneActive)
+        let pauses = Self.pauses(mode)
+        let control = RunControl(foreground: pauses ? inForeground : true)
         self.control = control
+        #if os(watchOS)
+        if scenePhase == .active { screenOff.start() }
+        #endif
         let session = self
         let post: @Sendable (RunEvent) -> Void = { event in
             DispatchQueue.main.async {
@@ -256,7 +300,7 @@ final class BenchmarkSession {
         }
         let queue = DispatchQueue(label: "wasmbench.runner", qos: DispatchQoS(qosClass: benchmarkQoS(), relativePriority: 0))
         queue.async {
-            Runner.execute(plan, mode: mode, control: control, post: post)
+            Runner.execute(plan, mode: mode, pauses: pauses, control: control, post: post)
         }
     }
 
@@ -265,6 +309,11 @@ final class BenchmarkSession {
         case .started(let key):
             current = key
             outcomes[key] = .running
+            #if os(watchOS)
+            // Replaces a session that ended while the screen was on; does
+            // nothing while one is starting or running.
+            if scenePhase == .active { screenOff.start() }
+            #endif
         case .finished(let key, let outcome):
             outcomes[key] = outcome
             completed += 1
@@ -283,6 +332,11 @@ final class BenchmarkSession {
         current = nil
         finishedAt = .now
         control = nil
+        #if os(watchOS)
+        // The harness app never exits by itself: do not hold the session for
+        // up to an hour after BENCH_DONE.
+        screenOff.stop()
+        #endif
         setIdleTimerDisabled(false)
         for (key, outcome) in outcomes where outcome == .running || outcome == .pending {
             outcomes[key] = .pending
@@ -483,35 +537,49 @@ enum RunEvent: Sendable {
     case done(cancelled: Bool)
 }
 
-/// Cancellation and foreground state, shared with the runner's queue.
+/// Cancellation and scene state, shared with the runner's queue.
 final class RunControl: Sendable {
     private struct State {
         var cancelled = false
-        var active: Bool
-        /// The app left the foreground since the current measurement began.
+        var foreground: Bool
+        /// The current measurement is not a result: the app left or entered
+        /// the foreground, or the device slept, while it ran.
         var interrupted = false
     }
 
     private let state: OSAllocatedUnfairLock<State>
 
-    init(active: Bool) {
-        state = OSAllocatedUnfairLock(initialState: State(active: active))
+    init(foreground: Bool) {
+        state = OSAllocatedUnfairLock(initialState: State(foreground: foreground))
     }
 
     func cancel() { state.withLock { $0.cancelled = true } }
     var isCancelled: Bool { state.withLock { $0.cancelled } }
-    var isActive: Bool { state.withLock { $0.active } }
+    var isActive: Bool { state.withLock { $0.foreground } }
     var wasInterrupted: Bool { state.withLock { $0.interrupted } }
 
-    func setActive(_ active: Bool) {
+    func setForeground(_ foreground: Bool) {
         state.withLock {
-            $0.active = active
-            if !active { $0.interrupted = true }
+            if $0.foreground != foreground { $0.interrupted = true }
+            $0.foreground = foreground
         }
     }
 
+    func markInterrupted() { state.withLock { $0.interrupted = true } }
+
     func beginMeasurement() {
-        state.withLock { $0.interrupted = !$0.active }
+        state.withLock { $0.interrupted = !$0.foreground }
+    }
+}
+
+/// How long the device slept since init: the continuous clock counts through
+/// sleep, the suspending clock does not.
+struct SleepProbe {
+    private let continuous = ContinuousClock.now
+    private let suspending = SuspendingClock.now
+
+    var asleep: Duration {
+        (ContinuousClock.now - continuous) - (SuspendingClock.now - suspending)
     }
 }
 
@@ -533,11 +601,12 @@ enum Runner {
     static func execute(
         _ plan: [PlanItem],
         mode: Mode,
+        pauses: Bool,
         control: RunControl,
         post: @Sendable (RunEvent) -> Void
     ) {
         var cancelled = false
-        for item in plan {
+        rows: for item in plan {
             if control.isCancelled {
                 cancelled = true
                 break
@@ -550,8 +619,8 @@ enum Runner {
                 post(.finished(key, .failed("N/A — not run: \(skip)")))
                 continue
             }
+            if pauses { waitUntilActive(control, post: post) }
             if mode == .interactive {
-                waitUntilActive(control, post: post)
                 #if !os(macOS)
                 // 0 where there is no jetsam limit (the simulator).
                 let left = UInt64(os_proc_available_memory())
@@ -567,10 +636,34 @@ enum Runner {
                 attempts += 1
                 control.beginMeasurement()
                 post(.started(key))
-                outcome = measure(item, label: label)
-                // A measurement the app was suspended in is not a result.
-                guard mode == .interactive, control.wasInterrupted, !control.isCancelled, attempts < 3 else { break }
-                waitUntilActive(control, post: post)
+                let (measured, line, slept) = measure(item, label: label)
+                // The device slept mid-window (a locked iPhone can idle-sleep).
+                if slept { control.markInterrupted() }
+                // A measurement that ran outside the foreground, spanned a
+                // scene change or that the device slept through is not a
+                // result: the row runs again once the app is back.
+                let interrupted = pauses && control.wasInterrupted && !control.isCancelled
+                if interrupted, mode == .interactive || attempts < 3 {
+                    // Not the line the harness parses (LOG_RE is anchored at
+                    // the start of the line).
+                    consoleLog("interrupted, measuring again: " + line)
+                    waitUntilActive(control, post: post)
+                    if control.isCancelled {
+                        cancelled = true
+                        break rows
+                    }
+                    continue
+                }
+                if interrupted {
+                    // The harness gets an error row, not a number it cannot trust.
+                    consoleLog("interrupted, not measured again: " + line)
+                    consoleLog("[\(label)] ERROR: interrupted in \(attempts) attempts (the app lost the foreground)")
+                    outcome = .failed("Interrupted in \(attempts) attempts")
+                } else {
+                    consoleLog(line)
+                    outcome = measured
+                }
+                break
             }
             post(.finished(key, outcome))
         }
@@ -579,6 +672,7 @@ enum Runner {
 
     private static func waitUntilActive(_ control: RunControl, post: @Sendable (RunEvent) -> Void) {
         guard !control.isActive else { return }
+        consoleLog("paused until the app is active again")
         post(.paused(true))
         while !control.isActive && !control.isCancelled {
             Thread.sleep(forTimeInterval: 0.25)
@@ -586,14 +680,18 @@ enum Runner {
         post(.paused(false))
     }
 
-    private static func measure(_ item: PlanItem, label: String) -> Outcome {
+    /// Runs one row: its outcome, its console line (logged by the caller),
+    /// and whether the device slept for more than 50 ms during it.
+    private static func measure(_ item: PlanItem, label: String) -> (Outcome, String, slept: Bool) {
+        let probe = SleepProbe()
         var report = item.benchmark.id.withCString { bench_run_case(item.engine.id, $0) }
+        let slept = probe.asleep > .milliseconds(50)
         let rendered = render(&report)
-        consoleLog("[\(label)] " + rendered.replacingOccurrences(of: "\n", with: " | "))
-        if report.ok == 1 {
-            return .measured(Measurement(report))
+        let line = "[\(label)] " + rendered.replacingOccurrences(of: "\n", with: " | ")
+        guard report.ok == 1 else {
+            return (.failed(rendered.replacingOccurrences(of: "ERROR: ", with: "")), line, slept)
         }
-        return .failed(rendered.replacingOccurrences(of: "ERROR: ", with: ""))
+        return (.measured(Measurement(report)), line, slept)
     }
 
     /// The console line scripts/summarize-pass.py parses (LOG_RE). Frees and

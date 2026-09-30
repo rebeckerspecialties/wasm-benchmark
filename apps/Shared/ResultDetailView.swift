@@ -28,6 +28,11 @@ enum MeasurementRows {
         if let ipc = m.instructionsPerCycle {
             rows.append(("Instructions per cycle", ipc.formatted(.number.precision(.fractionLength(2)))))
         }
+        let cpuNs = Double(m.cpuUserNs + m.cpuSystemNs)
+        if m.cycles > 0, cpuNs > 0 {
+            // Cycles per CPU nanosecond.
+            rows.append(("Average clock", (Double(m.cycles) / cpuNs).formatted(.number.precision(.fractionLength(2))) + " GHz"))
+        }
         rows.append(("Process peak memory", Format.bytes(m.rssPeakBytes)))
         return rows
     }

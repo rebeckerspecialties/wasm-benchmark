@@ -595,16 +595,25 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   run). The watch also leaves out `WATCH_EXCLUDED_CASES`. A failed row
   scores −10, and so do the `APP_SKIPS` rows, which it does not attempt.
   It pauses while the app is not in the foreground and measures an
-  interrupted benchmark again, and skips a row without penalty when
-  `os_proc_available_memory()` is under 192 MB (48 MB on the watch).
+  interrupted benchmark again (as often as it takes), and skips a row
+  without penalty when `os_proc_available_memory()` is under 192 MB
+  (48 MB on the watch).
 - **Harness**: any of WORKLOADS, RUNTIMES, WORKLOADS_EXCLUDE,
   BENCH_TARGET_MS, FEMTOVG_E2E or `BENCH_AUTORUN=1` in the environment
   starts a run at launch over every selected case, engine by engine, with
   no skips, writing the `[[<prefix>] <label>] ...` lines, the
-  `WORKLOADS filter:` line and `BENCH_DONE` as before. `BENCH_REVEAL=<engine>`
+  `WORKLOADS filter:` line and `BENCH_DONE` as before. Outside macOS it
+  also pauses out of the foreground; a benchmark interrupted three times
+  becomes an ERROR row. `BENCH_REVEAL=<engine>`
   (not a trigger) expands that engine and scrolls to it when the run
   finishes, for screenshots: `devicectl device capture screenshot` works on
   the watch, which cannot be scrolled remotely.
+- **Foreground** means the scene is active, or on the watch inactive
+  while the run's `WKExtendedRuntimeSession` (mindfulness,
+  `ScreenOffSession.swift`) keeps the app frontmost with the screen off,
+  at the screen-on clock. A session only starts while the app is active,
+  and a devicectl launch does not wake a dark watch screen: an unattended
+  watch run waits until someone taps the watch.
 
 ### The three passes (2026-09 refresh)
 
