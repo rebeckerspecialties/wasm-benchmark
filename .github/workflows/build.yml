@@ -17,10 +17,11 @@ name: build
 #   actions/cache@v4 keyed on (a) the submodule's pinned gitlink
 #   SHA — written into `.ci-cache-inputs/<submodule>.sha` so
 #   hashFiles() can see it, (b) the entire patches/<submodule>/**
-#   tree, (c) the runtime's build-<runtime>.sh script, and
-#   (d) scripts/apply_patch_series.sh (the shared patch driver).
+#   tree, (c) the runtime's build-<runtime>.sh script,
+#   (d) scripts/apply_patch_series.sh (the shared patch driver), and
+#   (e) scripts/cpu-flags.sh (the CPU flags the build scripts source).
 #   A cache hit on (runtime, target) skips the build step entirely;
-#   any change to those four inputs invalidates the cache and the
+#   any change to those five inputs invalidates the cache and the
 #   build step re-runs the full `git reset --hard HEAD && apply
 #   patches && cmake/make` path.
 #   See the per-step `if: steps.cache-….outputs.cache-hit != 'true'`
@@ -100,7 +101,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasm-micro-runtime/product-mini/platforms/darwin/build
-          key: ${{ runner.os }}-wamr-macos-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wamr-macos-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build WAMR (macOS) — applies any patches/wasm-micro-runtime/
         if: steps.cache-wamr-macos.outputs.cache-hit != 'true'
@@ -113,7 +114,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasm3/build
-          key: ${{ runner.os }}-wasm3-macos-${{ hashFiles('.ci-cache-inputs/wasm3.sha', 'patches/wasm3/**', 'scripts/build-wasm3.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wasm3-macos-${{ hashFiles('.ci-cache-inputs/wasm3.sha', 'patches/wasm3/**', 'scripts/build-wasm3.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build wasm3 (macOS) — v0.9.0, no patches
         if: steps.cache-wasm3-macos.outputs.cache-hit != 'true'
@@ -126,7 +127,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasmz/build
-          key: ${{ runner.os }}-wasmz-macos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wasmz-macos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build wasmz (macOS) — applies patches/wasmz/0002 (watchOS)
         if: steps.cache-wasmz-macos.outputs.cache-hit != 'true'
@@ -139,7 +140,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: zwasm/build
-          key: ${{ runner.os }}-zwasm-macos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-zwasm-macos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build zwasm (macOS) — applies patches/zwasm/{0001 no JIT, 0002 watchOS}
         if: steps.cache-zwasm-macos.outputs.cache-hit != 'true'
@@ -155,7 +156,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: WasmEdge/build
-          key: ${{ runner.os }}-wasmedge-macos-${{ hashFiles('.ci-cache-inputs/WasmEdge.sha', 'patches/wasmedge/**', 'scripts/build-wasmedge.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wasmedge-macos-${{ hashFiles('.ci-cache-inputs/WasmEdge.sha', 'patches/wasmedge/**', 'scripts/build-wasmedge.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build WasmEdge (macOS) — applies the patch series in patches/wasmedge/
         if: steps.cache-wasmedge-macos.outputs.cache-hit != 'true'
@@ -184,7 +185,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasm-micro-runtime/product-mini/platforms/darwin/build-aarch64-apple-ios
-          key: ${{ runner.os }}-wamr-ios-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wamr-ios-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build WAMR (iOS) — confirms patch series applies cleanly cross-target
         if: steps.cache-wamr-ios.outputs.cache-hit != 'true'
@@ -197,7 +198,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasmz/build-arm64_32-apple-watchos
-          key: ${{ runner.os }}-wasmz-watchos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wasmz-watchos-${{ hashFiles('.ci-cache-inputs/wasmz.sha', 'patches/wasmz/**', 'scripts/build-wasmz.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build wasmz for arm64_32-apple-watchos
         if: steps.cache-wasmz-watchos.outputs.cache-hit != 'true'
@@ -210,7 +211,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: zwasm/build-arm64_32-apple-watchos
-          key: ${{ runner.os }}-zwasm-watchos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-zwasm-watchos-${{ hashFiles('.ci-cache-inputs/zwasm.sha', 'patches/zwasm/**', 'scripts/build-zwasm.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build zwasm for arm64_32-apple-watchos
         if: steps.cache-zwasm-watchos.outputs.cache-hit != 'true'
@@ -223,7 +224,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasm-micro-runtime/product-mini/platforms/darwin/build-arm64_32-apple-watchos
-          key: ${{ runner.os }}-wamr-watchos-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh') }}
+          key: ${{ runner.os }}-wamr-watchos-${{ hashFiles('.ci-cache-inputs/wasm-micro-runtime.sha', 'patches/wasm-micro-runtime/**', 'scripts/build-wamr.sh', 'scripts/apply_patch_series.sh', 'scripts/cpu-flags.sh') }}
 
       - name: Build WAMR for arm64_32-apple-watchos
         if: steps.cache-wamr-watchos.outputs.cache-hit != 'true'

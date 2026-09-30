@@ -98,11 +98,10 @@ COMMON_DEFS=(
 # shellcheck disable=SC2206
 COMMON_DEFS+=( ${WAMR_EXTRA_DEFS:-} )
 
-# Target-cpu apple-a12 to match the Rust side's `-C target-cpu=apple-a12`;
-# tvOS keeps the Apple TV HD's (A8) ARMv8.0 baseline, as the Rust side does.
+# CPU baseline and tuning per platform, as on the Rust side.
 COMMON_CFLAGS="-O3"
-CPU_A12="-mcpu=apple-a12"
-CPU_TVOS="-mcpu=apple-a7"
+# shellcheck source=cpu-flags.sh
+source "${ROOT}/scripts/cpu-flags.sh"
 
 # `-DWASM_LINMEM_RESERVATION_CAP=<bytes>` opts into WAMR's PROT_NONE
 # linear-memory reservation path
@@ -159,9 +158,9 @@ build_macos() {
   local DIR="${WAMR}/product-mini/platforms/darwin/build"
   rm -rf "${DIR}" && mkdir -p "${DIR}"
   ( cd "${DIR}" && cmake .. "${COMMON_DEFS[@]}" \
-      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${CPU_A12} ${LINMEM_CAP_64}"
+      -DCMAKE_C_FLAGS="${COMMON_CFLAGS} ${CC_CPU_DEFAULT} ${LINMEM_CAP_64}"
     make -j8 )
-  drop_wasm_c_api "${DIR}/libiwasm.a" "$(xcrun --sdk macosx --find clang)" ${COMMON_CFLAGS} ${CPU_A12}
+  drop_wasm_c_api "${DIR}/libiwasm.a" "$(xcrun --sdk macosx --find clang)" ${COMMON_CFLAGS} ${CC_CPU_DEFAULT}
 }
 
 # Cross-compile for an Apple non-host target.
@@ -172,11 +171,11 @@ build_macos() {
 # $4 = SDK (watchos / watchsimulator / iphoneos / iphonesimulator)
 # $5 = WAMR_BUILD_TARGET (AARCH64 / AARCH64_ILP32 / etc)
 # $6 = deployment-target flag (e.g. -mwatchos-version-min=11.0)
-# $7 = -mcpu flag (default ${CPU_A12})
+# $7 = -mcpu / -mtune flags (default ${CC_CPU_DEFAULT})
 build_target() {
   local OUTDIR="$1"; local SUBDIR="$2"; local ARCH="$3"
   local SDK="$4"; local WAMR_TARGET="$5"; local DEPMIN="$6"
-  local CPU="${7:-${CPU_A12}}"
+  local CPU="${7:-${CC_CPU_DEFAULT}}"
 
   local DIR="${WAMR}/product-mini/platforms/${SUBDIR}/${OUTDIR}"
   local SYSROOT
@@ -218,13 +217,13 @@ build_target() {
 # `darwin/CMakeLists.txt` builds `vmlib` as a respect-BUILD_SHARED_LIBS
 # library and works for every Apple target including iOS / watchOS, so
 # we route both iOS variants through it.
-build_ios()           { build_target "build-aarch64-apple-ios"          darwin  "arm64"    iphoneos         AARCH64 "-miphoneos-version-min=17.0"; }
+build_ios()           { build_target "build-aarch64-apple-ios"          darwin  "arm64"    iphoneos         AARCH64 "-miphoneos-version-min=17.0" "${CC_CPU_IOS}"; }
 build_ios_sim()       { build_target "build-aarch64-apple-ios-sim"      darwin  "arm64"    iphonesimulator  AARCH64 "-miphoneos-version-min=17.0 -target arm64-apple-ios17.0-simulator"; }
-build_watchos()       { build_target "build-arm64_32-apple-watchos"     darwin  "arm64_32" watchos          AARCH64 "-mwatchos-version-min=11.0"; }
-build_watchos_arm64() { build_target "build-aarch64-apple-watchos"      darwin  "arm64"    watchos          AARCH64 "-mwatchos-version-min=11.0"; }
+build_watchos()       { build_target "build-arm64_32-apple-watchos"     darwin  "arm64_32" watchos          AARCH64 "-mwatchos-version-min=11.0" "${CC_CPU_WATCH32}"; }
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"      darwin  "arm64"    watchos          AARCH64 "-mwatchos-version-min=11.0" "${CC_CPU_WATCH64}"; }
 build_watchos_sim()   { build_target "build-aarch64-apple-watchos-sim"  darwin  "arm64"    watchsimulator   AARCH64 "-mwatchos-version-min=11.0 -target arm64-apple-watchos11.0-simulator"; }
-build_tvos()          { build_target "build-aarch64-apple-tvos"         darwin  "arm64"    appletvos        AARCH64 "-mtvos-version-min=18.0" "${CPU_TVOS}"; }
-build_tvos_sim()      { build_target "build-aarch64-apple-tvos-sim"     darwin  "arm64"    appletvsimulator AARCH64 "-mtvos-version-min=18.0 -target arm64-apple-tvos18.0-simulator" "${CPU_TVOS}"; }
+build_tvos()          { build_target "build-aarch64-apple-tvos"         darwin  "arm64"    appletvos        AARCH64 "-mtvos-version-min=18.0" "${CC_CPU_TVOS}"; }
+build_tvos_sim()      { build_target "build-aarch64-apple-tvos-sim"     darwin  "arm64"    appletvsimulator AARCH64 "-mtvos-version-min=18.0 -target arm64-apple-tvos18.0-simulator" "${CC_CPU_TVOS}"; }
 build_visionos()      { build_target "build-aarch64-apple-visionos"     darwin  "arm64"    xros             AARCH64 "-target arm64-apple-xros26.0"; }
 build_visionos_sim()  { build_target "build-aarch64-apple-visionos-sim" darwin  "arm64"    xrsimulator      AARCH64 "-target arm64-apple-xros26.0-simulator"; }
 

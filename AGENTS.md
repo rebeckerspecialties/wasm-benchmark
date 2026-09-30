@@ -495,13 +495,41 @@ One App Store record, universal purchase:
 | WasmBenchmarkVision | visionOS 26 | `com.rebeckerspecialties.wasmbench` | `aarch64-apple-visionos` |
 | WasmBenchmarkMac | macOS 26 (dev host, not for the store) | `…wasmbench.mac` | `aarch64-apple-darwin` |
 
-- **CPU baselines**: the libraries are built for `apple-a12`, so the iOS
-  app requires an A12 (`iphone-ipad-minimum-performance-a12` in
-  UIRequiredDeviceCapabilities; iPadOS 17/18 still run on A10 iPads).
-  tvOS 18 still runs on the Apple TV HD (A8), which has no such key, so
-  the tvOS libraries use the target's ARMv8.0 baseline instead (the
-  tvOS archive's only post-ARMv8.0 instruction is the PAC probe's
-  `pacga`, which runs only when the CPU reports PAuth).
+- **CPU baselines** (`scripts/cpu-flags.sh`, sourced by every
+  device-library build script; since 2026-09-30). In LLVM 22 the A10 to
+  A13 share one tuning, so the iOS and tvOS tuning flags leave the code
+  as the baseline alone would:
+  - iOS: A12, tuned for the A13. The app requires an A12
+    (`iphone-ipad-minimum-performance-a12` in UIRequiredDeviceCapabilities;
+    iPadOS 17/18 still run on A10 iPads). The A12 target's LSE atomics made
+    tinywasm `next` 4–11 % faster than an A10 target on the phones'
+    E-cores, all of it on call-heavy rows (refcount updates).
+  - watchOS arm64_32: A13. Every watch runs this slice on watchOS 11, and
+    on watchOS 26 the Series 6-8, SE 2nd gen and Ultra 1st gen still do.
+    Their S6-S8 are built from the A13's efficiency cores (LLVM and Zig
+    define apple-s6..s8 as the A13). The
+    A13's own tuning measured best on those cores (iPhone SE, tinywasm
+    `next`, five interleaved launches, 2026-09-30). Tuning for the Cortex-A55,
+    Cortex-A510 or generic, or padding functions to 32 or 64 bytes, came
+    out −0.1 to +0.8 % cycles and +0.7 to +2.0 % energy per call. The
+    padding cost sieve, crc32 and bulk_memory 2–3.5 %. The A12 baseline
+    was 0.2 % slower.
+  - watchOS arm64: A16. The slice's minimum OS is watchOS 26, where only
+    Series 9, Ultra 2 and later run it (Xcode's `device_traits.db` and
+    App Store thinning agree). Their S9 and later are built from the
+    A16's efficiency cores or newer (LLVM and Zig define apple-s9 /
+    apple-s10 as the A16).
+  - tvOS and its simulator: A10X (the first Apple TV 4K), tuned for the
+    A12. Only the
+    Apple TV 4K is supported; tvOS 18 still installs the app on the Apple
+    TV HD (A8), and no device capability excludes it. The A10 adds only
+    CRC32 and RDM over ARMv8.0 (no LSE), so the Apple TV 4K's code barely
+    changes.
+  - Everything else (macOS, the iOS / watchOS / visionOS simulators,
+    visionOS): A12. The Zig
+    runtimes take the baseline as `-Dcpu` (no separate tuning) on iOS,
+    both watch slices and tvOS, and Zig's default for the target
+    elsewhere.
 - **watchOS arm64**: App Store Connect has required an arm64 slice next
   to arm64_32 since April 2026; Release builds carry both.
 - **Required-reason APIs**: `Resources/PrivacyInfo.xcprivacy` declares
@@ -670,8 +698,8 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   modules with a GC heap or several memories fail to instantiate.
 - **Apple TV 4K (A12 / A15)**: same `devicectl` flow, bundle ID
   `com.rebeckerspecialties.wasmbench` (shared with iOS and visionOS).
-  tvOS 18+ deployment target; the tvOS libraries keep the Apple TV HD's
-  (A8) ARMv8.0 baseline instead of `apple-a12`.
+  tvOS 18+ deployment target; the tvOS libraries target the A10X (first
+  Apple TV 4K), tuned for the A12.
 - **Apple Watch SE2 (S8)**: same `devicectl` launch flow, bundle ID
   `com.rebeckerspecialties.wasmbench.watchkitapp` (the iOS app's
   companion, installable on its own). `devicectl --environment-variables`
@@ -875,11 +903,13 @@ submodule init + every patch series + cross-target builds.
 All seven are built interpreter-only; exact flags:
 
 1. **Pulley** — see *wasmtime submodule*. RUSTFLAGS
-   `--cfg=pulley_tail_calls -C target-cpu=apple-a12`, nightly-2026-07-05,
+   `--cfg=pulley_tail_calls` plus the platform's `-C target-cpu` /
+   `-Z tune-cpu` (`scripts/cpu-flags.sh`), nightly-2026-07-05,
    fat LTO, one codegen unit. Cranelift runs at load time as a compiler
    to Pulley *bytecode* (data, not executable pages).
 2. **WAMR** fast-interp (`wasm-micro-runtime/`, `libiwasm.a`) — cmake
-   Release, `-O3 -mcpu=apple-a12`; `WAMR_BUILD_INTERP=1 FAST_INTERP=1
+   Release, `-O3` and the platform's `-mcpu` / `-mtune` (the C
+   runtimes all take them from `scripts/cpu-flags.sh`); `WAMR_BUILD_INTERP=1 FAST_INTERP=1
    AOT=0 JIT=0 FAST_JIT=0`, `SIMD=1 RELAXED_SIMD=1 BULK_MEMORY=1
    EXTENDED_CONST_EXPR=1 TAIL_CALL=1 REF_TYPES=1` (no exception
    handling: upstream fast-interp has neither legacy EH nor exnref),
@@ -894,14 +924,14 @@ All seven are built interpreter-only; exact flags:
    standard `wasm_*` names and the linker otherwise binds zwasm's calls
    to WAMR's (SIGBUS on macOS, `bh_vector_destroy` crash on iOS); a weak
    no-op `wasm_trap_delete` keeps WAMR-only links resolving.
-3. **wasm3** v0.9.0 (`libm3.a`) — `-O3 -mcpu=apple-a12 -std=c99 -DNDEBUG
+3. **wasm3** v0.9.0 (`libm3.a`) — `-O3 -std=c99 -DNDEBUG
    -fno-exceptions`, no WASI sources, plus v0.9's `m3_validate.c`. No
    SIMD (v128 locals parse, v128 ops don't), no exceptions, no GC, one
    memory: the SIMD-canonical rows are N/A and the `[scalar build]`
    twins are its comparison rows.
 4. **WasmEdge** 0.17.2-rc.3 (`libwasmedge.a`) — the incumbent production
    recipe from webgpu-caps: cmake `MinSizeRel`, `-Os -DNDEBUG
-   -mcpu=apple-a12 -flto=full -fembed-bitcode`,
+   -flto=full -fembed-bitcode`,
    `WASMEDGE_USE_LLVM=OFF`, static lib with
    `WASMEDGE_STATIC_LIB_ENABLE_LTO=ON`, tools / plugins / tests off.
    Host functions have the 4-argument signature

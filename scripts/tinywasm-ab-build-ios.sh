@@ -16,8 +16,9 @@
 #   apps/build/DerivedData-tw-<name>-tvos (it links the other runtimes'
 #   tvOS libraries, so build those first); or watchos: the watch app with the
 #   variant in its arm64_32 slice, into apps/build/DerivedData-tw-<name>-watchos.
-#   TW_AB_CPU="-C target-cpu=apple-a12"  codegen flags (tvOS default: the
-#   target's own baseline), e.g. "-C target-cpu=apple-a10 -Z tune-cpu=apple-a14".
+#   TW_AB_CPU="-C target-cpu=apple-a12"  codegen flags (default: the
+#   platform's from scripts/cpu-flags.sh), e.g.
+#   "-C target-cpu=apple-a10 -Z tune-cpu=apple-a14".
 #
 # Use a dedicated worktree (git worktree add --detach <dir> next): the script
 # discards uncommitted changes in it.
@@ -42,18 +43,21 @@ fi
     && echo "[${name}] tinywasm $(git log --oneline -1 | cut -c1-70) $(git diff --shortstat)" )
 
 PLATFORM="${PLATFORM:-ios}"
+# shellcheck source=cpu-flags.sh
+source scripts/cpu-flags.sh
 case "${PLATFORM}" in
   ios)  TRIPLE=aarch64-apple-ios; SCHEME=WasmBenchmarkIOS; DEST="generic/platform=iOS"
         DD="build/DerivedData-tw-${name}"; FEATS="--features nightly-dispatch --features femtovg-e2e"
-        BUILD_STD=(); CPU="${TW_AB_CPU:--C target-cpu=apple-a12}" ;;
+        BUILD_STD=(); CPU="${TW_AB_CPU:-${RUST_CPU_IOS}}" ;;
   tvos) TRIPLE=aarch64-apple-tvos; SCHEME=WasmBenchmarkTV; DEST="generic/platform=tvOS"
         DD="build/DerivedData-tw-${name}-tvos"; FEATS="--features nightly-dispatch"
-        BUILD_STD=(-Z build-std=std,panic_abort); CPU="${TW_AB_CPU:-}" ;;
-  # The variant goes into the arm64_32 slice (Series 4-8 and SE). The scheme also builds the
-  # iOS app, so ARCHS cannot be narrowed; the arm64 slice links the default library.
+        BUILD_STD=(-Z build-std=std,panic_abort); CPU="${TW_AB_CPU:-${RUST_CPU_TVOS}}" ;;
+  # The variant goes into the arm64_32 slice (Series 6-8, SE and Ultra 1; any watch on watchOS 11).
+  # The scheme also builds the iOS app, so ARCHS cannot be narrowed; the arm64 slice links the
+  # default library, and a Series 9 or later on watchOS 26 runs that slice: A/B on an older watch.
   watchos) TRIPLE=arm64_32-apple-watchos; SCHEME=WasmBenchmarkWatch; DEST="generic/platform=watchOS"
         DD="build/DerivedData-tw-${name}-watchos"; FEATS="--features nightly-dispatch"
-        BUILD_STD=(-Z build-std=std,panic_abort); CPU="${TW_AB_CPU:--C target-cpu=apple-a12}" ;;
+        BUILD_STD=(-Z build-std=std,panic_abort); CPU="${TW_AB_CPU:-${RUST_CPU_WATCH32}}" ;;
   *) echo "PLATFORM must be ios, tvos or watchos" >&2; exit 1 ;;
 esac
 NIGHTLY_TC="$(grep -m1 '^NIGHTLY_TC=' scripts/build-lib.sh | cut -d'"' -f2)"

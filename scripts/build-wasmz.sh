@@ -64,11 +64,15 @@ build_target() {
   ls -la "${DIR}/libwasmz.a"
 }
 
+# CPU baseline per platform, as on the Rust side (Zig has no separate tuning).
+# shellcheck source=cpu-flags.sh
+source "${ROOT}/scripts/cpu-flags.sh"
+
 # Apple-target triples for Zig 0.16. Zig accepts native-style `arch-os`;
 # for the static-lib output we don't need to pass an SDK explicitly
 # (Zig vendors its own libSystem TBD stubs for the apple targets).
 build_macos()       { build_target "build"                            aarch64-macos; }
-build_ios()         { build_target "build-aarch64-apple-ios"          aarch64-ios; }
+build_ios()         { build_target "build-aarch64-apple-ios"          aarch64-ios "-Dcpu=${ZIG_CPU_IOS}"; }
 build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"      aarch64-ios-simulator; }
 # arm64_32-apple-watchos is ILP32; the Zig 0.16 spelling is
 # `aarch64-watchos-ilp32` (the older `arm64_32-` triple was removed in
@@ -77,12 +81,12 @@ build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"      aarch64-io
 # `panic` namespace in src/capi.zig (both shipped via patch series)
 # so we never pull in std.Io.Threaded — which doesn't compile on
 # arm64_32 (32-bit `usize` vs Darwin's 64-bit syscall returns).
-build_watchos()     { build_target "build-arm64_32-apple-watchos"     aarch64-watchos-ilp32; }
+build_watchos()     { build_target "build-arm64_32-apple-watchos"     aarch64-watchos-ilp32 "-Dcpu=${ZIG_CPU_WATCH32}"; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim"  aarch64-watchos-simulator; }
-build_tvos()        { build_target "build-aarch64-apple-tvos"         aarch64-tvos; }
-build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     aarch64-tvos-simulator; }
+build_tvos()        { build_target "build-aarch64-apple-tvos"         aarch64-tvos "-Dcpu=${ZIG_CPU_TVOS}"; }
+build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"     aarch64-tvos-simulator "-Dcpu=${ZIG_CPU_TVOS}"; }
 # arm64 slice for Apple Watch Series 9 and later (next to arm64_32 above).
-build_watchos_arm64() { build_target "build-aarch64-apple-watchos"    aarch64-watchos; }
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"    aarch64-watchos "-Dcpu=${ZIG_CPU_WATCH64}"; }
 build_visionos()    { build_target "build-aarch64-apple-visionos"     aarch64-visionos; }
 build_visionos_sim() { build_target "build-aarch64-apple-visionos-sim" aarch64-visionos-simulator; }
 

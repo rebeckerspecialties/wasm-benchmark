@@ -111,8 +111,9 @@ targets:
           - $(SRCROOT)/../target/aarch64-apple-watchos/release
 
   # --------------------------------------------------------------
-  # tvOS app, tvOS 18+: every Apple TV from the Apple TV HD (A8) up, so
-  # the tvOS libraries are built for the A8's ARMv8.0 baseline.
+  # tvOS app, tvOS 18+, for the Apple TV 4K: the tvOS libraries are built
+  # for the A10X (scripts/cpu-flags.sh). tvOS 18 still installs it on the
+  # Apple TV HD (A8), which no device capability excludes.
   # --------------------------------------------------------------
   WasmBenchmarkTV:
     type: application

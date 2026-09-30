@@ -54,9 +54,9 @@ SOURCES=(
 )
 
 COMMON_CFLAGS="-O3 -std=c99 -DNDEBUG -fno-exceptions"
-# apple-a12 like the Rust side; tvOS keeps the Apple TV HD's (A8) baseline.
-CPU_A12="-mcpu=apple-a12"
-CPU_TVOS="-mcpu=apple-a7"
+# CPU baseline and tuning per platform, as on the Rust side.
+# shellcheck source=cpu-flags.sh
+source "${ROOT}/scripts/cpu-flags.sh"
 
 # $1 = output dir (e.g. build-aarch64-apple-ios)
 # $2 = arch (arm64 / arm64_32)
@@ -64,10 +64,10 @@ CPU_TVOS="-mcpu=apple-a7"
 #           appletvsimulator / macosx)
 # $4 = -m<plat>-version-min flag (or empty for host macOS)
 # $5 = extra clang flags (e.g. -target ... for simulator triples; "" for device)
-# $6 = -mcpu flag (default ${CPU_A12})
+# $6 = -mcpu / -mtune flags (default ${CC_CPU_DEFAULT})
 build_target() {
   local OUTDIR="$1"; local ARCH="$2"; local SDK="$3"
-  local DEPMIN="$4"; local EXTRA="$5"; local CPU="${6:-${CPU_A12}}"
+  local DEPMIN="$4"; local EXTRA="$5"; local CPU="${6:-${CC_CPU_DEFAULT}}"
   local DIR="${W3}/${OUTDIR}"
   rm -rf "${DIR}" && mkdir -p "${DIR}"
   local SYSROOT
@@ -90,13 +90,13 @@ build_target() {
 # convention (host = "build", cross = "build-<triple>") shared with WAMR
 # and WasmEdge.
 build_macos()       { build_target "build"                            arm64    macosx           ""                              ""; }
-build_ios()           { build_target "build-aarch64-apple-ios"          arm64    iphoneos         "-miphoneos-version-min=17.0"   ""; }
+build_ios()           { build_target "build-aarch64-apple-ios"          arm64    iphoneos         "-miphoneos-version-min=17.0"   ""                                         "${CC_CPU_IOS}"; }
 build_ios_sim()       { build_target "build-aarch64-apple-ios-sim"      arm64    iphonesimulator  "-miphoneos-version-min=17.0"   "-target arm64-apple-ios17.0-simulator"; }
-build_watchos()       { build_target "build-arm64_32-apple-watchos"     arm64_32 watchos          "-mwatchos-version-min=11.0"    ""; }
-build_watchos_arm64() { build_target "build-aarch64-apple-watchos"      arm64    watchos          "-mwatchos-version-min=11.0"    ""; }
+build_watchos()       { build_target "build-arm64_32-apple-watchos"     arm64_32 watchos          "-mwatchos-version-min=11.0"    ""                                         "${CC_CPU_WATCH32}"; }
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"      arm64    watchos          "-mwatchos-version-min=11.0"    ""                                         "${CC_CPU_WATCH64}"; }
 build_watchos_sim()   { build_target "build-aarch64-apple-watchos-sim"  arm64    watchsimulator   "-mwatchos-version-min=11.0"    "-target arm64-apple-watchos11.0-simulator"; }
-build_tvos()          { build_target "build-aarch64-apple-tvos"         arm64    appletvos        "-mtvos-version-min=18.0"       ""                                         "${CPU_TVOS}"; }
-build_tvos_sim()      { build_target "build-aarch64-apple-tvos-sim"     arm64    appletvsimulator "-mtvos-version-min=18.0"       "-target arm64-apple-tvos18.0-simulator"   "${CPU_TVOS}"; }
+build_tvos()          { build_target "build-aarch64-apple-tvos"         arm64    appletvos        "-mtvos-version-min=18.0"       ""                                         "${CC_CPU_TVOS}"; }
+build_tvos_sim()      { build_target "build-aarch64-apple-tvos-sim"     arm64    appletvsimulator "-mtvos-version-min=18.0"       "-target arm64-apple-tvos18.0-simulator"   "${CC_CPU_TVOS}"; }
 build_visionos()      { build_target "build-aarch64-apple-visionos"     arm64    xros             ""                              "-target arm64-apple-xros26.0"; }
 build_visionos_sim()  { build_target "build-aarch64-apple-visionos-sim" arm64    xrsimulator      ""                              "-target arm64-apple-xros26.0-simulator"; }
 
