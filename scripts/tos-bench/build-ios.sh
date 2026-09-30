@@ -15,7 +15,9 @@ cd "${ROOT}"
 python3 scripts/tos-bench/gen.py > /dev/null
 NIGHTLY_TC="$(grep -m1 '^NIGHTLY_TC=' scripts/build-lib.sh | cut -d'"' -f2)"
 export PATH="${HOME}/.rustup/toolchains/${NIGHTLY_TC}-aarch64-apple-darwin/bin:${PATH}"
-export RUSTFLAGS="-C target-cpu=apple-a12 --cfg=pulley_tail_calls -Z merge-functions=disabled"
+# shellcheck source=../cpu-flags.sh
+source scripts/cpu-flags.sh
+export RUSTFLAGS="${RUST_CPU_IOS} --cfg=pulley_tail_calls -Z merge-functions=disabled"
 export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 TARGET_DIR=target/tos-model
 LIB=target/aarch64-apple-ios/release/libbenchmark_core.a

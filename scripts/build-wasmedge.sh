@@ -47,9 +47,9 @@ COMMON_DEFS=(
 )
 
 COMMON_CFLAGS="-Os -DNDEBUG -flto=full -fembed-bitcode"
-# apple-a12 like the Rust side; tvOS keeps the Apple TV HD's (A8) baseline.
-CPU_A12="-mcpu=apple-a12"
-CPU_TVOS="-mcpu=apple-a7"
+# CPU baseline and tuning per platform, as on the Rust side.
+# shellcheck source=cpu-flags.sh
+source "${ROOT}/scripts/cpu-flags.sh"
 
 # Debug-build flags for diagnosing the arm64_32 instantiate trap.
 # Triggered by the `watchos-debug` target; identical to COMMON_CFLAGS
@@ -82,10 +82,10 @@ apply_patches_once() {
 # $5 = extra c/cxx flag string (e.g. "-target arm64-apple-ios18.0-simulator")
 # $6 = CMAKE_OSX_ARCHITECTURES override (e.g. arm64 / arm64_32)
 # $7 = compile flags replacing COMMON_CFLAGS (a Debug build), or ""
-# $8 = -mcpu flag (default ${CPU_A12})
+# $8 = -mcpu / -mtune flags (default ${CC_CPU_DEFAULT})
 build_target() {
   local OUTDIR="$1" SYSNAME="$2" SDK="$3" DEPMIN="$4" EXTRA="$5" ARCH="$6"
-  local FLAGS_OVERRIDE="${7:-}" CPU="${8:-${CPU_A12}}"
+  local FLAGS_OVERRIDE="${7:-}" CPU="${8:-${CC_CPU_DEFAULT}}"
   apply_patches_once
   local DIR="${WE_SRC}/${OUTDIR}"
   local SYSROOT
@@ -128,22 +128,22 @@ build_target() {
 # convention (host = "build", cross = "build-<triple>") shared with
 # WAMR and wasm3.
 build_macos()       { build_target "build"                            Darwin   macosx            13.4 ""                                               arm64; }
-build_ios()         { build_target "build-aarch64-apple-ios"         iOS      iphoneos          17.0 ""                                               arm64; }
+build_ios()         { build_target "build-aarch64-apple-ios"         iOS      iphoneos          17.0 ""                                               arm64 "" "${CC_CPU_IOS}"; }
 build_ios_sim()     { build_target "build-aarch64-apple-ios-sim"     iOS      iphonesimulator   17.0 "-target arm64-apple-ios17.0-simulator"          arm64; }
 # watchOS arm64_32 is gnarly for WasmEdge (its allocator does
 # pointer-tagged 64-bit math); when the build hits an arm64_32-specific
 # wall, we punt to "wasmedge unavailable on this target" rather than
 # blocking the watch app's main flow.
-build_watchos()     { build_target "build-arm64_32-apple-watchos"    watchOS  watchos           11.0 ""                                               arm64_32; }
+build_watchos()     { build_target "build-arm64_32-apple-watchos"    watchOS  watchos           11.0 ""                                               arm64_32 "" "${CC_CPU_WATCH32}"; }
 # Debug variant of watchos build for diagnosing the arm64_32
 # WasmEdge_VMInstantiate trap. Drops -DNDEBUG so `assuming(R)` prints
 # the first failing predicate via `assert()` instead of falling into
 # `__builtin_unreachable() → brk #1`. Larger / slower / no LTO.
-build_watchos_debug() { build_target "build-arm64_32-apple-watchos-debug" watchOS watchos 11.0 "" arm64_32 "${DEBUG_CFLAGS}"; }
-build_watchos_arm64() { build_target "build-aarch64-apple-watchos"   watchOS  watchos           11.0 ""                                               arm64; }
+build_watchos_debug() { build_target "build-arm64_32-apple-watchos-debug" watchOS watchos 11.0 "" arm64_32 "${DEBUG_CFLAGS}" "${CC_CPU_WATCH32}"; }
+build_watchos_arm64() { build_target "build-aarch64-apple-watchos"   watchOS  watchos           11.0 ""                                               arm64 "" "${CC_CPU_WATCH64}"; }
 build_watchos_sim() { build_target "build-aarch64-apple-watchos-sim" watchOS  watchsimulator    11.0 "-target arm64-apple-watchos11.0-simulator"      arm64; }
-build_tvos()        { build_target "build-aarch64-apple-tvos"        tvOS     appletvos         18.0 ""                                               arm64 "" "${CPU_TVOS}"; }
-build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"    tvOS     appletvsimulator  18.0 "-target arm64-apple-tvos18.0-simulator"         arm64 "" "${CPU_TVOS}"; }
+build_tvos()        { build_target "build-aarch64-apple-tvos"        tvOS     appletvos         18.0 ""                                               arm64 "" "${CC_CPU_TVOS}"; }
+build_tvos_sim()    { build_target "build-aarch64-apple-tvos-sim"    tvOS     appletvsimulator  18.0 "-target arm64-apple-tvos18.0-simulator"         arm64 "" "${CC_CPU_TVOS}"; }
 build_visionos()    { build_target "build-aarch64-apple-visionos"    visionOS xros              26.0 ""                                               arm64; }
 build_visionos_sim() { build_target "build-aarch64-apple-visionos-sim" visionOS xrsimulator     26.0 "-target arm64-apple-xros26.0-simulator"         arm64; }
 

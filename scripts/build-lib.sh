@@ -25,12 +25,10 @@
 # (--cfg=pulley_tail_calls for Pulley, the `nightly-dispatch` feature for
 # tinywasm's tail-call loop) everywhere.
 #
-# Per the project brief: minimum CPU is apple-a12 (iPhone XS chip; the iOS
-# app requires an A12 through UIRequiredDeviceCapabilities). For
-# consistency the same -mcpu is set on the macOS dev build too, so any
-# instruction-set bug surfaces on the M4 without needing a device cycle.
-# tvOS is the exception: tvOS 18 still runs on the Apple TV HD (A8), so the
-# tvOS libraries keep the target's ARMv8.0 baseline (apple-a7).
+# CPU baseline and tuning per platform: scripts/cpu-flags.sh (iOS A12 tuned
+# for the A13, arm64_32 watches A13, arm64 watches A16, tvOS A10 tuned for
+# the A12, A12 elsewhere, including the macOS dev build so an instruction-set
+# bug shows up on the Mac).
 #
 # Output: target/<triple>/release/libbenchmark_core.a
 #
@@ -43,7 +41,7 @@
 #   scripts/build-lib.sh all      # builds in dependency order
 #
 # RUSTFLAGS notes:
-#   -C target-cpu=apple-a12        — minimum CPU; M4 stays compatible.
+#   -C target-cpu / -Z tune-cpu    — per platform, from scripts/cpu-flags.sh.
 #   (no -C linker-plugin-lto / -C embed-bitcode: see the toolchain note
 #    below — Xcode 27's LLVM-21 libLTO cannot read LLVM-22 Rust bitcode)
 
@@ -61,7 +59,8 @@ WHICH="${1:-macos}"
 #   --cfg=pulley_assume_llvm_makes_tail_calls  stable, relies on LLVM TCO
 # We override per-target in the build_* functions: nightly for build-std
 # targets gets the strong variant; stable targets get the LLVM-assumes one.
-LTO_FLAGS="-C target-cpu=apple-a12"
+# shellcheck source=cpu-flags.sh
+source "${ROOT}/scripts/cpu-flags.sh"
 
 # The apps' deployment targets. rustc and cc-rs (wasmtime's helpers.c) read
 # these; without them cc-rs builds for the SDK's version and the app link
@@ -114,7 +113,7 @@ build_macos() {
   # cover every dispatch arm reliably. The nightly `become`-based
   # 'pulley_tail_calls' is the only safe tail-call dispatch right now.
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_DEFAULT} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} ${E2E_FEATURES} --target aarch64-apple-darwin
   )
 }
@@ -122,7 +121,7 @@ build_macos() {
 build_ios() {
   echo "==> iOS device (aarch64-apple-ios) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_IOS} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} ${E2E_FEATURES} --target aarch64-apple-ios
   )
 }
@@ -130,7 +129,7 @@ build_ios() {
 build_watchos_sim() {
   echo "==> watchOS simulator (aarch64-apple-watchos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_DEFAULT} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-watchos-sim
@@ -140,7 +139,7 @@ build_watchos_sim() {
 build_watchos() {
   echo "==> watchOS device (arm64_32-apple-watchos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_WATCH32} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target arm64_32-apple-watchos
@@ -150,7 +149,7 @@ build_watchos() {
 build_watchos_arm64() {
   echo "==> watchOS device, arm64 (aarch64-apple-watchos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_WATCH64} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-watchos
@@ -160,17 +159,15 @@ build_watchos_arm64() {
 build_ios_sim() {
   echo "==> iOS simulator (aarch64-apple-ios-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_DEFAULT} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} ${E2E_FEATURES} --target aarch64-apple-ios-sim
   )
 }
 
-# tvOS: no -C target-cpu=apple-a12 (see the header): the device target's
-# baseline is apple-a7, which the Apple TV HD's A8 runs.
 build_tvos() {
   echo "==> tvOS device (aarch64-apple-tvos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_TVOS} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-tvos
@@ -180,7 +177,7 @@ build_tvos() {
 build_tvos_sim() {
   echo "==> tvOS simulator (aarch64-apple-tvos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_TVOS} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-tvos-sim
@@ -190,7 +187,7 @@ build_tvos_sim() {
 build_visionos() {
   echo "==> visionOS device (aarch64-apple-visionos) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_DEFAULT} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-visionos
@@ -200,7 +197,7 @@ build_visionos() {
 build_visionos_sim() {
   echo "==> visionOS simulator (aarch64-apple-visionos-sim) [nightly ${NIGHTLY_TC}, +pulley_tail_calls]"
   ( prepend_toolchain_path "${NIGHTLY_TC}"
-    export RUSTFLAGS="${LTO_FLAGS} ${PULLEY_DISPATCH_NIGHTLY}"
+    export RUSTFLAGS="${RUST_CPU_DEFAULT} ${PULLEY_DISPATCH_NIGHTLY}"
     cargo build --release -p benchmark-core --lib ${FEATURES} \
       -Z build-std=std,panic_abort \
       --target aarch64-apple-visionos-sim
