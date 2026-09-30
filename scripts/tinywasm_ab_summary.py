@@ -5,7 +5,8 @@ Usage: tinywasm_ab_summary.py <ab-dir> <variant>... [--steps new:old,...] [--met
                               [--csv out.csv]
 
 The first variant is the baseline. Per case: the median over reps of cycles
-per call (`--metric wall`: of each launch's median wall time per call), as a
+per call (`--metric wall`: of each launch's median wall time per call;
+`--metric energy`: the kernel's CPU energy estimate per call), as a
 ratio to the baseline for every other variant, then the geomean. Per step `new:old` (default: each variant against the one before
 it, then the last against the baseline): the geomean change in cycles and
 instructions per call and how many cases got faster. Every variant must
@@ -21,7 +22,8 @@ import statistics
 from collections import defaultdict
 
 LINE = re.compile(r"^\[\[tinywm\] (.*?)\] result=(-?\d+)\s+iter=(\d+).*?median=([\d.]+).*?"
-                  r"cpu\(u/s\)=([\d.]+)/[\d.]+ ms.*?e_share=([\d.]+)\s+ipc=([\d.]+)\s+insns=(\d+)\s+cycles=(\d+)")
+                  r"cpu\(u/s\)=([\d.]+)/[\d.]+ ms.*?e_share=([\d.]+)\s+ipc=([\d.]+)\s+insns=(\d+)\s+cycles=(\d+)"
+                  r"(?:\s+energy_nj=(\d+))?")
 
 
 def geo(xs):
@@ -33,8 +35,8 @@ def main():
     ap.add_argument("dir")
     ap.add_argument("variants", nargs="+")
     ap.add_argument("--steps", help="comma-separated new:old pairs")
-    ap.add_argument("--metric", choices=("cycles", "wall"), default="cycles",
-                    help="per-case table: cycles per call or median wall time per call")
+    ap.add_argument("--metric", choices=("cycles", "wall", "energy"), default="cycles",
+                    help="per-case table: cycles, median wall time or CPU energy per call")
     ap.add_argument("--csv", help="write every sample here")
     args = ap.parse_args()
     variants = args.variants
@@ -60,7 +62,8 @@ def main():
                 s = dict(rep=rep, variant=v, case=m.group(1), result=int(m.group(2)), iterations=it,
                          cycles_per_call=int(m.group(9)) / it, instructions_per_call=int(m.group(8)) / it,
                          wall_ms_median=float(m.group(4)), cpu_ms_per_call=float(m.group(5)) / it,
-                         e_share=float(m.group(6)))
+                         e_share=float(m.group(6)),
+                         energy_nj_per_call=int(m.group(10)) / it if m.group(10) else None)
                 data[s["case"]][v].append(s)
                 rows.append(s)
     if not rows:
@@ -92,7 +95,11 @@ def main():
         if bad:
             print(f"RESULT MISMATCH on {c} (per call count): {bad}")
     key, unit, scale = {"cycles": ("cycles_per_call", "Mcycles/call", 1e-6),
-                        "wall": ("wall_ms_median", "ms/call", 1.0)}[args.metric]
+                        "wall": ("wall_ms_median", "ms/call", 1.0),
+                        "energy": ("energy_nj_per_call", "mJ/call", 1e-6)}[args.metric]
+    has_energy = all(s["energy_nj_per_call"] for c in cases for v in variants for s in data[c][v])
+    if args.metric == "energy" and not has_energy:
+        raise SystemExit("some result lines have no energy_nj")
     print()
     print(f"| case | {base} {unit} | " + " | ".join(f"{v} ÷ {base}" for v in variants[1:]) + " |")
     print("|---|---:|" + "---:|" * (len(variants) - 1))
@@ -104,14 +111,19 @@ def main():
         f"**{geo([med(c, v, key) / med(c, base, key) for c in cases]):.3f}**"
         for v in variants[1:]) + " |")
     print()
-    print("| step | cycles | instructions | wall | cases faster (cycles) |")
-    print("|---|---:|---:|---:|---:|")
+    print("| step | cycles | instructions | wall |" + (" energy |" if has_energy else "")
+          + " cases faster (cycles) |")
+    print("|---|---:|---:|---:|" + ("---:|" if has_energy else "") + "---:|")
     for new, old in steps:
         rc = [med(c, new, "cycles_per_call") / med(c, old, "cycles_per_call") for c in cases]
         ri = [med(c, new, "instructions_per_call") / med(c, old, "instructions_per_call") for c in cases]
         rw = [med(c, new, "wall_ms_median") / med(c, old, "wall_ms_median") for c in cases]
+        energy = ""
+        if has_energy:
+            re_ = [med(c, new, "energy_nj_per_call") / med(c, old, "energy_nj_per_call") for c in cases]
+            energy = f" {100 * (geo(re_) - 1):+.1f} % |"
         print(f"| {new} vs {old} | {100 * (geo(rc) - 1):+.1f} % | {100 * (geo(ri) - 1):+.1f} % | "
-              f"{100 * (geo(rw) - 1):+.1f} % | {sum(1 for r in rc if r < 1)}/{len(rc)} |")
+              f"{100 * (geo(rw) - 1):+.1f} % |{energy} {sum(1 for r in rc if r < 1)}/{len(rc)} |")
     print()
     for v in variants:
         spread = [(max(s["cycles_per_call"] for s in data[c][v]) - min(s["cycles_per_call"] for s in data[c][v]))

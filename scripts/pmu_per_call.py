@@ -25,7 +25,7 @@ for r in csv.DictReader(open(timing_csv)):
     tim[r['variant']][r['case']].append((float(r['cycles_per_call']), float(r['instructions_per_call'])))
 
 def timing(variant, workload):
-    cases = [c for c in tim[variant] if c.startswith(workload)]
+    cases = [c for c in tim[variant] if c.lower().startswith(workload.lower())]
     assert len(cases) == 1, (variant, workload, cases)
     xs = tim[variant][cases[0]]
     return statistics.median(x[0] for x in xs), statistics.median(x[1] for x in xs), len(xs)
