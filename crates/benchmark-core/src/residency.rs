@@ -29,6 +29,8 @@ pub struct ProcUsage {
     pub cycles: u64,
     pub p_instructions: u64,
     pub p_cycles: u64,
+    /// The kernel's estimate of the energy the process's CPU work used, nJ.
+    pub energy_nj: u64,
 }
 
 impl ProcUsage {
@@ -40,6 +42,7 @@ impl ProcUsage {
             cycles: self.cycles.saturating_sub(before.cycles),
             p_instructions: self.p_instructions.saturating_sub(before.p_instructions),
             p_cycles: self.p_cycles.saturating_sub(before.p_cycles),
+            energy_nj: self.energy_nj.saturating_sub(before.energy_nj),
         }
     }
 }
@@ -247,6 +250,7 @@ pub fn task_usage() -> Option<ProcUsage> {
         cycles: counts.cycles,
         p_instructions: 0,
         p_cycles: 0,
+        energy_nj: power.task_energy,
     })
 }
 
@@ -271,6 +275,7 @@ pub fn proc_usage_of(pid: i32) -> Option<ProcUsage> {
         cycles: ri.ri_cycles,
         p_instructions: ri.ri_pinstructions,
         p_cycles: ri.ri_pcycles,
+        energy_nj: ri.ri_energy_nj,
     })
 }
 

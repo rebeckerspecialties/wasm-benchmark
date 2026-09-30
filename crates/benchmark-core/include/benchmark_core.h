@@ -34,6 +34,8 @@ typedef struct BenchReport {
                                  // E-core share = 1 - p_cpu_ns / (user + system)
     uint64_t instructions;       // instructions retired (whole process)
     uint64_t cycles;             // cycles (whole process)
+    uint64_t energy_nj;          // the kernel's CPU energy estimate, nJ
+                                 // (task_power_info_v2.task_energy)
 } BenchReport;
 
 // Pulley (wasmtime) path. Each loads its embedded `.wasm` via
