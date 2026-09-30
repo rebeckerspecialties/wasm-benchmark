@@ -6,6 +6,7 @@
 #
 # Usage: scripts/tinywasm-ab-iphone.sh <out-dir> <variant>...
 #   REPS=5  UDID=00008101-000A044A3C28801E (iPhone 12)  DEVICE_NAME=iphone12
+#   PLATFORM=ios  or tvos, for an Apple TV, or watchos (PLATFORM=tvos / watchos builds of the variants)
 #   WORKLOADS=<the 15 tinywasm rows below>  BENCH_TARGET_MS=2000
 # Logs: <out-dir>/<variant>/<device>-r<rep>-tinywasm-r1.log; summarize with
 # scripts/tinywasm_ab_summary.py <out-dir> <variant>...
@@ -20,8 +21,15 @@ REPS="${REPS:-5}"
 UDID="${UDID:-00008101-000A044A3C28801E}"
 DEVICE_NAME="${DEVICE_NAME:-iphone12}"
 W="${WORKLOADS:-fib(30),call_indirect (200k,xmrsplayer,graphql-validation (as),crc32(64kb) [scalar,convolution 256×256 [scalar,audio dsp,vtable_poly4,sieve(10000) [scalar,bulk_memory (memory.copy/fill) [scalar,tail-call fsm,exnref (4096,gc binary trees,matmul relaxed-simd fma}"
+case "${PLATFORM:-ios}" in
+  ios) app_path() { echo "apps/build/DerivedData-tw-$1/Build/Products/Release-iphoneos/WasmBenchmarkIOS.app"; } ;;
+  tvos) app_path() { echo "apps/build/DerivedData-tw-$1-tvos/Build/Products/Release-appletvos/WasmBenchmarkTV.app"; } ;;
+  watchos) app_path() { echo "apps/build/DerivedData-tw-$1-watchos/Build/Products/Release-watchos/WasmBenchmarkWatch.app"; }
+    export BUNDLE=com.rebeckerspecialties.wasmbench.watchkitapp ;;
+  *) echo "PLATFORM must be ios, tvos or watchos" >&2; exit 1 ;;
+esac
 for v in "${VARIANTS[@]}"; do
-  app="apps/build/DerivedData-tw-${v}/Build/Products/Release-iphoneos/WasmBenchmarkIOS.app"
+  app="$(app_path "${v}")"
   [ -d "${app}" ] || { echo "missing ${app}: build it with scripts/tinywasm-ab-build-ios.sh" >&2; exit 1; }
 done
 mkdir -p "${O}"
@@ -29,7 +37,7 @@ n=${#VARIANTS[@]}
 for rep in $(seq 1 "${REPS}"); do
   for i in $(seq 0 $((n - 1))); do
     v="${VARIANTS[$(( (i + rep - 1) % n ))]}"
-    app="apps/build/DerivedData-tw-${v}/Build/Products/Release-iphoneos/WasmBenchmarkIOS.app"
+    app="$(app_path "${v}")"
     ok=0
     for _ in 1 2 3 4 5; do
       if xcrun devicectl device install app --device "${UDID}" "${app}" > /dev/null 2>&1; then ok=1; break; fi

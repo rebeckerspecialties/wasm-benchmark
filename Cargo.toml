@@ -5,6 +5,8 @@ exclude = [
     # External submodules with their own workspaces / build orchestration.
     "wasmtime",
     "target-lexicon",
+    # Standalone model with its own workspace; benchmark-core's `tos-model` feature uses it.
+    "scripts/tos-bench",
 ]
 
 [workspace.package]

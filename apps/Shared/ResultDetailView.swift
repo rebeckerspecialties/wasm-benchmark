@@ -2,7 +2,6 @@
 // or why it did not run. And the overview the wide layouts show beside the
 // leaderboard until a benchmark is selected.
 
-import Charts
 import SwiftUI
 
 /// The measurements behind a score, as (label, value) rows.
@@ -196,20 +195,13 @@ struct OverviewView: View {
     /// Off where the leaderboard beside it already shows the status.
     var showsStatus = true
 
-    private struct Bar: Identifiable {
-        let id: UInt32
-        let name: String
-        let score: Double
-        let leader: Bool
-    }
-
     var body: some View {
-        let bars = session.ranking.compactMap { engine -> Bar? in
-            guard let score = session.standing(engine).score else { return nil }
-            return Bar(id: engine.id, name: engine.name, score: score, leader: session.rank(of: engine) == 1)
+        let bars = session.ranking.map { engine in
+            ScoreBars.Bar(id: engine.id, name: engine.name, score: session.standing(engine).score,
+                          leader: session.rank(of: engine) == 1)
         }
         Group {
-            if bars.isEmpty {
+            if bars.allSatisfy({ $0.score == nil }) {
                 ContentUnavailableView {
                     Label("No Scores Yet", systemImage: "gauge.with.dots.needle.67percent")
                 } description: {
@@ -227,26 +219,7 @@ struct OverviewView: View {
                             .font(.title2.bold())
                         #endif
                         if showsStatus { StatusView() }
-                        Chart(bars) { bar in
-                            BarMark(
-                                x: .value("Score", bar.score),
-                                y: .value("Engine", bar.name)
-                            )
-                            .foregroundStyle(bar.leader ? Color.brand : Color.brand.opacity(0.45))
-                            .annotation(position: .trailing, alignment: .leading) {
-                                Text(Format.score(bar.score))
-                                    .font(.callout.weight(.semibold).monospacedDigit())
-                            }
-                        }
-                        .chartYAxis {
-                            AxisMarks(position: .leading) { _ in
-                                AxisValueLabel()
-                                    .font(.callout)
-                            }
-                        }
-                        .chartXAxisLabel("Score (higher is better)")
-                        .frame(height: CGFloat(bars.count) * Metrics.chartRow + 40)
-                        .animation(.snappy, value: bars.map(\.score))
+                        ScoreBars(bars: bars)
                         Text(footnote)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -268,6 +241,101 @@ struct OverviewView: View {
     }
 
     private var scoring: String {
-        "100 is the typical engine on an iPhone XS, and a benchmark an engine cannot run scores \(Format.score(Scoring.failurePenalty)). An engine's score is the average of its benchmark scores."
+        "100 is the typical engine on an iPhone XS, and a benchmark an engine cannot run scores \(Format.score(Scoring.failurePenalty)). An engine's score is the average of its benchmark scores; higher is better."
+    }
+}
+
+/// The engines' scores as bars, best first, each bar under its engine's name
+/// with the score at the end of the name's line.
+///
+/// Every engine keeps its row from the first score on, and a change of rank
+/// moves rows without sliding them, so no row ever crosses another. The
+/// motion is in the bars, which grow and shrink in place, and in the scores,
+/// which roll to their new values.
+struct ScoreBars: View {
+    struct Bar: Identifiable, Equatable {
+        let id: UInt32
+        let name: String
+        /// nil until the engine's first result.
+        let score: Double?
+        let leader: Bool
+    }
+
+    let bars: [Bar]
+
+    var body: some View {
+        // Bars start at zero. A negative score (an engine whose failures
+        // outweigh its results) extends to the left of it.
+        let scores = bars.compactMap(\.score)
+        let high = max(scores.max() ?? 0, 1)
+        let low = min(scores.min() ?? 0, 0)
+        VStack(alignment: .leading, spacing: Metrics.chartRowSpacing) {
+            ForEach(bars) { bar in
+                ScoreBarRow(bar: bar, shape: .init(score: bar.score, low: low, high: high))
+            }
+        }
+    }
+}
+
+/// One engine's name, score and bar.
+private struct ScoreBarRow: View {
+    /// What the row draws: the score and where its bar starts and ends, as
+    /// fractions of the row's width.
+    struct Shape: Equatable {
+        var score: Double?
+        var start: Double = 0
+        var end: Double = 0
+
+        init(score: Double?, low: Double, high: Double) {
+            self.score = score
+            guard let score else { return }
+            let zero = -low / (high - low)
+            let tip = (score - low) / (high - low)
+            (start, end) = (min(zero, tip), max(zero, tip))
+        }
+    }
+
+    let bar: ScoreBars.Bar
+    let shape: Shape
+    /// What the row shows, which follows `shape` in an animation of its own
+    /// after the data has changed: when the row moves to another rank, it
+    /// moves first, and then its bar and score change in place.
+    @State private var shown: Shape?
+
+    var body: some View {
+        // A first score shows at once, with the row's move; later changes
+        // animate in place.
+        let current = shown.flatMap { $0.score == nil ? nil : $0 } ?? shape
+        VStack(alignment: .leading, spacing: Metrics.chartLabelGap) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(bar.name)
+                    .font(Metrics.chartFont)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(current.score.map(Format.score) ?? "—")
+                    .font(Metrics.chartFont.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(current.score.map { $0 < 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary) }
+                                     ?? AnyShapeStyle(.tertiary))
+                    .contentTransition(.numericText(value: current.score ?? 0))
+            }
+            GeometryReader { proxy in
+                if current.score != nil {
+                    let width = proxy.size.width
+                    let length = max((current.end - current.start) * width, Metrics.chartBar)
+                    Capsule()
+                        .fill(bar.leader ? Color.brand : Color.brand.opacity(0.45))
+                        .frame(width: length, height: Metrics.chartBar)
+                        .offset(x: min(current.start * width, width - length))
+                }
+            }
+            .frame(height: Metrics.chartBar)
+        }
+        .onAppear { shown = shape }
+        .onChange(of: shape) { _, new in
+            withAnimation(.snappy) { shown = new }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(bar.name)
+        .accessibilityValue(bar.score.map { "Score \(Format.score($0))" } ?? "No score yet")
     }
 }

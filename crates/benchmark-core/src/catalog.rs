@@ -3,7 +3,7 @@
 //! run, and the rows it leaves out. `bench_catalog_json` hands this to
 //! Swift as one JSON document.
 
-use crate::cases::{self, Case, CASES, RUNTIMES};
+use crate::cases::{self, Case, RUNTIMES};
 use crate::Runtime;
 
 /// One engine as the app shows it.
@@ -151,7 +151,7 @@ pub fn json() -> String {
             )
         })
         .collect();
-    let cases: Vec<String> = CASES
+    let cases: Vec<String> = cases::all()
         .iter()
         .map(|c| {
             format!(

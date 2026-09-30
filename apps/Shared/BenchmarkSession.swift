@@ -613,11 +613,11 @@ enum Runner {
         let eShare = cpu > 0 ? 1.0 - min(Double(report.p_cpu_ns) / cpu, 1.0) : -1.0
         let ipc = report.cycles > 0 ? Double(report.instructions) / Double(report.cycles) : -1.0
         return String(
-            format: "result=%d  iter=%u  load=%.3fms  min=%.3f median=%.3f p99=%.3f ms  cpu(u/s)=%.2f/%.2f ms  rss=%.0fKB  faults=%llu  e_share=%.3f  ipc=%.2f  insns=%llu  cycles=%llu",
+            format: "result=%d  iter=%u  load=%.3fms  min=%.3f median=%.3f p99=%.3f ms  cpu(u/s)=%.2f/%.2f ms  rss=%.0fKB  faults=%llu  e_share=%.3f  ipc=%.2f  insns=%llu  cycles=%llu  energy_nj=%llu",
             report.result, report.iterations,
             ms(report.load_ns), ms(report.run_ns_min), ms(report.run_ns_median), ms(report.run_ns_p99),
             ms(report.cpu_user_ns), ms(report.cpu_system_ns), Double(report.rss_peak_bytes) / 1024.0,
-            report.page_faults, eShare, ipc, report.instructions, report.cycles
+            report.page_faults, eShare, ipc, report.instructions, report.cycles, report.energy_nj
         )
     }
 }

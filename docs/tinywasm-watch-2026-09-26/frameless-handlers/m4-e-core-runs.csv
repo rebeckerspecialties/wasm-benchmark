@@ -1,0 +1,298 @@
+dispatch,build,row,result,instructions,cycles
+tail calls,next,wasm-call,1000000,418430007,133601352
+tail calls,next,host-call,1000000,610662389,167123131
+tail calls,next,xmrsplayer,1741175410,114165809,31873039
+tail calls,next,graphql_as,5,80937835,24541927
+tail calls,next,mm_single,902712413,56707115,14110382
+tail calls,next,fib,832040,888757577,250880760
+tail calls,next,call_indirect,-9175573,148501256,53631889
+tail calls,next,vtable_poly4,-126115384,324172122,96626668
+tail calls,next,tailcall_fsm,-1841735369,43549801,12251460
+tail calls,frameless,wasm-call,1000000,401210037,132860941
+tail calls,frameless,host-call,1000000,597942130,163634894
+tail calls,frameless,xmrsplayer,1741175410,106647956,29585525
+tail calls,frameless,graphql_as,5,75968784,22714509
+tail calls,frameless,mm_single,902712413,53400798,13254928
+tail calls,frameless,fib,832040,825268560,233747567
+tail calls,frameless,call_indirect,-9175573,140569932,51000148
+tail calls,frameless,vtable_poly4,-126115384,309431174,92750646
+tail calls,frameless,tailcall_fsm,-1841735369,41080000,11629926
+tail calls,frameless+inline,wasm-call,1000000,401406345,133071030
+tail calls,frameless+inline,host-call,1000000,598363384,164309662
+tail calls,frameless+inline,xmrsplayer,1741175410,101473129,29340812
+tail calls,frameless+inline,graphql_as,5,73903365,22741268
+tail calls,frameless+inline,mm_single,902712413,50884886,12983697
+tail calls,frameless+inline,fib,832040,825862977,233954263
+tail calls,frameless+inline,call_indirect,-9175573,140306363,50681127
+tail calls,frameless+inline,vtable_poly4,-126115384,301647064,92186145
+tail calls,frameless+inline,tailcall_fsm,-1841735369,39838249,11665143
+tail calls,next+#74,wasm-call,1000000,338591969,106332345
+tail calls,next+#74,host-call,1000000,616671368,167281932
+tail calls,next+#74,xmrsplayer,1741175410,110864210,30923364
+tail calls,next+#74,graphql_as,5,78256720,23041271
+tail calls,next+#74,mm_single,902712413,56803495,14319132
+tail calls,next+#74,fib,832040,851385317,237852326
+tail calls,next+#74,call_indirect,-9175573,135084190,47902778
+tail calls,next+#74,vtable_poly4,-126115384,296983678,84370297
+tail calls,next+#74,tailcall_fsm,-1841735369,39915386,10614500
+tail calls,next+#74+frameless+inline,wasm-call,1000000,321443545,107010990
+tail calls,next+#74+frameless+inline,host-call,1000000,606641400,169118056
+tail calls,next+#74+frameless+inline,xmrsplayer,1741175410,98290264,28913650
+tail calls,next+#74+frameless+inline,graphql_as,5,71433978,22507671
+tail calls,next+#74+frameless+inline,mm_single,902712413,50953503,13109208
+tail calls,next+#74+frameless+inline,fib,832040,792576330,227260221
+tail calls,next+#74+frameless+inline,call_indirect,-9175573,129550542,49991169
+tail calls,next+#74+frameless+inline,vtable_poly4,-126115384,277098564,84309713
+tail calls,next+#74+frameless+inline,tailcall_fsm,-1841735369,36488078,10545359
+tail calls,next,wasm-call,1000000,420852737,137323688
+tail calls,next,host-call,1000000,609708740,165187910
+tail calls,next,xmrsplayer,1741175410,114210640,32136476
+tail calls,next,graphql_as,5,81432962,25978605
+tail calls,next,mm_single,902712413,56742519,14170695
+tail calls,next,fib,832040,891224846,254973063
+tail calls,next,call_indirect,-9175573,148813689,54351500
+tail calls,next,vtable_poly4,-126115384,324310134,96970910
+tail calls,next,tailcall_fsm,-1841735369,43607623,12380645
+tail calls,frameless,wasm-call,1000000,402574388,135080843
+tail calls,frameless,host-call,1000000,598774005,165400773
+tail calls,frameless,xmrsplayer,1741175410,107153160,30689372
+tail calls,frameless,graphql_as,5,76074781,23087218
+tail calls,frameless,mm_single,902712413,53550462,13559364
+tail calls,frameless,fib,832040,828254873,236535213
+tail calls,frameless,call_indirect,-9175573,142228680,52913384
+tail calls,frameless,vtable_poly4,-126115384,312011275,97456933
+tail calls,frameless,tailcall_fsm,-1841735369,41117264,11793237
+tail calls,frameless+inline,wasm-call,1000000,401607629,133727880
+tail calls,frameless+inline,host-call,1000000,599509909,166577923
+tail calls,frameless+inline,xmrsplayer,1741175410,101573450,29600741
+tail calls,frameless+inline,graphql_as,5,74235715,23976978
+tail calls,frameless+inline,mm_single,902712413,50999684,13126448
+tail calls,frameless+inline,fib,832040,828668652,237563490
+tail calls,frameless+inline,call_indirect,-9175573,140959201,51555195
+tail calls,frameless+inline,vtable_poly4,-126115384,303647329,95356651
+tail calls,frameless+inline,tailcall_fsm,-1841735369,39979749,12258130
+tail calls,next+#74,wasm-call,1000000,338976700,106048419
+tail calls,next+#74,host-call,1000000,617167920,168275146
+tail calls,next+#74,xmrsplayer,1741175410,110970134,31298833
+tail calls,next+#74,graphql_as,5,78372130,23426766
+tail calls,next+#74,mm_single,902712413,56679241,14167246
+tail calls,next+#74,fib,832040,851771757,237499627
+tail calls,next+#74,call_indirect,-9175573,136257430,48627506
+tail calls,next+#74,vtable_poly4,-126115384,299892554,88376418
+tail calls,next+#74,tailcall_fsm,-1841735369,40040181,10725846
+tail calls,next+#74+frameless+inline,wasm-call,1000000,323035830,106021392
+tail calls,next+#74+frameless+inline,host-call,1000000,608337373,171785552
+tail calls,next+#74+frameless+inline,xmrsplayer,1741175410,98378750,29316472
+tail calls,next+#74+frameless+inline,graphql_as,5,71398296,22346624
+tail calls,next+#74+frameless+inline,mm_single,902712413,50946978,13024149
+tail calls,next+#74+frameless+inline,fib,832040,787708427,221824687
+tail calls,next+#74+frameless+inline,call_indirect,-9175573,127537502,46270383
+tail calls,next+#74+frameless+inline,vtable_poly4,-126115384,275490213,84613349
+tail calls,next+#74+frameless+inline,tailcall_fsm,-1841735369,36213931,9978148
+tail calls,next,wasm-call,1000000,418561335,134248990
+tail calls,next,host-call,1000000,609067792,164187071
+tail calls,next,xmrsplayer,1741175410,114098090,31628074
+tail calls,next,graphql_as,5,80995719,23992714
+tail calls,next,mm_single,902712413,56705992,14139147
+tail calls,next,fib,832040,888731826,249940965
+tail calls,next,call_indirect,-9175573,148466157,53875171
+tail calls,next,vtable_poly4,-126115384,323759646,95691769
+tail calls,next,tailcall_fsm,-1841735369,43446388,12073702
+tail calls,frameless,wasm-call,1000000,401087171,132714605
+tail calls,frameless,host-call,1000000,598182193,164247540
+tail calls,frameless,xmrsplayer,1741175410,106908113,30229351
+tail calls,frameless,graphql_as,5,76185009,23570327
+tail calls,frameless,mm_single,902712413,53475409,13428248
+tail calls,frameless,fib,832040,826037228,232785514
+tail calls,frameless,call_indirect,-9175573,140643873,51243129
+tail calls,frameless,vtable_poly4,-126115384,309190470,93226407
+tail calls,frameless,tailcall_fsm,-1841735369,41071387,11665408
+tail calls,frameless+inline,wasm-call,1000000,401813384,133141888
+tail calls,frameless+inline,host-call,1000000,599273244,166352076
+tail calls,frameless+inline,xmrsplayer,1741175410,101522146,29842805
+tail calls,frameless+inline,graphql_as,5,73931863,22794423
+tail calls,frameless+inline,mm_single,902712413,50904121,13046377
+tail calls,frameless+inline,fib,832040,827933241,236484399
+tail calls,frameless+inline,call_indirect,-9175573,140736261,51542033
+tail calls,frameless+inline,vtable_poly4,-126115384,302194240,93567719
+tail calls,frameless+inline,tailcall_fsm,-1841735369,39840649,11724426
+tail calls,next+#74,wasm-call,1000000,339661805,107490063
+tail calls,next+#74,host-call,1000000,617415633,168358751
+tail calls,next+#74,xmrsplayer,1741175410,110952099,30838177
+tail calls,next+#74,graphql_as,5,78551333,23958325
+tail calls,next+#74,mm_single,902712413,56742784,14265677
+tail calls,next+#74,fib,832040,853134511,239962609
+tail calls,next+#74,call_indirect,-9175573,135660779,53876049
+tail calls,next+#74,vtable_poly4,-126115384,298056075,86636121
+tail calls,next+#74,tailcall_fsm,-1841735369,39879040,10569830
+tail calls,next+#74+frameless+inline,wasm-call,1000000,321722825,107262076
+tail calls,next+#74+frameless+inline,host-call,1000000,605476588,168305806
+tail calls,next+#74+frameless+inline,xmrsplayer,1741175410,98298702,29039453
+tail calls,next+#74+frameless+inline,graphql_as,5,71404546,22088129
+tail calls,next+#74+frameless+inline,mm_single,902712413,50961920,13096140
+tail calls,next+#74+frameless+inline,fib,832040,788186995,221236720
+tail calls,next+#74+frameless+inline,call_indirect,-9175573,127698644,52339505
+tail calls,next+#74+frameless+inline,vtable_poly4,-126115384,275122067,84287563
+tail calls,next+#74+frameless+inline,tailcall_fsm,-1841735369,36209552,10006847
+"tail calls, fuel",next,wasm-call,1000000,439113973,138330854
+"tail calls, fuel",next,host-call,1000000,625740032,166426896
+"tail calls, fuel",next,xmrsplayer,1741175410,120913511,34036087
+"tail calls, fuel",next,graphql_as,5,85227678,26308654
+"tail calls, fuel",next,mm_single,902712413,59760247,14579966
+"tail calls, fuel",next,fib,832040,938339014,256306350
+"tail calls, fuel",next,call_indirect,-9175573,155834487,54808675
+"tail calls, fuel",next,vtable_poly4,-126115384,339365567,99026676
+"tail calls, fuel",next,tailcall_fsm,-1841735369,45799359,12449237
+"tail calls, fuel",frameless,wasm-call,1000000,422287992,134653910
+"tail calls, fuel",frameless,host-call,1000000,615829238,167704071
+"tail calls, fuel",frameless,xmrsplayer,1741175410,113452203,31785121
+"tail calls, fuel",frameless,graphql_as,5,80425965,25201662
+"tail calls, fuel",frameless,mm_single,902712413,56488270,13686889
+"tail calls, fuel",frameless,fib,832040,877112072,243746246
+"tail calls, fuel",frameless,call_indirect,-9175573,148132260,52734742
+"tail calls, fuel",frameless,vtable_poly4,-126115384,326113698,96620494
+"tail calls, fuel",frameless,tailcall_fsm,-1841735369,43362380,11796642
+"tail calls, fuel",frameless+inline,wasm-call,1000000,422146842,135663133
+"tail calls, fuel",frameless+inline,host-call,1000000,613144358,162177626
+"tail calls, fuel",frameless+inline,xmrsplayer,1741175410,107774942,31030495
+"tail calls, fuel",frameless+inline,graphql_as,5,78163845,24850057
+"tail calls, fuel",frameless+inline,mm_single,902712413,53822420,13308864
+"tail calls, fuel",frameless+inline,fib,832040,875385204,240563018
+"tail calls, fuel",frameless+inline,call_indirect,-9175573,147786604,52381467
+"tail calls, fuel",frameless+inline,vtable_poly4,-126115384,316401713,92764071
+"tail calls, fuel",frameless+inline,tailcall_fsm,-1841735369,42100949,11833506
+"tail calls, fuel",next,wasm-call,1000000,441106290,141884783
+"tail calls, fuel",next,host-call,1000000,626144879,168138773
+"tail calls, fuel",next,xmrsplayer,1741175410,120806700,33538164
+"tail calls, fuel",next,graphql_as,5,85109910,26061457
+"tail calls, fuel",next,mm_single,902712413,59746362,14530843
+"tail calls, fuel",next,fib,832040,936310081,259831271
+"tail calls, fuel",next,call_indirect,-9175573,155705394,54334371
+"tail calls, fuel",next,vtable_poly4,-126115384,339433883,98313077
+"tail calls, fuel",next,tailcall_fsm,-1841735369,45818102,12403348
+"tail calls, fuel",frameless,wasm-call,1000000,421988170,135046717
+"tail calls, fuel",frameless,host-call,1000000,613521754,164957000
+"tail calls, fuel",frameless,xmrsplayer,1741175410,113179978,31341359
+"tail calls, fuel",frameless,graphql_as,5,80235076,24853893
+"tail calls, fuel",frameless,mm_single,902712413,56589808,13912702
+"tail calls, fuel",frameless,fib,832040,876206633,242090313
+"tail calls, fuel",frameless,call_indirect,-9175573,148136265,52685692
+"tail calls, fuel",frameless,vtable_poly4,-126115384,324747001,94457904
+"tail calls, fuel",frameless,tailcall_fsm,-1841735369,43394384,11871923
+"tail calls, fuel",frameless+inline,wasm-call,1000000,422636700,135989555
+"tail calls, fuel",frameless+inline,host-call,1000000,613375238,162976941
+"tail calls, fuel",frameless+inline,xmrsplayer,1741175410,107844874,31476246
+"tail calls, fuel",frameless+inline,graphql_as,5,78146101,24805531
+"tail calls, fuel",frameless+inline,mm_single,902712413,53741450,13267525
+"tail calls, fuel",frameless+inline,fib,832040,873832192,237014577
+"tail calls, fuel",frameless+inline,call_indirect,-9175573,147674847,52101120
+"tail calls, fuel",frameless+inline,vtable_poly4,-126115384,316145175,92536279
+"tail calls, fuel",frameless+inline,tailcall_fsm,-1841735369,42072366,11798618
+"tail calls, fuel",next,wasm-call,1000000,441089064,141477355
+"tail calls, fuel",next,host-call,1000000,626353197,168262260
+"tail calls, fuel",next,xmrsplayer,1741175410,120749108,33376721
+"tail calls, fuel",next,graphql_as,5,85186184,26006903
+"tail calls, fuel",next,mm_single,902712413,59711073,14536190
+"tail calls, fuel",next,fib,832040,940076368,258554753
+"tail calls, fuel",next,call_indirect,-9175573,155681724,54519144
+"tail calls, fuel",next,vtable_poly4,-126115384,339196551,98134263
+"tail calls, fuel",next,tailcall_fsm,-1841735369,45795776,12280796
+"tail calls, fuel",frameless,wasm-call,1000000,422002677,134916069
+"tail calls, fuel",frameless,host-call,1000000,614055986,165473560
+"tail calls, fuel",frameless,xmrsplayer,1741175410,113088415,31297616
+"tail calls, fuel",frameless,graphql_as,5,80237644,24876718
+"tail calls, fuel",frameless,mm_single,902712413,56435359,13518017
+"tail calls, fuel",frameless,fib,832040,874921863,239638347
+"tail calls, fuel",frameless,call_indirect,-9175573,147871090,52185031
+"tail calls, fuel",frameless,vtable_poly4,-126115384,323999787,93778511
+"tail calls, fuel",frameless,tailcall_fsm,-1841735369,43576601,12178236
+"tail calls, fuel",frameless+inline,wasm-call,1000000,425526154,139301485
+"tail calls, fuel",frameless+inline,host-call,1000000,614566814,166556362
+"tail calls, fuel",frameless+inline,xmrsplayer,1741175410,108022471,31911414
+"tail calls, fuel",frameless+inline,graphql_as,5,78282392,25119834
+"tail calls, fuel",frameless+inline,mm_single,902712413,53826459,13389644
+"tail calls, fuel",frameless+inline,fib,832040,875511015,239470564
+"tail calls, fuel",frameless+inline,call_indirect,-9175573,148004389,53038713
+"tail calls, fuel",frameless+inline,vtable_poly4,-126115384,316519218,93269216
+"tail calls, fuel",frameless+inline,tailcall_fsm,-1841735369,41957281,11491177
+loop,next,wasm-call,1000000,396741100,133564596
+loop,next,host-call,1000000,594875841,162529258
+loop,next,xmrsplayer,1741175410,106334612,32534588
+loop,next,graphql_as,5,75010079,25030276
+loop,next,mm_single,902712413,52119798,14776228
+loop,next,fib,832040,854160438,262632419
+loop,next,call_indirect,-9175573,139854492,52745080
+loop,next,vtable_poly4,-126115384,304537919,102456651
+loop,next,tailcall_fsm,-1841735369,40855233,12704268
+loop,frameless,wasm-call,1000000,397312374,132244708
+loop,frameless,host-call,1000000,597593225,170548417
+loop,frameless,xmrsplayer,1741175410,106847638,32598152
+loop,frameless,graphql_as,5,75800480,26078120
+loop,frameless,mm_single,902712413,52360807,14955218
+loop,frameless,fib,832040,856001877,264499326
+loop,frameless,call_indirect,-9175573,139977293,52369374
+loop,frameless,vtable_poly4,-126115384,304511150,102385571
+loop,frameless,tailcall_fsm,-1841735369,40747140,12588569
+loop,frameless+inline,wasm-call,1000000,396506514,130902490
+loop,frameless+inline,host-call,1000000,595211005,166338274
+loop,frameless+inline,xmrsplayer,1741175410,102585204,31356073
+loop,frameless+inline,graphql_as,5,73835244,24634318
+loop,frameless+inline,mm_single,902712413,50521407,14475461
+loop,frameless+inline,fib,832040,854634507,263581126
+loop,frameless+inline,call_indirect,-9175573,140344748,52305447
+loop,frameless+inline,vtable_poly4,-126115384,299106026,100240216
+loop,frameless+inline,tailcall_fsm,-1841735369,40070169,12610332
+loop,next,wasm-call,1000000,398296365,134662952
+loop,next,host-call,1000000,596163189,164725972
+loop,next,xmrsplayer,1741175410,106519141,32723513
+loop,next,graphql_as,5,74997092,24850662
+loop,next,mm_single,902712413,52126671,14814633
+loop,next,fib,832040,856921522,263785901
+loop,next,call_indirect,-9175573,140356081,53241419
+loop,next,vtable_poly4,-126115384,305433115,102959896
+loop,next,tailcall_fsm,-1841735369,40991575,12937857
+loop,frameless,wasm-call,1000000,398789322,134204908
+loop,frameless,host-call,1000000,595780479,168568135
+loop,frameless,xmrsplayer,1741175410,106790695,32489112
+loop,frameless,graphql_as,5,75644997,25369956
+loop,frameless,mm_single,902712413,52306465,14933175
+loop,frameless,fib,832040,854661979,262898878
+loop,frameless,call_indirect,-9175573,139785263,51951294
+loop,frameless,vtable_poly4,-126115384,305578529,104289195
+loop,frameless,tailcall_fsm,-1841735369,40984035,12825467
+loop,frameless+inline,wasm-call,1000000,398061620,133621392
+loop,frameless+inline,host-call,1000000,595729143,167572568
+loop,frameless+inline,xmrsplayer,1741175410,102703289,31937153
+loop,frameless+inline,graphql_as,5,73833965,24711887
+loop,frameless+inline,mm_single,902712413,50545894,14308609
+loop,frameless+inline,fib,832040,855173858,264492734
+loop,frameless+inline,call_indirect,-9175573,140452990,52318356
+loop,frameless+inline,vtable_poly4,-126115384,299448396,100789128
+loop,frameless+inline,tailcall_fsm,-1841735369,39972471,12533620
+loop,next,wasm-call,1000000,397467872,133286948
+loop,next,host-call,1000000,595717941,164062253
+loop,next,xmrsplayer,1741175410,106271359,32462290
+loop,next,graphql_as,5,75036708,24755398
+loop,next,mm_single,902712413,52150347,14807052
+loop,next,fib,832040,856586670,265458457
+loop,next,call_indirect,-9175573,140147323,53219245
+loop,next,vtable_poly4,-126115384,304346914,101143322
+loop,next,tailcall_fsm,-1841735369,40860934,12701404
+loop,frameless,wasm-call,1000000,397146894,132329295
+loop,frameless,host-call,1000000,594727502,167853687
+loop,frameless,xmrsplayer,1741175410,106724445,32348727
+loop,frameless,graphql_as,5,75394621,24683691
+loop,frameless,mm_single,902712413,52282288,14802638
+loop,frameless,fib,832040,855078161,262009250
+loop,frameless,call_indirect,-9175573,140314054,52623494
+loop,frameless,vtable_poly4,-126115384,306042865,103864226
+loop,frameless,tailcall_fsm,-1841735369,41088579,12868756
+loop,frameless+inline,wasm-call,1000000,397837675,132127644
+loop,frameless+inline,host-call,1000000,595686721,167115466
+loop,frameless+inline,xmrsplayer,1741175410,102540590,31685709
+loop,frameless+inline,graphql_as,5,73851029,24697946
+loop,frameless+inline,mm_single,902712413,50489626,14351274
+loop,frameless+inline,fib,832040,854071280,262296023
+loop,frameless+inline,call_indirect,-9175573,140120929,51690290
+loop,frameless+inline,vtable_poly4,-126115384,298103116,98863474
+loop,frameless+inline,tailcall_fsm,-1841735369,39966752,12502061

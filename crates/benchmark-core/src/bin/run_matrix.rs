@@ -1,4 +1,4 @@
-//! Cross-runtime CLI: runs every case in `benchmark_core::cases::CASES`
+//! Cross-runtime CLI: runs every case in `benchmark_core::cases::all()`
 //! on every runtime the build links, the same way the iOS app's rows do,
 //! and prints one table row plus one JSON line per (runtime, case).
 //!
@@ -28,7 +28,7 @@
 
 use std::io::Write;
 
-use benchmark_core::cases::{run_case, Case, Shape, CASES, RUNTIMES};
+use benchmark_core::cases::{run_case, Case, Shape, RUNTIMES};
 use benchmark_core::{self as bc, RunReport};
 
 fn json_str(s: &str) -> String {
@@ -100,7 +100,7 @@ fn adhoc_case() -> Option<Vec<Case>> {
 
 fn main() {
     let adhoc = adhoc_case();
-    let cases: &[Case] = adhoc.as_deref().unwrap_or(CASES);
+    let cases: &[Case] = adhoc.as_deref().unwrap_or(benchmark_core::cases::all());
     let runtimes = list_env("RUNTIMES");
     let workloads = list_env("WORKLOADS");
     let rep: i64 = std::env::var("MATRIX_REP").ok().and_then(|s| s.parse().ok()).unwrap_or(0);

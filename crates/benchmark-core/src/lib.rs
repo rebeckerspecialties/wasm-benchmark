@@ -590,6 +590,9 @@ pub struct RunReport {
     /// counters; whole process, all cores).
     pub instructions: u64,
     pub cycles: u64,
+    /// The kernel's CPU energy estimate for the timed window, nJ (whole
+    /// process): `task_power_info_v2.task_energy`, macOS `ri_energy_nj`.
+    pub energy_nj: u64,
 }
 
 /// Heuristic: pick an iteration count so the total measurement window is
@@ -686,6 +689,7 @@ impl Window {
             p_cpu_ns: usage.p_cpu_ns,
             instructions: usage.instructions,
             cycles: usage.cycles,
+            energy_nj: usage.energy_nj,
         }
     }
 }
@@ -1336,6 +1340,7 @@ pub struct BenchReport {
     pub p_cpu_ns: u64,
     pub instructions: u64,
     pub cycles: u64,
+    pub energy_nj: u64,
 }
 
 fn report_from(r: Result<RunReport>) -> BenchReport {
@@ -1356,6 +1361,7 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
             p_cpu_ns: r.p_cpu_ns,
             instructions: r.instructions,
             cycles: r.cycles,
+            energy_nj: r.energy_nj,
         },
         Err(e) => {
             let msg = format!("{e:#}");
@@ -1378,6 +1384,7 @@ fn report_from(r: Result<RunReport>) -> BenchReport {
                 p_cpu_ns: 0,
                 instructions: 0,
                 cycles: 0,
+                energy_nj: 0,
             }
         }
     }
@@ -2142,7 +2149,7 @@ pub unsafe extern "C" fn bench_run_case(
             anyhow::bail!("null case id");
         }
         let id = unsafe { std::ffi::CStr::from_ptr(case_id) }.to_string_lossy();
-        let case = cases::CASES
+        let case = cases::all()
             .iter()
             .find(|c| c.id == id)
             .ok_or_else(|| anyhow::anyhow!("unknown case id `{id}`"))?;

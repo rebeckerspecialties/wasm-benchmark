@@ -26,7 +26,7 @@ Pick this up cold without re-deriving state:
   each an expandable row with the release and short commit it was built
   from and an aggregate score (higher is better; 100 is the typical
   engine on an iPhone XS), ranked best first and re-sorted after every
-  result; inside, each benchmark's score, or a red −5 for a benchmark
+  result; inside, each benchmark's score, or a red −10 for a benchmark
   the engine cannot run. The aggregate is the arithmetic mean of those,
   so every missing feature costs. SwiftUI for iOS 17+ / iPadOS,
   watchOS 11+, tvOS 18+ and visionOS 26+ (plus the macOS dev host),
@@ -48,7 +48,7 @@ Pick this up cold without re-deriving state:
   | WasmEdge | 0.17.2-rc.3 `16ea4c45` | `patches/wasmedge/` (27) |
   | zwasm | v2.7.0 `d09d9248` | `patches/zwasm/0001-0002` |
   | wasmz | v0.1.4 `0796998b` | `patches/wasmz/0002` |
-  | tinywasm | `next` `693d590c` (2026-09-26; git dependency) | none |
+  | tinywasm | `next` `a0ea681` (2026-09-27, with #75; git dependency) | none |
   | femtovg (E2E guest + host) | fork branch `wire-renderer` `074050a` on upstream master 0.27.0 | fork commits |
 
 - **WAMR on `main`, not the release**: WAMR-2.4.5 sits on
@@ -90,7 +90,7 @@ Pick this up cold without re-deriving state:
   binop / compare helpers, `7af50cc9`) and
   [#59](https://github.com/explodingcamera/tinywasm/pull/59) (per-function
   operand-stack reservation, `c0be6478`). The harness pins `next`
-  (`693d590c`), which has them; the 0.11.0 release on crates.io predates
+  (`a0ea681` since 2026-09-28), which has them; the 0.11.0 release on crates.io predates
   them. `next` is upstream's default branch (`main` is stale at
   `b45a98a`).
   - It was a manual stack (GitHub's native stacked PRs don't work across
@@ -109,21 +109,28 @@ Pick this up cold without re-deriving state:
     [#72](https://github.com/explodingcamera/tinywasm/pull/72),
     shared-memory locking out of line with atomics keeping the lock
     inline. #72's shared-memory cost and references to other runtimes
-    are in the watch report. Upstream `next` is now `d1165c2`; the
-    harness still pins `693d590c`.
+    are in the watch report. The harness pins `a0ea681` (with #71, #72
+    and #75) since 2026-09-28.
+  - 2026-09-27: the maintainer closed #64 and merged his own version as
+    [#75](https://github.com/explodingcamera/tinywasm/pull/75) (`next`
+    `a0ea681`, Matt co-author). #75 passes only the instruction slice
+    through the handlers. A call, return or exception that changes the
+    function returns `ExecFlow::Switch` to a run loop, where #64 compared
+    `cf.func_addr` in every control-flow handler. #75 vs #64: −0.9 /
+    −1.8 / −1.5 % cycles (A14 / A12 / A13). See the watch report's *After
+    upstream #75*.
   - Fork PRs with no upstream counterpart yet, or waiting upstream:
     - #7 and #8 are the fork copies of upstream #63 (inline load offsets;
       closed by the maintainer, who plans his own memory operand
       encoding) and [#64](https://github.com/explodingcamera/tinywasm/pull/64)
-      (borrow the instruction stream). #64 was remeasured on 2026-09-26
-      against `next`: −5.7 / −7.4 / −8.2 % cycles on the A14 / A12 / A13
-      E-cores. Rows that switch functions on every call are up to +6 % on
-      the A12, and the exnref parser +3–13 %. The PR carries the table.
+      (borrow the instruction stream). #64 was closed on 2026-09-27 in
+      favor of #75 (above).
     - [#11](https://github.com/rebeckerspecialties/tinywasm/pull/11)
       (`perf/cheaper-calls`), upstream as
       [explodingcamera/tinywasm#74](https://github.com/explodingcamera/tinywasm/pull/74)
-      (rebased onto `d1165c2`, remeasured −4.9 / −5.2 / −4.0 %; the
-      description is the user's with the table updated): the executor borrows the
+      (rebased onto #75 on 2026-09-27 as `perf/cheaper-calls` `8370a09`:
+      −6.0 / −8.3 / −5.2 %; the description is the user's with the table
+      updated): the executor borrows the
       executing function and module from the instance, which
       `InterpreterRuntime` holds for the run, so calls and returns inside
       an instance make no refcount updates; leaving the instance (import,
@@ -138,7 +145,71 @@ Pick this up cold without re-deriving state:
       plus a commit that keeps #64's borrowed chain across calls within an
       instance. −6.4 / −9.4 / −6.4 % against that base, and the whole stack
       −13.8 / −16.5 / −16.0 % against `next` with every row faster
-      (xmrsplayer −16 to −20 %). Upstreaming waits on #64.
+      (xmrsplayer −16 to −20 %). Closed 2026-09-27: on #75 plus #74 the
+      chain is worth only −0.2 to −0.6 %.
+    - Plan item 3, frameless handlers: fork
+      [#13](https://github.com/rebeckerspecialties/tinywasm/pull/13)
+      (`perf/frameless-handlers`, rebased onto #75: −5.8 / −6.0 / −7.6 %,
+      every row faster). The
+      tail-call handlers `become` their mismatch and fetch panics, and
+      impossible value-stack and global accesses stop through
+      `invariant_violated` (`core::intrinsics::abort` in release
+      tail-call builds). Pushes inside a body are infallible (#59's
+      reservation), and the five memory helpers that were out of line are
+      now inlined. 444 of 615 handlers are frameless (1 on `next`).
+      −4.5 / −5.3 / −7.2 % cycles on the A14 / A12 / A13 E-cores, every
+      row faster, on `d1165c2`. Memory, call and return handlers keep
+      their frames. Local `rebase/*-on-75` branches hold every rebase.
+      Upstream as
+      [explodingcamera/tinywasm#77](https://github.com/explodingcamera/tinywasm/pull/77)
+      (2026-09-27). On the maintainer's review (2026-09-28) the branch
+      gained `bc19bf4` (`core::process::abort_immediate` instead of the
+      intrinsic, feature `abort_immediate`) and `763e7b0` (no shared
+      `instruction_handler_mismatch`). Every handler compiles to the same
+      instructions with fat LTO, thin LTO and a default release build. He
+      may later put the abort behind its own feature flag.
+    - iPhone 12 PMU of the stack on #75 (watch report): gains are mostly
+      instructions. Memory-order flushes grow with each dispatch speedup.
+      On audio DSP they are 2.7× as frequent as branch mispredicts. The
+      cause is the value stack's length/top round trips between handlers
+      (M4 sampling: `BinOpStackConst32`, `I32Add`, `Stack::set` /
+      `Vec::push`). That is the evidence for register operands (`acc`).
+    - Why (2026-09-27, `scripts/memdep-bench` + a tinywasm pair sweep on
+      the M4 E-cores): the memory-dependence predictor saturates once more
+      than ~11–19 distinct handler pairs alias through the stack (~25 in
+      the model). Past that, loads wait (back-end execution latency, the
+      bulk of the cost) or flush. Real loops use 40 (audio DSP), 136
+      (xmrsplayer) and 226 (graphql) pairs for 90 % of their dispatches.
+    - Discussion [#78](https://github.com/explodingcamera/tinywasm/discussions/78)
+      (2026-09-28). The maintainer wants to try the stack pointer, measured
+      on its own first. He worries about registers for later accumulators
+      and says a top-of-stack cache lost to "the extra branch". He calls
+      `exp/acc` a failed experiment: its accumulators sat beside a `Vec`
+      stack whose length still round-trips memory.
+      - `scripts/tos-bench` on the M4 E-cores: height as a handler
+        argument −34 % cycles per dispatch but 4× the flushes; plus a
+        written-through top, with parse-time no-reload pops that empty the
+        lane, −46 % and a quarter of today's flushes. The flag version
+        needs a third register. Adding the stack's slice (two more
+        registers) gives −51 % and no flushes.
+      - Argument registers (`abi_probe.py`): arm64 8 (all Apple targets,
+        arm64_32, Android, Windows); x86-64 System V 6; Windows x64 4.
+        tinywasm uses 5 (Unbudgeted) and 4 (Bounded), so Windows x64
+        already spills the `Instruction`.
+        `extern "rust-preserve-none"` (nightly) gives 12 on every x86-64
+        OS and 23–24 on arm64.
+      - On the phones (benchmark-core feature `tos-model`,
+        `scripts/tos-bench/build-ios.sh`): at 171 handlers the branch-free
+        top gains 43 % on the iPhone 12, 22 % on the SE and 6 % on the XS
+        Max. The XS Max's Tempest efficiency core (the S4's) is
+        dispatch-bound at 18–24 cycles per dispatch.
+        - On the iPhone 12 the flag's branch predicts (0.3–0.5
+          conditional mispredicts per 1k dispatches), but it costs 1–16 %
+          through front-end delivery.
+        - From 17 to 53 handlers, 13–18 % of the iPhone 12's dispatches
+          mispredict (indirect), against 0.1–0.2 % on the M4.
+      - Report: watch report *Registers for the value stack*. The reply
+        draft is Matt's to post (CONTRIBUTING).
   - Apple Watch Series 10 analysis:
     [`docs/tinywasm-watch-2026-09-26.md`](docs/tinywasm-watch-2026-09-26.md).
     tinywasm needs 1.9× WAMR's cycles because of instruction count, not
@@ -148,7 +219,7 @@ Pick this up cold without re-deriving state:
     - With #64 + #72: −8.8 % cycles on the iPhone 12 E-cores. The report's
       *Action plan* ranks what comes next for xmrsplayer-like guests:
       cheaper wasm calls and returns (done: fork #11 / #12), then frameless
-      handlers (4 of 42 instructions per op). None of the scored rows
+      handlers (done: `perf/frameless-handlers`). None of the scored rows
       imports anything or passes v128 to the host, so host-call fast
       paths cannot move WasmBench. `exp/acc` at `c8cf1ff` measured +24 %
       instructions on xmrsplayer against its base.
@@ -193,7 +264,10 @@ Pick this up cold without re-deriving state:
   - `./scripts/run-m4-pass.sh <out>` — M4 E-core N=10 (matrix + femtovg E2E + CM async)
   - `./scripts/run-device-pass.sh <out>` — iPhone N=10, one runtime per launch (`E2E=0,1` for the femtovg E2E)
   - `./scripts/run-m4-pmu-pass.sh <out>` — M4 PMU per runtime × workload (`RUNTIMES_LIST=` / `MODES=` narrow it; the 2026-09 report profiles tinywasm only), never alongside a timing pass
-  - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode
+  - `./scripts/run-device-pmu.sh <out>` — iPhone 12 PMU + Time Profiler per (runtime, row), xctrace launch mode (deletes each capture's `.ktrace`; `KEEP_XML=1` keeps the counter exports; check `devicectl device info details` for `Transport Type: wired`: over the network each capture takes 2–8 min instead of ~40 s)
+  - `scripts/memdep-bench/` — memory-dependence-predictor microbenchmark (K copies of a tinywasm-shaped handler; see its README)
+  - `scripts/tos-bench/` — where an interpreter keeps its value stack's height and top between tail-called handlers (13 variants), its E-core sweep and PMU scripts, `asm_regs.py` (the state in machine code per target) and `abi_probe.py` (argument registers per target and ABI); see its README
+  - `scripts/pmu_per_call.py <pmu-root> <timing.csv> <steps>` — per-call counter changes between A/B builds (one `run-device-pmu.sh` directory per build + the A/B's `--csv`); `scripts/pmi_by_handler.py <samples.xml> [event]` — a sampling mode's samples (`SamplingModeSamples` export) by tinywasm handler and source line
   - `./scripts/run-m4-memory-pass.sh <out>` — per-case phys_footprint peak, one process per (runtime, case)
   - `./scripts/run-pulley-dispatch-ab.sh <out>` — Pulley `pulley_tail_calls` vs match-loop dispatch
   - `./scripts/tinywasm-ab-build-ios.sh <name> <tinywasm-worktree> <ref> [patch...]` + `./scripts/tinywasm-ab-iphone.sh <out> <names...>` + `./scripts/tinywasm_ab_summary.py <out> <names...> [--metric wall]` — interleaved A/B of tinywasm revisions on the iPhone (`UDID=` / `DEVICE_NAME=` pick the phone; one run per phone can go in parallel)
@@ -493,7 +567,7 @@ To add a workload:
    one). Add it to `WATCH_EXCLUDED_CASES` in `cases.rs` if a call takes
    seconds on an S8 or it needs a lot of memory, and to `APP_SKIPS` for
    a runtime that keeps the row's memory for the life of the process
-   (the app scores that engine −5 there without running it).
+   (the app scores that engine −10 there without running it).
 
 The older per-workload `bench_run_<name>` FFI functions still exist for
 the original rows; new rows don't need them.
@@ -519,7 +593,7 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   crc32, convolution and bulk_memory, which LLVM auto-vectorizes into
   SIMD, so the app runs their `.scalar` builds, which every engine can
   run). The watch also leaves out `WATCH_EXCLUDED_CASES`. A failed row
-  scores −5, and so do the `APP_SKIPS` rows, which it does not attempt.
+  scores −10, and so do the `APP_SKIPS` rows, which it does not attempt.
   It pauses while the app is not in the foreground and measures an
   interrupted benchmark again, and skips a row without penalty when
   `os_proc_available_memory()` is under 192 MB (48 MB on the watch).
@@ -652,8 +726,10 @@ Teardown of instantiate-per-sample cases runs outside the clock.
   ~100 MB/s of recording (system-wide kdebug; worse while devicectl
   streams) and never deletes it. A 2-minute M4 capture reached 11 GB and
   filled the disk mid-pass. Keep captures short and delete the `.ktrace`
-  after each export (both PMU scripts do), and keep a free-space
-  watchdog on long passes.
+  after each export (the PMU scripts do), and keep a free-space
+  watchdog on long passes. Other tools record too (Instruments.app, other
+  agents' xctrace runs), each leaving 0.5–4 GB traces: the scripts delete
+  only the traces no process holds open (`rm_ktraces`), never a live one.
 - **Xcode 26.5 (historical)**: `--launch` was broken for iPhone 12 /
   iOS 26.3+ (the trace held only `RunIssues.storedata`, no counter
   data), and `--attach <pid>` worked:
@@ -836,7 +912,7 @@ All seven are built interpreter-only; exact flags:
 6. **wasmz** v0.1.4 (`libwasmz.a`) — Zig 0.16.0, `-Doptimize=ReleaseFast`,
    `zig build static-lib`. No JIT/AOT tier exists. 8 MiB-stack thread,
    same dyld stub.
-7. **tinywasm** `next` `693d590c` — git, `default-features = false`,
+7. **tinywasm** `next` `a0ea681` — git, `default-features = false`,
    features `std`, `parser`, `validate` (its `archive` serializer off),
    `nightly-tail-calls` via `nightly-dispatch`. No native codegen at all
    (`#![forbid(unsafe_code)]` outside opt-in x86 intrinsics).
