@@ -30,8 +30,8 @@ struct RootView: View {
         content
             .tint(.brand)
             .task { session.autorunIfRequested() }
-            .onChange(of: scenePhase) { _, phase in
-                session.sceneActivityChanged(active: phase == .active)
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                session.scenePhaseChanged(phase)
             }
     }
 

@@ -24,6 +24,10 @@
 	<false/>
 	<key>WKApplication</key>
 	<true/>
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>mindfulness</string>
+	</array>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>com.rebeckerspecialties.wasmbench</string>
 	<key>WKRunsIndependentlyOfCompanionApp</key>
