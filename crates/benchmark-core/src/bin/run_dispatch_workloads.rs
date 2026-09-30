@@ -3,14 +3,13 @@
 //!
 //!   - call_indirect.wasm        (synthetic dispatch microbenchmark)
 //!   - graphql-validation-as     (AssemblyScript port; 13 sites, slot-0 null)
-//!   - graphql-validation-porf   (Porffor port; 131 sites, megamorphic)
 //!   - xmrsplayer.wasm           (real-world Rust soundtracker player;
 //!                                15 s of unreal.s3m through 31
 //!                                call_indirect sites at 44.1 kHz)
 //!   - sqlite3.wasm              (single-shot; exported table → opt is correctly off)
 //!
 //! Use `BENCH_TARGET_MS=2000` to bump iteration budget 10x for tighter
-//! noise floor. Optionally `WORKLOADS=call_indirect,graphql-porf` to
+//! noise floor. Optionally `WORKLOADS=call_indirect,graphql` to
 //! restrict to a subset (matches by case-insensitive prefix).
 //!
 //! Designed to be wrapped by `taskpolicy -b` for E-core scheduling on
@@ -22,8 +21,8 @@ use std::time::Duration;
 use anyhow::Result;
 use benchmark_core::{
     graphql_validation, run_call_indirect, run_vtable_bi, run_vtable_mono, run_vtable_poly4,
-    run_vtable_poly6, run_xmrsplayer, sqlite3, GRAPHQL_VALIDATION_AS_WASM,
-    GRAPHQL_VALIDATION_PORF_WASM, RunReport, SQLITE3_WASM,
+    run_vtable_poly6, run_xmrsplayer, sqlite3, GRAPHQL_VALIDATION_AS_WASM, RunReport,
+    SQLITE3_WASM,
 };
 
 struct Case {
@@ -43,12 +42,11 @@ fn main() -> Result<()> {
         Case { name: "vtable_poly4",             run: || run_vtable_poly4(0xC1AA) },
         Case { name: "vtable_poly6",             run: || run_vtable_poly6(0xC1AA) },
         Case { name: "graphql-validation-as",    run: || graphql_validation::run_graphql_validation_as(GRAPHQL_VALIDATION_AS_WASM) },
-        Case { name: "graphql-validation-porf",  run: || graphql_validation::run_graphql_validation_porf(GRAPHQL_VALIDATION_PORF_WASM) },
         Case { name: "xmrsplayer",               run: || run_xmrsplayer(0) },
         Case { name: "sqlite3",                  run: || sqlite3::run_sqlite3(SQLITE3_WASM) },
     ];
 
-    // Optional filter via `WORKLOADS=call_indirect,graphql-porf` etc.
+    // Optional filter via `WORKLOADS=call_indirect,graphql` etc.
     let filter: Option<Vec<String>> = std::env::var("WORKLOADS")
         .ok()
         .filter(|s| !s.trim().is_empty())

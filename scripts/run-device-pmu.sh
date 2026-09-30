@@ -21,6 +21,12 @@
 # capture); IPC comes from a normal run of the same rows (the app's result
 # lines, `ipc=`), so per-instruction rates are cycles-rate / IPC.
 #
+# Disk: xctrace also writes a raw kernel trace (instruments*.ktrace in the
+# user temp dir, up to ~100 MB/s of recording, more while devicectl
+# streams) and never deletes it, so each capture's .ktrace is deleted with
+# its trace (other tools' open ones are left alone), and the run stops when
+# free space drops below MIN_FREE_GB.
+#
 # Usage: scripts/run-device-pmu.sh <out-dir>
 #   UDID=00008101-000A044A3C28801E (iPhone 12; devicectl and xctrace IDs match)
 #   RUNTIMES_LIST="tinywasm wamr"
@@ -29,19 +35,33 @@
 #   MODES="bottleneck:bottlenecks bottleneck:discarded_indirect_sampling metrics:l1d_metrics
 #          metrics:instruction_address_translation_metrics characteristics:call_branch_instructions timeprofile"
 #   MODES_<runtime>="..."   per-runtime override, e.g. MODES_wamr
-#   CAPTURE_MS=12000 BENCH_TARGET_MS=30000
+#   CAPTURE_MS=12000 BENCH_TARGET_MS=30000 MIN_FREE_GB=3
+#   KEEP_XML=1       keep each counters export gzipped in <out-dir>/xml/ for re-reduction
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"
 OUT="${1:?usage: run-device-pmu.sh <out-dir>}"
 UDID="${UDID:-00008101-000A044A3C28801E}"
 XCTRACE_DEV="${XCTRACE_DEV:-${UDID}}"
-BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
+BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench}"
 RUNTIMES_LIST="${RUNTIMES_LIST:-tinywasm wamr}"
 WORKLOADS_LIST="${WORKLOADS_LIST:-fib(30);call_indirect (200K;xmrsplayer;graphql-validation (AS);crc32(64KB) [scalar;convolution 256×256 [scalar;audio DSP}"
 MODES="${MODES:-bottleneck:bottlenecks bottleneck:discarded_indirect_sampling metrics:l1d_metrics metrics:instruction_address_translation_metrics characteristics:call_branch_instructions timeprofile}"
 CAPTURE_MS="${CAPTURE_MS:-12000}"
 BENCH_TARGET_MS="${BENCH_TARGET_MS:-30000}"
+MIN_FREE_GB="${MIN_FREE_GB:-3}"
+KEEP_XML="${KEEP_XML:-0}"
+KTRACE_DIR="$(getconf DARWIN_USER_TEMP_DIR)"
+
+# Deletes xctrace's leftover kernel traces, but not one a process still holds: another tool's
+# recording in progress (Instruments, other agents) writes its own instruments*.ktrace here.
+rm_ktraces() {
+  local f
+  for f in "${KTRACE_DIR}"/instruments*.ktrace; do
+    [[ -e "${f}" && -z "$(lsof -t "${f}" 2>/dev/null)" ]] && rm -f "${f}"
+  done
+  return 0
+}
 mkdir -p "${OUT}/logs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
@@ -82,6 +102,13 @@ for rt in ${RUNTIMES_LIST}; do
     ws="$(slug "${wl}")"
     for mode in ${rt_modes}; do
       label="${rt}-${ws}-${mode//:/_}"
+      # Orphaned traces from an interrupted run count against the limit too.
+      rm_ktraces
+      free_gb=$(df -g / | awk 'NR==2{print $4}')
+      if (( free_gb < MIN_FREE_GB )); then
+        echo "[stop] ${label}: ${free_gb} GB free, below ${MIN_FREE_GB}"
+        exit 1
+      fi
       log="${OUT}/logs/${label}.log"
       trace="${TMP}/${label}.trace"
       if [[ "${mode}" == timeprofile ]]; then
@@ -96,6 +123,7 @@ for rt in ${RUNTIMES_LIST}; do
       stop_app
       if [[ ! -d "${trace}" ]]; then
         echo "[fail] ${label}: no trace"
+        rm_ktraces
         continue
       fi
       if [[ "${mode}" == timeprofile ]]; then
@@ -112,9 +140,15 @@ for rt in ${RUNTIMES_LIST}; do
           | python3 -c 'import json,sys
 for l in sys.stdin: print(json.dumps({"workload": sys.argv[1], **json.loads(l)}))' "${wl}" \
           >> "${OUT}/pmu.jsonl"
+        if [[ "${KEEP_XML}" == 1 ]]; then
+          mkdir -p "${OUT}/xml"
+          gzip -c "${TMP}/${label}.xml" > "${OUT}/xml/${label}.xml.gz"
+        fi
       fi
-      echo "[ok] ${label} $(du -sh "${trace}" | cut -f1)"
+      echo "[ok] ${label} $(du -sh "${trace}" | cut -f1)," \
+        "ktrace $(du -shc "${KTRACE_DIR}"/instruments*.ktrace 2>/dev/null | tail -1 | cut -f1), free $(df -h / | awk 'NR==2{print $4}')"
       rm -rf "${trace}" "${TMP}/${label}.xml"
+      rm_ktraces
     done
   done
 done

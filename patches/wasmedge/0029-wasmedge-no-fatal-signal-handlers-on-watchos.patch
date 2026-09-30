@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matt Hargett <plaztiksyke@gmail.com>
+Date: Sat, 26 Sep 2026 00:00:00 -0700
+Subject: wasmedge no fatal signal handlers on watchos
+
+watchOS terminates an app that installs a handler for SIGSEGV, SIGBUS
+or SIGFPE ("sigaction on fatal signals is not supported"), and every
+execution, instantiation included, constructs a Fault that installs
+them: the first WasmEdge call trapped in libsystem_c. The Apple-mobile
+interpreter checks bounds and division explicitly, so on watchOS the
+handlers become no-ops.
+---
+ lib/system/fault.cpp |   18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/lib/system/fault.cpp b/lib/system/fault.cpp
+--- a/lib/system/fault.cpp
++++ b/lib/system/fault.cpp
+@@ -19,6 +19,10 @@
+ #include "system/winapi.h"
+ #endif
+ 
++#if defined(__APPLE__)
++#include <TargetConditionals.h>
++#endif
++
+ namespace WasmEdge {
+ 
+ namespace {
+@@ -29,13 +33,23 @@
+ 
+ void disableHandler() noexcept;
+ 
+-[[noreturn]] void rethrowSignal(int Signal) {
++[[noreturn, maybe_unused]] void rethrowSignal(int Signal) {
+   disableHandler();
+   std::raise(Signal);
+   std::abort();
+ }
+ 
+-#if defined(SA_SIGINFO)
++#if defined(__APPLE__) && TARGET_OS_WATCH
++
++// watchOS terminates an app that installs a handler for a fatal signal
++// ("sigaction on fatal signals is not supported"). Nothing needs them
++// there: the Apple-mobile interpreter checks memory bounds and integer
++// division explicitly instead of relying on a trap.
++void enableHandler() noexcept {}
++
++void disableHandler() noexcept {}
++
++#elif defined(SA_SIGINFO)
+ void signalHandler(int Signal, siginfo_t *Siginfo, void *) {
+   if (!Fault::areSignalTrapsEnabled()) {
+     rethrowSignal(Signal);

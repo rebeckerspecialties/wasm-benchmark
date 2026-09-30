@@ -1,0 +1,44 @@
+wamr init: ok
+wasm3 init: ok
+wasmedge init: ok
+zwasm init: ok
+wasmz init: ok
+tinywasm init: ok
+pac probe: supported=1 code1=0x437746eb00000000 code2=0x437746eb00000000 code3=0xb16369ea00000000 | nonzero=1 deterministic=1 input_dep=1 low_zero=1
+WORKLOADS filter: (any); RUNTIMES filter: wamr
+[[ WAMR ] fib(30)] result=832040  iter=1  load=7.904ms  min=199.823 median=199.823 p99=199.823 ms  cpu(u/s)=139.88/4.84 ms  rss=45520KB  faults=13  e_share=1.000  ipc=2.74  insns=546557742  cycles=199148816
+[[ WAMR ] fib_tail(100000) [return_call]] result=873876091  iter=308  load=2.768ms  min=0.630 median=0.842 p99=5.414 ms  cpu(u/s)=285.67/7.44 ms  rss=46064KB  faults=40  e_share=1.000  ipc=2.00  insns=775538738  cycles=387279958
+[[ WAMR ] factorial(20)] result=-2102132736  iter=16384  load=7.362ms  min=0.000 median=0.000 p99=0.000 ms  cpu(u/s)=13.83/1.54 ms  rss=46240KB  faults=13  e_share=1.000  ipc=2.12  insns=47575409  cycles=22409273
+[[ WAMR ] sieve(10000)] result=1229  iter=427  load=3.886ms  min=0.436 median=0.581 p99=4.903 ms  cpu(u/s)=288.20/6.53 ms  rss=46288KB  faults=12  e_share=1.000  ipc=2.95  insns=1028743398  cycles=348419816
+[[ WAMR ] crc32(64KB)] result=-1910355869  iter=57  load=7.980ms  min=3.317 median=4.446 p99=7.337 ms  cpu(u/s)=253.60/5.25 ms  rss=46288KB  faults=0  e_share=1.000  ipc=2.45  insns=762120525  cycles=311577584
+[[ WAMR ] matmul simd128 (64×64 f32)] result=48907  iter=63  load=6.894ms  min=2.545 median=3.334 p99=3.875 ms  cpu(u/s)=210.37/2.10 ms  rss=46304KB  faults=2  e_share=1.000  ipc=3.18  insns=826108194  cycles=259868096
+[[ WAMR ] matmul relaxed-simd FMA] result=48907  iter=89  load=5.597ms  min=1.928 median=2.551 p99=3.464 ms  cpu(u/s)=229.05/2.56 ms  rss=46400KB  faults=6  e_share=1.000  ipc=3.08  insns=879851011  cycles=285310773
+[[ WAMR ] convolution 256×256] result=8190685  iter=7  load=7.402ms  min=4.287 median=5.378 p99=6.728 ms  cpu(u/s)=37.27/1.19 ms  rss=46464KB  faults=0  e_share=1.000  ipc=2.56  insns=130762844  cycles=51077712
+[[ WAMR ] bulk_memory (memory.copy/fill)] result=8698902  iter=21  load=3.347ms  min=9.194 median=11.807 p99=18.781 ms  cpu(u/s)=243.16/2.90 ms  rss=46496KB  faults=0  e_share=1.000  ipc=2.57  insns=779216486  cycles=302901690
+[[ WAMR ] call_indirect (200K dispatches)] result=-9175573  iter=9  load=8.301ms  min=20.391 median=21.986 p99=26.058 ms  cpu(u/s)=196.95/2.46 ms  rss=46496KB  faults=0  e_share=1.000  ipc=2.38  insns=577228054  cycles=242505063
+[[ WAMR ] factorial(20) [scalar build]] result=-2102132736  iter=16384  load=7.417ms  min=0.000 median=0.000 p99=0.000 ms  cpu(u/s)=14.91/0.89 ms  rss=46496KB  faults=2  e_share=1.000  ipc=1.82  insns=44616961  cycles=24528929
+[[ WAMR ] sieve(10000) [scalar build]] result=1229  iter=430  load=3.466ms  min=0.463 median=0.624 p99=0.819 ms  cpu(u/s)=267.81/2.55 ms  rss=46496KB  faults=2  e_share=1.000  ipc=2.49  insns=818200788  cycles=328815427
+[[ WAMR ] crc32(64KB) [scalar build]] result=-1910355869  iter=42  load=6.296ms  min=3.421 median=4.606 p99=8.820 ms  cpu(u/s)=183.16/2.96 ms  rss=46496KB  faults=0  e_share=1.000  ipc=2.41  insns=564101761  cycles=234239309
+[[ WAMR ] convolution 256×256 [scalar build]] result=8190685  iter=19  load=10.535ms  min=13.319 median=13.826 p99=14.641 ms  cpu(u/s)=264.19/2.18 ms  rss=46496KB  faults=0  e_share=1.000  ipc=2.06  insns=656673552  cycles=319394537
+[[ WAMR ] bulk_memory (memory.copy/fill) [scalar build]] result=8698902  iter=21  load=6.319ms  min=10.680 median=12.286 p99=13.207 ms  cpu(u/s)=255.05/3.03 ms  rss=46496KB  faults=0  e_share=1.000  ipc=2.52  insns=790890686  cycles=314246403
+[[ WAMR ] xmrsplayer (1024-frame buffer)] result=-383688386  iter=11  load=17.165ms  min=15.375 median=15.622 p99=19.782 ms  cpu(u/s)=173.19/3.35 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.54  insns=536109591  cycles=211482835
+[[ WAMR ] vtable_mono (200K)] result=-318559695  iter=5  load=6.765ms  min=34.257 median=36.983 p99=44.246 ms  cpu(u/s)=176.46/2.70 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.78  insns=614827028  cycles=221316514
+[[ WAMR ] vtable_bi (200K)] result=-208336512  iter=5  load=7.792ms  min=36.598 median=39.863 p99=40.441 ms  cpu(u/s)=195.19/2.32 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.85  insns=684170825  cycles=240320255
+[[ WAMR ] vtable_poly4 (200K)] result=-126115384  iter=4  load=7.046ms  min=46.675 median=47.011 p99=49.361 ms  cpu(u/s)=186.49/2.28 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.49  insns=563024870  cycles=225919910
+[[ WAMR ] vtable_poly6 (200K)] result=579248763  iter=4  load=6.596ms  min=50.385 median=50.907 p99=51.408 ms  cpu(u/s)=202.86/1.82 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.36  insns=579202858  cycles=245102377
+[[ WAMR ] graphql-validation (AS)] result=5  iter=22  load=30.075ms  min=7.370 median=9.293 p99=36.857 ms  cpu(u/s)=201.02/3.22 ms  rss=61776KB  faults=0  e_share=1.000  ipc=1.89  insns=474353856  cycles=250915296
+[[ WAMR ] tail-call FSM (65536 return_call)] result=-1841735369  iter=24  load=8.231ms  min=10.323 median=10.601 p99=11.352 ms  cpu(u/s)=256.07/2.06 ms  rss=61776KB  faults=0  e_share=1.000  ipc=3.41  insns=1056454866  cycles=309581559
+[[ WAMR ] EH parser, exnref (4096 stmts, 25% throw)] ERROR: wasm_runtime_load failed: WASM module load failed: unsupported opcode 1f
+[[ WAMR ] call_ref dispatch (200K, typed table)] ERROR: wasm_runtime_load failed: WASM module load failed: incompatible import type
+[[ WAMR ] call_ref twin: call_indirect (200K)] result=-750120562  iter=7  load=0.089ms  min=21.392 median=21.628 p99=44.570 ms  cpu(u/s)=149.15/1.27 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.47  insns=448256109  cycles=181302571
+[[ WAMR ] relaxed-SIMD int8 dot (64×64×256)] result=-551922832  iter=95  load=7.179ms  min=1.982 median=2.624 p99=4.418 ms  cpu(u/s)=246.21/2.76 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.82  insns=865700034  cycles=306481036
+[[ WAMR ] relaxed-SIMD FMA Horner (16K pts)] result=-1435646925  iter=574  load=6.568ms  min=0.348 median=0.463 p99=1.326 ms  cpu(u/s)=272.19/4.77 ms  rss=61776KB  faults=2  e_share=1.000  ipc=3.02  insns=1053326578  cycles=349154033
+[[ WAMR ] multi-memory transform (3 memories)] ERROR: wasm_runtime_load failed: WASM module load failed: multiple memories
+[[ WAMR ] multi-memory twin: one memory] result=902712413  iter=55  load=8.393ms  min=3.419 median=4.530 p99=5.111 ms  cpu(u/s)=248.98/1.92 ms  rss=61776KB  faults=0  e_share=1.000  ipc=2.66  insns=809907131  cycles=304387333
+[[ WAMR ] extended-const instantiate (2560 globals)] result=-1152068691  iter=422  load=11.744ms  min=0.450 median=0.598 p99=0.791 ms  cpu(u/s)=240.96/16.51 ms  rss=61776KB  faults=422  e_share=1.000  ipc=2.93  insns=920071180  cycles=313669814
+[[ WAMR ] extended-const twin: MVP consts] result=-1152068691  iter=2038  load=3.596ms  min=0.089 median=0.128 p99=0.182 ms  cpu(u/s)=216.05/74.05 ms  rss=61776KB  faults=2040  e_share=1.000  ipc=2.74  insns=973193800  cycles=355247217
+No comparable workloads yet (need at least one workload completed on ≥2 runtimes).
+BENCH_DONE
+Launched application with com.rebeckerspecialties.wasmbench.watchkitapp bundle identifier.
+Waiting for the application to terminate...
+App terminated due to signal 15.

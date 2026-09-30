@@ -33,9 +33,8 @@
 Launch_*
 
 # --- graphql-validation built artifacts ---
-# The .wat (~458 MB), linked .component.wasm (~29 MB), node_modules, and
-# the porffor-tests harness are reproducible from
-# workloads/graphql-validation/{assemblyscript,porffor}/.
+# The .wat (~458 MB), linked .component.wasm (~29 MB) and node_modules are
+# build outputs; porffor-tests/ is left over from the retired Porffor port.
 /workloads/graphql-validation/decomposed/
 /workloads/graphql-validation/graphql-validation.component.wasm
 /workloads/graphql-validation/driver.bundle.mjs

@@ -129,35 +129,34 @@ extern "C" {
     fn WasmEdge_ValueGenI32(val: i32) -> WasmEdgeValue;
     fn WasmEdge_ValueGetI32(val: WasmEdgeValue) -> i32;
 
-    // Host-function registration surface — used to stub the Porffor
-    // `("", "b")` host print so graphql-validation-Porffor can load.
-    fn WasmEdge_ValTypeGenF64() -> WasmEdgeValType;
+    // Host-function registration surface (the femtovg E2E's imports).
+    #[cfg(feature = "femtovg-e2e")]
     fn WasmEdge_FunctionTypeCreate(
         param_list: *const WasmEdgeValType,
         param_len: u32,
         return_list: *const WasmEdgeValType,
         return_len: u32,
     ) -> *mut WasmEdgeFunctionTypeContext;
+    #[cfg(feature = "femtovg-e2e")]
     fn WasmEdge_FunctionTypeDelete(cxt: *mut WasmEdgeFunctionTypeContext);
+    #[cfg(feature = "femtovg-e2e")]
     fn WasmEdge_FunctionInstanceCreate(
         ty: *const WasmEdgeFunctionTypeContext,
         host_func: WasmEdgeHostFunc,
         data: *mut c_void,
         cost: u64,
     ) -> *mut WasmEdgeFunctionInstanceContext;
+    #[cfg(feature = "femtovg-e2e")]
     fn WasmEdge_ModuleInstanceCreate(
         module_name: WasmEdgeString,
     ) -> *mut WasmEdgeModuleInstanceContext;
     fn WasmEdge_ModuleInstanceDelete(cxt: *mut WasmEdgeModuleInstanceContext);
+    #[cfg(feature = "femtovg-e2e")]
     fn WasmEdge_ModuleInstanceAddFunction(
         cxt: *mut WasmEdgeModuleInstanceContext,
         name: WasmEdgeString,
         func: *mut WasmEdgeFunctionInstanceContext,
     );
-    fn WasmEdge_VMRegisterModuleFromImport(
-        vm: *mut WasmEdgeVMContext,
-        import_cxt: *const WasmEdgeModuleInstanceContext,
-    ) -> WasmEdgeResult;
     fn WasmEdge_BytesDelete(bytes: WasmEdgeBytes);
 
     // Executor-level API: separate loader / validator / executor / store,
@@ -188,6 +187,7 @@ extern "C" {
         store: *mut WasmEdgeStoreContext,
         ast: *const WasmEdgeASTModuleContext,
     ) -> WasmEdgeResult;
+    #[cfg(feature = "femtovg-e2e")]
     fn WasmEdge_ExecutorRegisterImport(
         cxt: *mut WasmEdgeExecutorContext,
         store: *mut WasmEdgeStoreContext,
@@ -220,16 +220,19 @@ type WasmEdgeExecutorContext = c_void;
 type WasmEdgeASTModuleContext = c_void;
 
 // More opaque types for the host-function path.
+#[cfg(feature = "femtovg-e2e")]
 #[allow(non_camel_case_types)]
 type WasmEdgeFunctionTypeContext = c_void;
 #[allow(non_camel_case_types)]
 type WasmEdgeFunctionInstanceContext = c_void;
 #[allow(non_camel_case_types)]
 type WasmEdgeModuleInstanceContext = c_void;
+#[cfg(feature = "femtovg-e2e")]
 #[allow(non_camel_case_types)]
 type WasmEdgeCallingFrameContext = c_void;
 
 // `WasmEdge_ValType` per wasmedge_value.h: `struct { uint8_t Data[8]; }`.
+#[cfg(feature = "femtovg-e2e")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct WasmEdgeValType {
@@ -239,24 +242,13 @@ struct WasmEdgeValType {
 // `WasmEdge_HostFunc_t` per wasmedge_instance.h: (Data, CallFrameCxt,
 // Params, Returns). The value counts are the function type's; there are no
 // length arguments.
+#[cfg(feature = "femtovg-e2e")]
 type WasmEdgeHostFunc = extern "C" fn(
     data: *mut c_void,
     frame: *const WasmEdgeCallingFrameContext,
     params: *const WasmEdgeValue,
     returns: *mut WasmEdgeValue,
 ) -> WasmEdgeResult;
-
-// The Porffor host-print stub. Signature `(f64) -> ()` — Porffor calls
-// this once per output character. We swallow the byte; only wallclock
-// matters. Returns Ok (Result code 0) unconditionally.
-extern "C" fn wasmedge_porf_b(
-    _data: *mut c_void,
-    _frame: *const WasmEdgeCallingFrameContext,
-    _params: *const WasmEdgeValue,
-    _returns: *mut WasmEdgeValue,
-) -> WasmEdgeResult {
-    WasmEdgeResult { code: 0 }
-}
 
 fn err_from(r: WasmEdgeResult, ctx: &'static str) -> Result<()> {
     if unsafe { WasmEdge_ResultOK(r) } {
@@ -346,9 +338,7 @@ fn run_workload_wasmedge_iters_inner(
     let _conf_g = ConfGuard(conf);
 
     // Enable every wasm proposal the workload set needs. The interpreter
-    // supports all of these out of the box — unlike WAMR, exceptions
-    // + SIMD coexist here, so Porffor's graphql-validation should run
-    // (subject to host-import availability, same as Pulley).
+    // supports all of these out of the box.
     for prop in [
         PROP_MULTI_VALUE,
         PROP_BULK_MEMORY,
@@ -381,52 +371,6 @@ fn run_workload_wasmedge_iters_inner(
     let bytes = unsafe {
         WasmEdge_BytesCreate(bytes_owned.as_ptr(), bytes_owned.len() as u32)
     };
-
-    // Register the Porffor host print stub before loading the module.
-    // Porffor-compiled WAT imports `("", "b")` taking f64 → (). For
-    // every other workload the unused module-instance is harmless;
-    // for Porffor it's the difference between "ImportNotFound" trap
-    // at instantiate time and the module actually running. Mirrors
-    // wamr.rs's `ensure_porf_natives_registered`.
-    //
-    // The function-type + function-instance contexts are owned by the
-    // ModuleInstance after `AddFunction`; the module instance is
-    // owned by the VM after `RegisterModuleFromImport`. We keep the
-    // module-instance handle around in a guard for symmetry but the
-    // VM is responsible for destroying it.
-    let porf_module_name = unsafe {
-        WasmEdge_StringCreateByCString(b"\0".as_ptr() as *const c_char)
-    };
-    let porf_mod = unsafe { WasmEdge_ModuleInstanceCreate(porf_module_name) };
-    unsafe { WasmEdge_StringDelete(porf_module_name) };
-    if porf_mod.is_null() {
-        return Err(anyhow!("WasmEdge_ModuleInstanceCreate(\"\") returned NULL"));
-    }
-    let f64_ty = unsafe { WasmEdge_ValTypeGenF64() };
-    let porf_func_ty = unsafe {
-        WasmEdge_FunctionTypeCreate(&f64_ty, 1, std::ptr::null(), 0)
-    };
-    if porf_func_ty.is_null() {
-        return Err(anyhow!("WasmEdge_FunctionTypeCreate for porf-b returned NULL"));
-    }
-    let porf_func = unsafe {
-        WasmEdge_FunctionInstanceCreate(porf_func_ty, wasmedge_porf_b, std::ptr::null_mut(), 0)
-    };
-    unsafe { WasmEdge_FunctionTypeDelete(porf_func_ty) };
-    if porf_func.is_null() {
-        return Err(anyhow!("WasmEdge_FunctionInstanceCreate for porf-b returned NULL"));
-    }
-    let porf_func_name = unsafe {
-        WasmEdge_StringCreateByCString(b"b\0".as_ptr() as *const c_char)
-    };
-    unsafe { WasmEdge_ModuleInstanceAddFunction(porf_mod, porf_func_name, porf_func) };
-    unsafe { WasmEdge_StringDelete(porf_func_name) };
-    err_from(
-        unsafe { WasmEdge_VMRegisterModuleFromImport(vm, porf_mod) },
-        "VMRegisterModuleFromImport(porf-b)",
-    )?;
-    // After Register, the VM owns the module instance. Do NOT free it
-    // here.
 
     // The loader copies what it keeps, so the BytesCreate copy is freed
     // right after parsing.
@@ -503,31 +447,6 @@ pub fn run_workload_wasmedge(
     run_workload_wasmedge_iters(wasm_bytes, fn_name, arg, 0)
 }
 
-/// Dedicated Porffor-graphql runner. Porffor's `m()` exports
-/// `() → (f64, i32)` (multi-value), so the generic i32→i32 runner
-/// can't call it. This function wires the `("", "b")` host print stub
-/// (same as the inner generic runner does) and then calls `m()` with
-/// the right shape. Mirrors `wamr::run_graphql_validation_porf_wamr`.
-pub fn run_graphql_validation_porf_wasmedge(wasm_bytes: &[u8]) -> Result<RunReport> {
-    // Same arm64_32-apple-watchos short-circuit as the generic runner.
-    #[cfg(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64")))]
-    {
-        let _ = wasm_bytes;
-        return Err(anyhow!(
-            "WasmEdge VMInstantiate SIGTRAPs on arm64_32-apple-watchos"
-        ));
-    }
-    #[cfg(not(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64"))))]
-    {
-        run_graphql_validation_porf_wasmedge_inner(wasm_bytes)
-    }
-}
-
-fn run_graphql_validation_porf_wasmedge_inner(wasm_bytes: &[u8]) -> Result<RunReport> {
-    // m() → (f64, i32): 0 params, 2 returns; the i32 is the result.
-    executor_samples(wasm_bytes, "m", &[], 2, 1, true)
-}
-
 /// `Shape::InstantiateEach` on WasmEdge.
 pub fn run_instantiate_each_wasmedge(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> Result<RunReport> {
     #[cfg(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64")))]
@@ -538,22 +457,14 @@ pub fn run_instantiate_each_wasmedge(wasm_bytes: &[u8], fn_name: &str, arg: i32)
     #[cfg(not(all(target_vendor = "apple", target_os = "watchos", not(target_pointer_width = "64"))))]
     {
         let params = [unsafe { WasmEdge_ValueGenI32(arg) }];
-        executor_samples(wasm_bytes, fn_name, &params, 1, 0, false)
+        executor_samples(wasm_bytes, fn_name, &params)
     }
 }
 
 /// Parse + validate once, then per sample: `ExecutorInstantiate` a fresh
 /// module instance, find `fn_name`, invoke it; the instance is deleted
-/// after the clock stops. With `porf_import` the Porffor `("", "b")`
-/// host print is registered in the store first.
-fn executor_samples(
-    wasm_bytes: &[u8],
-    fn_name: &str,
-    params: &[WasmEdgeValue],
-    n_returns: usize,
-    result_index: usize,
-    porf_import: bool,
-) -> Result<RunReport> {
+/// after the clock stops.
+fn executor_samples(wasm_bytes: &[u8], fn_name: &str, params: &[WasmEdgeValue]) -> Result<RunReport> {
     init()?;
     let load_start = Instant::now();
 
@@ -592,37 +503,6 @@ fn executor_samples(
         return Err(anyhow!("WasmEdge loader/validator/executor/store creation failed"));
     }
 
-    // Host module for the Porffor import. Dropped before the store; either
-    // order is safe, since a WasmEdge module instance unlinks itself from
-    // the stores it is registered in when deleted and a store unlinks its
-    // modules when deleted.
-    let mut _porf_mod = Guard(std::ptr::null_mut(), WasmEdge_ModuleInstanceDelete);
-    if porf_import {
-        let name = unsafe { WasmEdge_StringCreateByCString(b"\0".as_ptr() as *const c_char) };
-        let m = unsafe { WasmEdge_ModuleInstanceCreate(name) };
-        unsafe { WasmEdge_StringDelete(name) };
-        if m.is_null() {
-            return Err(anyhow!("WasmEdge_ModuleInstanceCreate(\"\") returned NULL"));
-        }
-        _porf_mod = Guard(m, WasmEdge_ModuleInstanceDelete);
-        let f64_ty = unsafe { WasmEdge_ValTypeGenF64() };
-        let fty = unsafe { WasmEdge_FunctionTypeCreate(&f64_ty, 1, std::ptr::null(), 0) };
-        let f = unsafe {
-            WasmEdge_FunctionInstanceCreate(fty, wasmedge_porf_b, std::ptr::null_mut(), 0)
-        };
-        unsafe { WasmEdge_FunctionTypeDelete(fty) };
-        if f.is_null() {
-            return Err(anyhow!("WasmEdge_FunctionInstanceCreate for porf-b returned NULL"));
-        }
-        let fname = unsafe { WasmEdge_StringCreateByCString(b"b\0".as_ptr() as *const c_char) };
-        unsafe { WasmEdge_ModuleInstanceAddFunction(m, fname, f) };
-        unsafe { WasmEdge_StringDelete(fname) };
-        err_from(
-            unsafe { WasmEdge_ExecutorRegisterImport(executor.0, store.0, m) },
-            "ExecutorRegisterImport(porf-b)",
-        )?;
-    }
-
     let bytes = unsafe { WasmEdge_BytesCreate(wasm_bytes.as_ptr(), wasm_bytes.len() as u32) };
     let mut ast: *mut WasmEdgeASTModuleContext = std::ptr::null_mut();
     let parsed = unsafe { WasmEdge_LoaderParseFromBytes(loader.0, &mut ast, bytes) };
@@ -654,17 +534,17 @@ fn executor_samples(
         if f.is_null() {
             return Err(anyhow!("export `{fn_name}` not found"));
         }
-        let mut returns = vec![WasmEdgeValue { _bytes: [0u8; 24] }; n_returns];
+        let mut ret = WasmEdgeValue { _bytes: [0u8; 24] };
         err_from(
             unsafe {
                 WasmEdge_ExecutorInvoke(executor.0, f, params.as_ptr(), params.len() as u32,
-                                        returns.as_mut_ptr(), n_returns as u32)
+                                        &mut ret, 1)
             },
             "ExecutorInvoke",
         )?;
         let elapsed = t.elapsed();
         drop(inst);
-        Ok((elapsed, unsafe { WasmEdge_ValueGetI32(returns[result_index]) }))
+        Ok((elapsed, unsafe { WasmEdge_ValueGetI32(ret) }))
     })
 }
 

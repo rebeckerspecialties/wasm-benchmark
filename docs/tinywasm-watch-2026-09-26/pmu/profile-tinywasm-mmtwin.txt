@@ -1,0 +1,125 @@
+busiest thread: WasmBench (0x13afb4)  samples: 7817 (99.9% on E cores)  all threads: 8039
+
+# self time (leaf frame), top 60
+ 24.13%    1886  set<u32>
+ 18.60%    1454  capacity<alloc::alloc::Global>
+  4.93%     385  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10IncLocal32
+  4.91%     384  pop<u32, alloc::alloc::Global>
+  4.36%     341  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted19JumpCmpLocalConst32
+  3.25%     254  index<u32, usize, alloc::alloc::Global>
+  2.94%     230  _RINvMs2_NtNtCs36bxxCEyneN_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localhKj1_lKb0_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromhE4fromEBa_
+  2.70%     211  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted13LoadLocal8U32
+  2.60%     203  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet32
+  2.20%     172  local_get
+  2.09%     163  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalSet32
+  2.05%     160  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpStackConst32
+  1.92%     150  as_ref<alloc::sync::ArcInner<tinywasm_types::WasmFunction>>
+  1.68%     131  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8I32Store
+  1.42%     111  handler_for
+  1.33%     104  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpLocalConst32
+  1.33%     104  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Xor
+  1.19%      93  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7I32Load
+  1.10%      86  rotate_left<u32>
+  0.99%      77  resolve<(u16, u32)>
+  0.97%      76  resolve<(u32, i32, u16)>
+  0.96%      75  exec_binop_32
+  0.95%      74  as_mut_slice<tinywasm::store::memory::instance::MemoryInstance, alloc::alloc::Global>
+  0.93%      73  _RINvMs2_NtNtCs36bxxCEyneN_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb0_KB1v_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  0.73%      57  non_null<alloc::alloc::Global, u32>
+  0.70%      55  mem_addr
+  0.69%      54  len<u32, alloc::alloc::Global>
+  0.69%      54  branch<(), tinywasm::error::Trap>
+  0.67%      52  resolve<tinywasm_types::instructions::CompactMemoryOperand>
+  0.63%      49  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Add
+  0.59%      46  unchecked_shl
+  0.56%      44  exec_mem_load<i32, 4, i32, fn(i32) -> i32>
+  0.54%      42  non_null<alloc::alloc::Global, tinywasm::store::memory::instance::MemoryInstance>
+  0.52%      41  push_copy<u32>
+  0.52%      41  stack_update<tinywasm::interpreter::executor::dispatch_become::{impl#0}::BinOpStackConst32::{closure_env#0}>
+  0.50%      39  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11LoadLocal32
+  0.49%      38  as_slice<u32, alloc::alloc::Global>
+  0.47%      37  resolve<tinywasm_types::instructions::MemoryOperand>
+  0.45%      35  write<u32>
+  0.43%      34  exec_cmp_32
+  0.37%      29  exec_local_set_pop<u32>
+  0.35%      27  exec_mem_store_value<i32, 4>
+  0.28%      22  push_mut<u32, alloc::alloc::Global>
+  0.03%       2  0x248277ec1
+  0.01%       1  0x19207cead
+  0.01%       1  0x19477bf31
+  0.01%       1  0x1948347b1
+  0.01%       1  0x1908c822d
+  0.01%       1  0x190803f41
+  0.01%       1  0x1908c8399
+  0.01%       1  0x248277ae9
+  0.01%       1  0x1b8380821
+  0.01%       1  0x190793bc9
+  0.01%       1  0x24827d845
+  0.01%       1  0x19098f9d9
+  0.01%       1  0x2482b6265
+  0.01%       1  0x24827d795
+  0.01%       1  0x19c6f7fd5
+  0.01%       1  0x248277cd5
+  0.01%       1  _RNvXs4_NtCsdyw0nLoaYso_15tinywasm_parser5visitNtB5_15FunctionBuilderNtNtNtNtCs3IRCKQbPsgg_10wasmparser7readers4core9operators13VisitOperator15visit_local_set
+
+# inclusive (on stack), top 60
+100.00%    7817  0x1908ba90f
+100.00%    7817  0x1bee89fb3
+ 99.99%    7816  0x1bee6fccb
+ 99.81%    7802  specialized static Runner.execute(_:mode:control:post:)
+ 99.81%    7802  _RNvNtCs9bOyQYe3Xd8_14benchmark_core5cases8run_case
+ 99.81%    7802  thunk for @escaping @callee_guaranteed @Sendable () -> ()
+ 99.81%    7802  {closure#0}
+ 99.81%    7802  0x1bee7887b
+ 99.81%    7802  0x1bee836af
+ 99.81%    7802  0x1908bb237
+ 99.81%    7802  bench_run_case
+ 99.81%    7802  _RNvNtCs9bOyQYe3Xd8_14benchmark_core8tinywasm27run_workload_tinywasm_iters
+ 99.81%    7802  static Runner.measure(_:label:)
+ 99.81%    7802  specialized static Runner.measure(_:label:)
+ 99.81%    7802  0x1bee83c8b
+ 99.81%    7802  0x1bee7946f
+ 99.81%    7802  specialized String.withCString<A, B>(_:)
+ 99.80%    7801  measure_calls<benchmark_core::tinywasm::run_workload_tinywasm_iters::{closure_env#1}>
+ 99.77%    7799  _RNvMs_NtCs36bxxCEyneN_8tinywasm4funcINtB4_13FunctionTypedllE4callCs9bOyQYe3Xd8_14benchmark_core
+ 99.77%    7799  call_typed<i32, core::iter::sources::once::Once<tinywasm::reference::value::WasmValue>>
+ 99.69%    7793  {closure#1}
+ 98.72%    7717  _RNvMNtCs36bxxCEyneN_8tinywasm11interpreterNtB2_18InterpreterRuntime4exec
+ 98.72%    7717  run_to_completion
+ 28.62%    2237  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpStackConst32
+ 26.57%    2077  stack_update<tinywasm::interpreter::executor::dispatch_become::{impl#0}::BinOpStackConst32::{closure_env#0}>
+ 24.13%    1886  set<u32>
+ 22.12%    1729  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted17BinOpLocalConst32
+ 20.02%    1565  push<u32>
+ 19.07%    1491  stack_push
+ 19.02%    1487  exec_binop_local_const<u32, true, tinywasm_types::instructions::BinOp>
+ 18.60%    1454  capacity<u32, alloc::alloc::Global>
+ 18.60%    1454  capacity<alloc::alloc::Global>
+ 17.58%    1374  exec_binop_result<u32, true>
+  9.99%     781  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted13LoadLocal8U32
+  9.04%     707  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted19JumpCmpLocalConst32
+  7.29%     570  _RINvMs2_NtNtCs36bxxCEyneN_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_localhKj1_lKb0_KB1v_NvYlINtNtCsrpAx3gGG88_4core7convert4FromhE4fromEBa_
+  6.93%     542  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10IncLocal32
+  4.99%     390  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalSet32
+  4.95%     387  pop<u32>
+  4.95%     387  pop<u32, alloc::alloc::Global>
+  4.93%     385  stack_pop
+  4.58%     358  exec_jump_cmp_local_const32
+  4.55%     356  local_get
+  4.43%     346  index<u32, usize, alloc::alloc::Global>
+  4.35%     340  get<u32>
+  4.31%     337  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted10LocalGet32
+  3.22%     252  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted6I32Xor
+  3.08%     241  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted8I32Store
+  2.71%     212  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted7I32Load
+  2.65%     207  exec
+  2.65%     207  exec_binop_32
+  2.41%     188  _RNvMNtNtNtCs36bxxCEyneN_8tinywasm11interpreter8executor15dispatch_becomeNtB2_10Unbudgeted11LoadLocal32
+  2.30%     180  exec_binary
+  2.21%     173  exec_local_set_pop<u32>
+  1.92%     150  inner<tinywasm_types::WasmFunction, alloc::alloc::Global>
+  1.92%     150  deref<tinywasm_types::WasmFunction, alloc::alloc::Global>
+  1.92%     150  as_ref<alloc::sync::ArcInner<tinywasm_types::WasmFunction>>
+  1.82%     142  _RINvMs2_NtNtCs36bxxCEyneN_8tinywasm11interpreter8executorNtB6_8Executor15exec_load_locallKj4_lKb0_KB1v_INvNtCsrpAx3gGG88_4core7convert8identitylEEBa_
+  1.60%     125  local_update<tinywasm::interpreter::executor::dispatch_become::{impl#0}::IncLocal32::{closure_env#0}>
+  1.55%     121  local_push

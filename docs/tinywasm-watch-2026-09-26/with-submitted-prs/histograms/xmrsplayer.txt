@@ -1,0 +1,96 @@
+play_buffer(0) = -888464520; per call: 5.082 ms, 120613065 instructions, 20087739 cycles, IPC 6.00
+dispatches per call: 2501215; instructions per dispatch: 48.2
+
+ share    cum  op
+ 14.7%  14.7%  LocalGet32
+  8.8%  23.4%  SetLocalConst32
+  5.4%  28.8%  Const32
+  5.2%  34.0%  JumpIfZero32
+  4.2%  38.1%  LoadLocalTee32
+  4.0%  42.1%  LocalTee32
+  3.3%  45.4%  AddLocalConst32
+  3.2%  48.6%  Select32
+  2.7%  51.3%  GlobalSet32
+  2.5%  53.8%  I32Store16
+  2.3%  56.1%  JumpIfNonZero32
+  2.2%  58.3%  LocalSet32
+  2.1%  60.3%  AndLocalConst32
+  1.8%  62.2%  Jump
+  1.8%  64.0%  LoadLocalSet32
+  1.7%  65.7%  BinOpStackConst32
+  1.6%  67.3%  I32LtS
+  1.6%  68.9%  Call
+  1.6%  70.5%  ReturnVoid
+  1.5%  72.1%  BinOpLocalConstSet32
+  1.4%  73.4%  BinOpGlobalConst32
+  1.3%  74.7%  IncLocal32
+  1.3%  76.0%  LoadLocal16U32
+  1.3%  77.3%  IncLocalJump32
+  1.1%  78.4%  AddConst32
+  0.9%  79.3%  I32GtS
+  0.9%  80.2%  I32Extend16S
+  0.9%  81.1%  ShrULocalConst32
+  0.9%  81.9%  BranchTable
+  0.9%  82.8%  BinOpStackLocalTee32
+  0.8%  83.6%  LoadLocal16S32
+  0.8%  84.5%  BinOpStackLocal32
+  0.8%  85.3%  I32Load8U
+  0.8%  86.1%  CmpLocalLocal32
+  0.7%  86.8%  JumpCmpStackConst32
+  0.7%  87.5%  LoadLocal8U32
+  0.6%  88.1%  AndConst32
+  0.6%  88.7%  I32Add
+  0.6%  89.3%  I32Mul
+  0.6%  90.0%  JumpCmpLocalLocal32
+  0.6%  90.6%  LoadLocalTee8U32
+  0.5%  91.1%  LoadLocal32
+  0.5%  91.7%  I32Load
+  0.5%  92.1%  I32Store
+  0.5%  92.6%  LoadLocalTee16S32
+
+ share  pair
+  5.3%  LocalGet32 -> LocalGet32
+  4.5%  SetLocalConst32 -> SetLocalConst32
+  3.1%  LocalGet32 -> Const32
+  2.3%  Const32 -> LocalGet32
+  2.0%  LocalGet32 -> I32Store16
+  1.6%  Const32 -> I32LtS
+  1.6%  Select32 -> LocalSet32
+  1.6%  LoadLocalTee32 -> JumpIfZero32
+  1.6%  LocalGet32 -> Call
+  1.6%  AddLocalConst32 -> LocalGet32
+  1.6%  JumpIfNonZero32 -> SetLocalConst32
+  1.6%  SetLocalConst32 -> AndLocalConst32
+  1.4%  LocalTee32 -> Const32
+  1.4%  AndLocalConst32 -> JumpIfZero32
+  1.4%  JumpIfZero32 -> LocalGet32
+  1.4%  AddLocalConst32 -> GlobalSet32
+  1.4%  BinOpGlobalConst32 -> LocalTee32
+  1.4%  LocalTee32 -> GlobalSet32
+  1.4%  <entry> -> BinOpGlobalConst32
+  1.4%  GlobalSet32 -> ReturnVoid
+  1.4%  GlobalSet32 -> LoadLocalTee32
+  1.3%  JumpIfZero32 -> SetLocalConst32
+  1.3%  IncLocal32 -> IncLocalJump32
+  1.3%  LoadLocal16U32 -> JumpIfZero32
+  1.3%  LoadLocalTee32 -> JumpIfNonZero32
+  1.3%  I32Store16 -> AddLocalConst32
+  1.3%  <entry> -> LoadLocal16U32
+  1.3%  IncLocalJump32 -> AddLocalConst32
+  1.2%  I32LtS -> Select32
+  1.1%  LoadLocalSet32 -> LoadLocalSet32
+  1.1%  JumpIfZero32 -> IncLocal32
+  1.1%  SetLocalConst32 -> Jump
+  1.1%  Jump -> LoadLocalTee32
+  1.0%  Select32 -> LocalTee32
+  0.9%  Const32 -> I32GtS
+  0.9%  I32GtS -> Select32
+  0.9%  LocalGet32 -> I32Extend16S
+  0.8%  AddConst32 -> BinOpStackConst32
+  0.8%  BinOpLocalConstSet32 -> BinOpLocalConstSet32
+  0.7%  I32Store16 -> LocalGet32
+  0.6%  JumpCmpLocalLocal32 -> LoadLocalTee32
+  0.6%  I32Mul -> AddConst32
+  0.6%  LocalSet32 -> Jump
+  0.6%  LoadLocalTee8U32 -> JumpIfZero32
+  0.5%  <entry> -> SetLocalConst32

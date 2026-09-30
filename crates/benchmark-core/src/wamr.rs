@@ -308,128 +308,6 @@ pub fn run_instantiate_each_wamr(wasm_bytes: &[u8], fn_name: &str, arg: i32) -> 
     })
 }
 
-// --- graphql-validation-porf runner --------------------------------
-//
-// Porffor's `m()` export returns `(f64, i32)` (multi-return) and the
-// module imports a host print function `("", "b")` taking an f64.
-// The generic runner above can't handle either, so we have a dedicated
-// runner here. We use WAMR's `call_wasm_v` (variadic) form so we can
-// declare the result-count up front; the return values themselves are
-// discarded (we only care about wallclock).
-//
-// Per-iteration: we destroy and re-instantiate to match Porffor's
-// no-GC memory model (the wasmtime side does the same via fresh
-// `Store` per iter). Module is loaded once.
-
-#[repr(C)]
-struct NativeSymbol {
-    symbol: *const c_char,
-    func_ptr: *mut c_void,
-    signature: *const c_char,
-    attachment: *mut c_void,
-}
-
-extern "C" {
-    fn wasm_runtime_register_natives(
-        module_name: *const c_char,
-        native_symbols: *mut NativeSymbol,
-        n_native_symbols: u32,
-    ) -> bool;
-    fn wasm_runtime_call_wasm_v(
-        exec_env: wasm_exec_env_t,
-        function: wasm_function_inst_t,
-        num_results: u32,
-        results: *mut WasmVal,
-        num_args: u32,
-        ...
-    ) -> bool;
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-union WasmValPayload {
-    i32_: i32,
-    i64_: i64,
-    f32_: f32,
-    f64_: f64,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct WasmVal {
-    kind: u32, // WASM_I32=0, WASM_I64=1, WASM_F32=2, WASM_F64=3
-    _pad: u32,
-    payload: WasmValPayload,
-}
-
-extern "C" fn porf_b_native(_exec_env: wasm_exec_env_t, _ch: f64) {
-    // Stubbed host print — Porffor calls this per character to write
-    // its `validate: errors=N` line. We swallow the output; only the
-    // wallclock per validation matters.
-}
-
-static REGISTER_ONCE: Once = Once::new();
-
-fn ensure_porf_natives_registered() {
-    REGISTER_ONCE.call_once(|| {
-        // These must outlive every module load — WAMR's
-        // wasm_runtime_register_natives stores the NativeSymbol array
-        // pointer in a global linked list and dereferences it later
-        // at module-load time. If we pass a stack-local array, the
-        // pointer dangles after this function returns. So leak both
-        // the strings AND the symbol array.
-        let module = std::ffi::CString::new("").unwrap().into_raw() as *const c_char;
-        let symbol = std::ffi::CString::new("b").unwrap().into_raw() as *const c_char;
-        let signature = std::ffi::CString::new("(F)").unwrap().into_raw() as *const c_char;
-        let sym_box = Box::new(NativeSymbol {
-            symbol,
-            func_ptr: porf_b_native as *mut c_void,
-            signature,
-            attachment: std::ptr::null_mut(),
-        });
-        let sym_ptr: *mut NativeSymbol = Box::leak(sym_box);
-        let _ok = unsafe { wasm_runtime_register_natives(module, sym_ptr, 1) };
-    });
-}
-
-pub fn run_graphql_validation_porf_wamr(wasm_bytes: &[u8]) -> Result<RunReport> {
-    ensure_init()?;
-    ensure_porf_natives_registered();
-
-    let load_start = Instant::now();
-    let mut bytes_owned = wasm_bytes.to_vec();
-    struct ModGuard(wasm_module_t);
-    impl Drop for ModGuard {
-        fn drop(&mut self) {
-            unsafe { wasm_runtime_unload(self.0) };
-        }
-    }
-    let module = ModGuard(load_module(&mut bytes_owned)?);
-    let cname_m = std::ffi::CString::new("m")?;
-    let load_time = load_start.elapsed();
-
-    // Timed unit: instantiate + m() on a fresh instance, as on every
-    // runtime (Porffor never frees). 1 MiB operand stack: Porffor compiles
-    // JS to deeply recursive wasm with no inlining, and 8 KiB / 64 KiB
-    // stacks overflow mid-validation with "wasm operand stack overflow".
-    // 4 MiB app heap because Porffor allocates without GC.
-    crate::measure_samples(load_time, || {
-        // `m()` returns (f64, i32): 2 results, 0 args, via the variadic
-        // call form.
-        let mut results: [WasmVal; 2] =
-            [WasmVal { kind: 0, _pad: 0, payload: WasmValPayload { i64_: 0 } }; 2];
-        let res_ptr = results.as_mut_ptr();
-        instantiate_sample(
-            module.0,
-            &cname_m,
-            1024 * 1024,
-            4 * 1024 * 1024,
-            |env, func| unsafe { wasm_runtime_call_wasm_v(env, func, 2, res_ptr, 0) },
-            || unsafe { (*res_ptr.add(1)).payload.i32_ },
-        )
-    })
-}
-
 // --- femtovg E2E guest binding -------------------------------------------
 
 #[cfg(feature = "femtovg-e2e")]
@@ -437,7 +315,20 @@ mod femtovg_binding {
     use super::*;
     use crate::femtovg_e2e as e2e;
 
+    #[repr(C)]
+    struct NativeSymbol {
+        symbol: *const c_char,
+        func_ptr: *mut c_void,
+        signature: *const c_char,
+        attachment: *mut c_void,
+    }
+
     extern "C" {
+        fn wasm_runtime_register_natives(
+            module_name: *const c_char,
+            native_symbols: *mut NativeSymbol,
+            n_native_symbols: u32,
+        ) -> bool;
         fn wasm_runtime_get_module_inst(exec_env: wasm_exec_env_t) -> wasm_module_inst_t;
         fn wasm_runtime_validate_app_addr(inst: wasm_module_inst_t, app_offset: u64, size: u64) -> bool;
         fn wasm_runtime_addr_app_to_native(inst: wasm_module_inst_t, app_offset: u64) -> *mut c_void;

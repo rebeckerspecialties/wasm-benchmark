@@ -15,7 +15,7 @@
 set -uo pipefail
 
 UDID="${UDID:-B5D4CA48-8949-525C-8E5D-4F661161BD9D}"
-BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
+BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench}"
 COND="${COND:?need COND=baseline|fusion}"
 OUTDIR="${OUTDIR:?need OUTDIR}"
 N="${N:-10}"

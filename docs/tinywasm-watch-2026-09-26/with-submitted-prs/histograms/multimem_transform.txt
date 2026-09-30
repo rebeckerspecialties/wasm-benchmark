@@ -1,0 +1,34 @@
+multimem_transform(7) = 902712413; per call: 1.895 ms, 60104225 instructions, 7555385 cycles, IPC 7.96
+dispatches per call: 1245190; instructions per dispatch: 48.3
+
+ share    cum  op
+ 15.8%  15.8%  BinOpStackConst32
+ 10.5%  26.3%  LocalGet32
+ 10.5%  36.8%  BinOpLocalConst32
+ 10.5%  47.4%  IncLocal32
+ 10.5%  57.9%  JumpCmpLocalConst32
+ 10.5%  68.4%  LocalSet32
+  5.3%  73.7%  I32Add
+  5.3%  78.9%  I32Load
+  5.3%  84.2%  I32Store
+  5.3%  89.5%  I32Xor
+  5.3%  94.7%  LoadLocal32
+  5.3% 100.0%  LoadLocal8U32
+  0.0% 100.0%  GlobalGet32
+  0.0% 100.0%  JumpIfNonZero32
+
+ share  pair
+ 10.5%  IncLocal32 -> JumpCmpLocalConst32
+  5.3%  BinOpLocalConst32 -> LoadLocal32
+  5.3%  BinOpLocalConst32 -> LocalGet32
+  5.3%  BinOpStackConst32 -> BinOpStackConst32
+  5.3%  BinOpStackConst32 -> LocalSet32
+  5.3%  BinOpStackConst32 -> I32Load
+  5.3%  LoadLocal32 -> I32Add
+  5.3%  LoadLocal8U32 -> BinOpStackConst32
+  5.3%  JumpCmpLocalConst32 -> LocalGet32
+  5.3%  LocalGet32 -> LoadLocal8U32
+  5.3%  LocalGet32 -> I32Store
+  5.3%  LocalSet32 -> IncLocal32
+  5.3%  LocalSet32 -> BinOpLocalConst32
+  5.3%  I32Load -> I32Xor

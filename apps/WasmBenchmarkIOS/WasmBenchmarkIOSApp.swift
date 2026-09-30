@@ -2,9 +2,12 @@ import SwiftUI
 
 @main
 struct WasmBenchmarkIOSApp: App {
+    @State private var session = BenchmarkSession()
+
     var body: some Scene {
         WindowGroup {
-            BenchmarkContentView()
+            RootView()
+                .environment(session)
         }
     }
 }

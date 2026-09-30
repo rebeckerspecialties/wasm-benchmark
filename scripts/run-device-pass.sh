@@ -22,10 +22,10 @@
 #                                scene's footprint peak is its own
 #   FEMTOVG_FRAMES=121 FEMTOVG_PASSES=2
 #   UDID=00008020-001C292A2190003A (iPhone XS Max)  DEVICE_NAME=iphonexs
-#   BUNDLE=com.rebeckerspecialties.wasmbench.ios
+#   BUNDLE=com.rebeckerspecialties.wasmbench
 #   MAX_WAIT_SECS=2400           per launch
 #   SPLIT_RUNTIMES="zwasm"       runtimes whose heavy rows each get a launch
-#   HEAVY_ROWS="xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm"
+#   HEAVY_ROWS="xmrsplayer;extended-const instantiate;extended-const twin;memory64;tail-call fsm"
 #                                ';'-separated label substrings. On the iPhone
 #                                zwasm's footprint reaches ~1.3 GB during
 #                                xmrsplayer and the next heavy row gets the
@@ -44,10 +44,10 @@ WORKLOADS="${WORKLOADS:-}"
 E2E="${E2E:-}"
 UDID="${UDID:-00008020-001C292A2190003A}"
 DEVICE_NAME="${DEVICE_NAME:-iphonexs}"
-BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench.ios}"
+BUNDLE="${BUNDLE:-com.rebeckerspecialties.wasmbench}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-2400}"
 SPLIT_RUNTIMES=" ${SPLIT_RUNTIMES-zwasm} "
-HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;graphql-validation (porffor);extended-const instantiate;extended-const twin;memory64;tail-call fsm}"
+HEAVY_ROWS="${HEAVY_ROWS:-xmrsplayer;extended-const instantiate;extended-const twin;memory64;tail-call fsm}"
 if [[ -n "${E2E}" ]]; then MARKER="FEMTOVG_E2E done"; else MARKER="BENCH_DONE"; fi
 mkdir -p "${OUT}"
 

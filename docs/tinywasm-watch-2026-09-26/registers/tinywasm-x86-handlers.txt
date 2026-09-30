@@ -1,0 +1,5 @@
+tinywasm perf/frameless-handlers (763e7b0), no-default-features + nightly-tail-calls, release lib (no LTO), nightly-2026-07-05
+x86_64-unknown-linux-gnu 615 handlers; pushes per handler: {0: 313, 1: 105, 2: 40, 3: 43, 4: 53, 5: 22, 6: 21, 7: 18}; handlers with a call: 255
+x86_64-pc-windows-msvc 615 handlers; pushes per handler: {0: 64, 1: 77, 2: 191, 3: 95, 4: 88, 5: 24, 6: 25, 7: 25, 8: 26}; handlers that write the Instruction argument to the stack: 614; handlers with a call: 255
+aarch64-apple-darwin, same build (default profile): 407 of 629 frameless
+I32Add: SysV 19 instructions, no push; Win64 push rsi, push rdi, mov [rsp+56], r9 (next Instruction), pop rdi, pop rsi
